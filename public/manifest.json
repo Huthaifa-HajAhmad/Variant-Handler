@@ -16,7 +16,8 @@
     "*://*.ncbi.nlm.nih.gov/*",
     "*://mutalyzer.nl/*",
     "*://variantvalidator.org/*",
-    "*://myvariant.info/*"
+    "*://myvariant.info/*",
+    "*://rest.ensembl.org/*"
   ],
   "action": {
     "default_title": "Open Variant Handler",
@@ -38,7 +39,7 @@
     "default_path": "index.html"
   },
   "content_security_policy": {
-    "extension_pages": "script-src 'self'; object-src 'none'; connect-src https://myvariant.info;"
+    "extension_pages": "script-src 'self'; object-src 'none'; connect-src https://myvariant.info https://rest.ensembl.org;"
   },
   "commands": {
     "_execute_action": {
