@@ -8,3 +8,4 @@ coverage/
 !.env.example
 doc/LIMITATIONS.md
 .playwright-mcp/
+*.zip
