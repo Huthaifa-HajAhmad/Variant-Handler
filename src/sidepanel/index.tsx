@@ -59,6 +59,7 @@ export default function SidepanelView() {
   // ── Local state ─────────────────────────────────────────────────────────
   const [activeInput,    setActiveInput]    = useState('NM_000492.4:c.1521_1523delCTT');
   const [microNote,      setMicroNote]      = useState('');
+  const [isStorageLoaded, setIsStorageLoaded] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [copiedId,       setCopiedId]       = useState<string | null>(null);
   const [alertMsg,       setAlertMsg]       = useState('');
@@ -172,13 +173,31 @@ useEffect(() => {
 
   useEffect(() => {
     if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local) {
+      chrome.storage.local.get('variantstream_active_input').then((data) => {
+        if (data.variantstream_active_input) {
+          setActiveInput(data.variantstream_active_input);
+        }
+        setIsStorageLoaded(true);
+      }).catch((err) => {
+        console.warn('[VariantHandler] Failed to load active variant from chrome storage:', err);
+        setIsStorageLoaded(true);
+      });
+    } else {
+      setIsStorageLoaded(true);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!isStorageLoaded) return;
+    if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local) {
       chrome.storage.local.set({ variantstream_active_input: activeInput }).catch((err) => {
         console.warn('[VariantHandler] Failed to sync active variant to chrome storage:', err);
       });
     }
-  }, [activeInput]);
+  }, [activeInput, isStorageLoaded]);
 
   useEffect(() => {
+    if (!isStorageLoaded) return;
     if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local) {
       chrome.storage.local.set({ 
         variantstream_active_gene: enrichment?.geneSymbol ?? parsed.geneSymbol ?? null 
@@ -186,9 +205,10 @@ useEffect(() => {
         console.warn('[VariantHandler] Failed to sync active gene to chrome storage:', err);
       });
     }
-  }, [enrichment?.geneSymbol, parsed.geneSymbol]);
+  }, [enrichment?.geneSymbol, parsed.geneSymbol, isStorageLoaded]);
 
   useEffect(() => {
+    if (!isStorageLoaded) return;
     if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local) {
       chrome.storage.local.set({ 
         variantstream_active_protein: enrichment?.proteinChange ?? parsed.proteinChange ?? null 
@@ -196,7 +216,7 @@ useEffect(() => {
         console.warn('[VariantHandler] Failed to sync active protein to chrome storage:', err);
       });
     }
-  }, [enrichment?.proteinChange, parsed.proteinChange]);
+  }, [enrichment?.proteinChange, parsed.proteinChange, isStorageLoaded]);
 
   // ── Keyboard shortcuts ───────────────────────────────────────────────────
   useKeyboardShortcuts({
@@ -268,6 +288,14 @@ useEffect(() => {
   };
 
   const isLight = activeTheme.isLight;
+
+  if (!isStorageLoaded) {
+    return (
+      <div className={`w-full h-screen ${activeTheme.primaryBg} flex items-center justify-center`}>
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-500"></div>
+      </div>
+    );
+  }
 
   return (
     <div

@@ -247,7 +247,7 @@ function findSearchInput(): HTMLInputElement | null {
     if (el) return el;
   }
   if (hostname.includes('genome.ucsc.edu')) {
-    const el = findVisibleInput('input[name="position"]');
+    const el = (document.getElementById('positionInput') as HTMLInputElement | null) || findVisibleInput('input[name="position"]');
     if (el) return el;
   }
   if (hostname.includes('spliceailookup.broadinstitute.org')) {
