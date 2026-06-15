@@ -1,0 +1,22 @@
+# Normalize line endings: all text files use LF on all platforms
+# FIX LOW-5: variantUtils.ts and other files had inconsistent CRLF endings
+* text=auto eol=lf
+
+# TypeScript / JavaScript sources
+*.ts  text eol=lf
+*.tsx text eol=lf
+*.js  text eol=lf
+*.jsx text eol=lf
+
+# Config files
+*.json    text eol=lf
+*.md      text eol=lf
+*.css     text eol=lf
+*.html    text eol=lf
+*.gitattributes text eol=lf
+
+# Binary assets — do not convert
+*.png binary
+*.jpg binary
+*.ico binary
+*.woff2 binary

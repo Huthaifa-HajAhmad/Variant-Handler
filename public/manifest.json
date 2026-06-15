@@ -1,0 +1,68 @@
+{
+  "manifest_version": 3,
+  "name": "Variant Handler",
+  "version": "1.1.0",
+  "description": "Stateful sidebar companion for rare disease genomic coordinate parsing and navigation.",
+  "permissions": [
+    "sidePanel",
+    "storage",
+    "clipboardRead"
+  ],
+  "host_permissions": [
+    "*://gnomad.broadinstitute.org/*",
+    "*://genome.ucsc.edu/*",
+    "*://spliceailookup.broadinstitute.org/*",
+    "*://alphamissense.hegelab.org/*",
+    "*://*.ncbi.nlm.nih.gov/*",
+    "*://mutalyzer.nl/*",
+    "*://variantvalidator.org/*",
+    "*://api.myvariant.info/*"
+  ],
+  "action": {
+    "default_title": "Open Variant Handler",
+    "default_icon": {
+      "16": "assets/icon16.png",
+      "48": "assets/icon48.png",
+      "128": "assets/icon128.png"
+    }
+  },
+  "icons": {
+    "16": "assets/icon16.png",
+    "48": "assets/icon48.png",
+    "128": "assets/icon128.png"
+  },
+  "background": {
+    "service_worker": "assets/background.js"
+  },
+  "side_panel": {
+    "default_path": "index.html"
+  },
+  "content_security_policy": {
+    "extension_pages": "script-src 'self'; object-src 'none'; connect-src https://api.myvariant.info;"
+  },
+  "commands": {
+    "_execute_action": {
+      "suggested_key": {
+        "default": "Alt+V",
+        "mac": "Alt+V"
+      },
+      "description": "Open Variant Handler Side Panel"
+    }
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "*://gnomad.broadinstitute.org/*",
+        "*://genome.ucsc.edu/*",
+        "*://spliceailookup.broadinstitute.org/*",
+        "*://alphamissense.hegelab.org/*",
+        "*://*.ncbi.nlm.nih.gov/*",
+        "*://mutalyzer.nl/*",
+        "*://variantvalidator.org/*"
+      ],
+      "js": [
+        "assets/content.js"
+      ]
+    }
+  ]
+}
