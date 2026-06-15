@@ -657,21 +657,15 @@ function injectButton(inputEl: HTMLInputElement, allowedTypes: ('variant' | 'gen
   let targetAnchor: HTMLElement = inputEl;
 
   if (isUCSC) {
-    const parent = inputEl.parentNode as HTMLElement | null;
-    const form = inputEl.form;
-    const selector = '#gbtGoButton, #hgtGoButton, input[type="submit"], button, input[type="button"], input[value="Search" i], input[value="go" i]';
-    
-    let searchBtn = parent?.querySelector(selector) as HTMLElement | null;
-    if (!searchBtn && form) {
-      searchBtn = form.querySelector(selector) as HTMLElement | null;
+    // Only look for the two well-known UCSC "go" button IDs.
+    // Using broad selectors (button, input[type="submit"]) hits navigation
+    // arrows elsewhere in the CGI form and breaks placement.
+    const goBtn = document.getElementById('hgtGoButton') || document.getElementById('gbtGoButton');
+    if (goBtn) {
+      targetAnchor = goBtn as HTMLElement;
     }
-    if (!searchBtn && parent?.parentNode) {
-      searchBtn = (parent.parentNode as HTMLElement).querySelector(selector) as HTMLElement | null;
-    }
-    
-    if (searchBtn) {
-      targetAnchor = searchBtn;
-    }
+    // If neither button ID exists, targetAnchor stays as inputEl, placing the
+    // autofill container right after the search field — still correct.
   }
 
   if (targetAnchor.nextSibling) {
