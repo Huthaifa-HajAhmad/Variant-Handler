@@ -459,7 +459,7 @@ function injectButton(inputEl: HTMLInputElement, allowedTypes: ('variant' | 'gen
   const btnHeight = isBlockInput ? 28 : (inputEl.offsetHeight > 20 ? inputEl.offsetHeight : 36);
 
   btnContainer.style.cssText = `
-    display: flex;
+    display: ${isBlockInput ? 'flex' : 'inline-flex'};
     align-items: center;
     position: ${isBlockInput ? 'absolute' : 'static'};
     margin-left: ${isBlockInput ? '0px' : '8px'};
@@ -561,14 +561,26 @@ function injectButton(inputEl: HTMLInputElement, allowedTypes: ('variant' | 'gen
       const currentInputEl = inputEl;
       if (!currentInputEl) return;
 
-      const nativeSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')?.set;
-      if (nativeSetter) {
-        nativeSetter.call(currentInputEl, formatted);
-      } else {
+      const isUCSC = window.location.hostname.includes('genome.ucsc.edu');
+      if (isUCSC) {
+        currentInputEl.focus();
         currentInputEl.value = formatted;
+        currentInputEl.dispatchEvent(new Event('input', { bubbles: true }));
+        currentInputEl.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true }));
+        currentInputEl.dispatchEvent(new KeyboardEvent('keypress', { bubbles: true }));
+        currentInputEl.dispatchEvent(new KeyboardEvent('keyup', { bubbles: true }));
+        currentInputEl.dispatchEvent(new Event('change', { bubbles: true }));
+        currentInputEl.blur();
+      } else {
+        const nativeSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')?.set;
+        if (nativeSetter) {
+          nativeSetter.call(currentInputEl, formatted);
+        } else {
+          currentInputEl.value = formatted;
+        }
+        currentInputEl.dispatchEvent(new Event('input', { bubbles: true }));
+        currentInputEl.dispatchEvent(new Event('change', { bubbles: true }));
       }
-      currentInputEl.dispatchEvent(new Event('input', { bubbles: true }));
-      currentInputEl.dispatchEvent(new Event('change', { bubbles: true }));
 
       const originalHtml = btn.innerHTML;
       btn.innerHTML = `Injected!`;
@@ -591,14 +603,26 @@ function injectButton(inputEl: HTMLInputElement, allowedTypes: ('variant' | 'gen
     const currentInputEl = inputEl;
     if (!currentInputEl) return;
 
-    const nativeSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')?.set;
-    if (nativeSetter) {
-      nativeSetter.call(currentInputEl, geneSymbol);
-    } else {
+    const isUCSC = window.location.hostname.includes('genome.ucsc.edu');
+    if (isUCSC) {
+      currentInputEl.focus();
       currentInputEl.value = geneSymbol;
+      currentInputEl.dispatchEvent(new Event('input', { bubbles: true }));
+      currentInputEl.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true }));
+      currentInputEl.dispatchEvent(new KeyboardEvent('keypress', { bubbles: true }));
+      currentInputEl.dispatchEvent(new KeyboardEvent('keyup', { bubbles: true }));
+      currentInputEl.dispatchEvent(new Event('change', { bubbles: true }));
+      currentInputEl.blur();
+    } else {
+      const nativeSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')?.set;
+      if (nativeSetter) {
+        nativeSetter.call(currentInputEl, geneSymbol);
+      } else {
+        currentInputEl.value = geneSymbol;
+      }
+      currentInputEl.dispatchEvent(new Event('input', { bubbles: true }));
+      currentInputEl.dispatchEvent(new Event('change', { bubbles: true }));
     }
-    currentInputEl.dispatchEvent(new Event('input', { bubbles: true }));
-    currentInputEl.dispatchEvent(new Event('change', { bubbles: true }));
 
     const originalHtml = btnGene.innerHTML;
     btnGene.innerHTML = `Injected!`;
@@ -627,10 +651,31 @@ function injectButton(inputEl: HTMLInputElement, allowedTypes: ('variant' | 'gen
     btnContainer.appendChild(btnFind);
   }
 
-  if (inputEl.nextSibling) {
-    inputEl.parentNode?.insertBefore(btnContainer, inputEl.nextSibling);
+  const isUCSC = window.location.hostname.includes('genome.ucsc.edu');
+  let targetAnchor: HTMLElement = inputEl;
+
+  if (isUCSC) {
+    const parent = inputEl.parentNode as HTMLElement | null;
+    const form = inputEl.form;
+    const selector = '#gbtGoButton, #hgtGoButton, input[name*="positionInput"], input[type="submit"], button, input[type="button"], input[value="Search" i], input[value="go" i]';
+    
+    let searchBtn = parent?.querySelector(selector) as HTMLElement | null;
+    if (!searchBtn && form) {
+      searchBtn = form.querySelector(selector) as HTMLElement | null;
+    }
+    if (!searchBtn && parent?.parentNode) {
+      searchBtn = (parent.parentNode as HTMLElement).querySelector(selector) as HTMLElement | null;
+    }
+    
+    if (searchBtn) {
+      targetAnchor = searchBtn;
+    }
+  }
+
+  if (targetAnchor.nextSibling) {
+    targetAnchor.parentNode?.insertBefore(btnContainer, targetAnchor.nextSibling);
   } else {
-    inputEl.parentNode?.appendChild(btnContainer);
+    targetAnchor.parentNode?.appendChild(btnContainer);
   }
 
   const updateInputPadding = () => {

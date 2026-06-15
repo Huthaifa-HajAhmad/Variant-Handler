@@ -381,52 +381,107 @@ export function useVariantEnrichment(
     setError(null);
 
     try {
-      let url: string;
+      let activeQueryKey = queryKey;
+      let mappedPos = '';
       const genomicMatch = queryKey.match(/^chr(2[0-2]|1[0-9]|[1-9]|X|Y|MT|M):g\.([0-9]+)([ACGTN\-]+)>([ACGTN\-]+)$/i);
 
-      if (genomicMatch) {
+      if (genomicMatch && parsed.genomeBuild === 'GRCh38') {
         const chrom = genomicMatch[1];
         const pos = genomicMatch[2];
         const ref = genomicMatch[3];
         const alt = genomicMatch[4];
-        const q = `chrom:${chrom} AND (pos:${pos} OR clinvar.hg38.start:${pos} OR hg38.start:${pos}) AND (ref:${ref} OR clinvar.ref:${ref}) AND (alt:${alt} OR clinvar.alt:${alt})`;
-        url = `https://myvariant.info/v1/query?q=${encodeURIComponent(q)}&fields=${FIELDS}&size=1`;
-      } else {
-        url = `${API_BASE}/${encodeURIComponent(queryKey)}?fields=${FIELDS}`;
+        
+        try {
+          const mapUrl = `https://rest.ensembl.org/map/human/GRCh38/${chrom}:${pos}..${pos}/GRCh37?content-type=application/json`;
+          let mapData: any;
+          if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.sendMessage) {
+            const response = await new Promise<{ success: boolean; data?: any; error?: string }>((resolve) => {
+              chrome.runtime.sendMessage({ type: 'FETCH_VARIANT_ENRICHMENT', url: mapUrl }, (res) => {
+                const err = chrome.runtime.lastError;
+                if (err) resolve({ success: false, error: err.message });
+                else resolve(res || { success: false, error: 'No response' });
+              });
+            });
+            if (response.success) mapData = response.data;
+          } else {
+            const res = await fetch(mapUrl, { signal: abortRef.current.signal });
+            if (res.ok) mapData = await res.json();
+          }
+          
+          if (mapData && Array.isArray(mapData.mappings) && mapData.mappings.length > 0) {
+            const mappedStart = mapData.mappings[0].mapped?.start;
+            if (mappedStart) {
+              mappedPos = String(mappedStart);
+              activeQueryKey = `chr${chrom}:g.${mappedStart}${ref}>${alt}`;
+              
+              // Check mapped cache
+              const cachedMapped = memoryCache.get(activeQueryKey);
+              if (cachedMapped) {
+                setEnrichment(cachedMapped);
+                setIsLoading(false);
+                return;
+              }
+            }
+          }
+        } catch (e) {
+          console.warn('[VariantHandler] Liftover failed:', e);
+        }
       }
 
+      // First try direct lookup by ID (extremely robust for GRCh37 or successfully mapped GRCh38)
+      const url = `${API_BASE}/${encodeURIComponent(activeQueryKey)}?fields=${FIELDS}`;
       let data: any;
 
-      if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.sendMessage) {
-        const response = await new Promise<{ success: boolean; data?: any; error?: string }>((resolve) => {
-          chrome.runtime.sendMessage({ type: 'FETCH_VARIANT_ENRICHMENT', url }, (res) => {
-            const err = chrome.runtime.lastError;
-            if (err) {
-              resolve({ success: false, error: err.message });
-            } else {
-              resolve(res || { success: false, error: 'No response from background worker' });
-            }
+      const performFetch = async (targetUrl: string) => {
+        if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.sendMessage) {
+          const response = await new Promise<{ success: boolean; data?: any; error?: string }>((resolve) => {
+            chrome.runtime.sendMessage({ type: 'FETCH_VARIANT_ENRICHMENT', url: targetUrl }, (res) => {
+              const err = chrome.runtime.lastError;
+              if (err) {
+                resolve({ success: false, error: err.message });
+              } else {
+                resolve(res || { success: false, error: 'No response from background worker' });
+              }
+            });
           });
-        });
-
-        if (!response.success) {
-          throw new Error(response.error || 'Failed to fetch variant enrichment');
-        }
-        data = response.data;
-      } else {
-        const res = await fetch(url, {
-          signal: abortRef.current.signal,
-          headers: { Accept: 'application/json' },
-        });
-
-        if (!res.ok) {
-          if (res.status === 404) {
-            data = { notfound: true };
-          } else {
-            throw new Error(`API error ${res.status}: ${res.statusText}`);
+          if (!response.success) {
+            throw new Error(response.error || 'Failed to fetch variant enrichment');
           }
+          return response.data;
         } else {
-          data = await res.json();
+          const res = await fetch(targetUrl, {
+            signal: abortRef.current.signal,
+            headers: { Accept: 'application/json' },
+          });
+          if (!res.ok) {
+            if (res.status === 404) {
+              return { notfound: true };
+            } else {
+              throw new Error(`API error ${res.status}: ${res.statusText}`);
+            }
+          }
+          return await res.json();
+        }
+      };
+
+      data = await performFetch(url);
+
+      // If direct ID lookup returned notfound or error, fall back to genomic search query (if it was a genomic match)
+      if ((!data || data.notfound || data.error) && genomicMatch) {
+        const chrom = genomicMatch[1];
+        const pos = genomicMatch[2];
+        const ref = genomicMatch[3];
+        const alt = genomicMatch[4];
+        const q = `chrom:${chrom} AND (pos:${pos} OR clinvar.hg38.start:${pos} OR hg38.start:${pos} OR clinvar.hg19.start:${pos} OR hg19.start:${pos}) AND (ref:${ref} OR clinvar.ref:${ref}) AND (alt:${alt} OR clinvar.alt:${alt})`;
+        const queryUrl = `https://myvariant.info/v1/query?q=${encodeURIComponent(q)}&fields=${FIELDS}&size=1`;
+        
+        try {
+          const fallbackData = await performFetch(queryUrl);
+          if (fallbackData && Array.isArray(fallbackData.hits) && fallbackData.hits.length > 0) {
+            data = fallbackData.hits[0];
+          }
+        } catch (err) {
+          console.warn('[VariantHandler] Fallback genomic search query failed:', err);
         }
       }
 
@@ -438,10 +493,13 @@ export function useVariantEnrichment(
         }
       }
 
-      const enrichmentData = parseApiResponse(data, queryKey);
+      const enrichmentData = parseApiResponse(data, activeQueryKey);
 
       // Store in both cache layers
       memoryCache.set(queryKey, enrichmentData);
+      if (activeQueryKey !== queryKey) {
+        memoryCache.set(activeQueryKey, enrichmentData);
+      }
       savePersistentCache(memoryCache);
 
       setEnrichment(enrichmentData);
