@@ -597,3 +597,29 @@ describe('buildPlatformUrl — URL construction', () => {
     expect(buildPlatformUrl(r, variantvalidator)).not.toBeNull();
   });
 });
+
+// ── Additional Fixes & Additions (Sprint 3) ──────────────────────────────────
+
+describe('Sprint 3: genomic deletion parsing and gene symbol extraction', () => {
+  it('parses deletion coordinate ranges without alleles correctly', () => {
+    const r = parseVariant('Chr9(GRCh38):g.38068458_38068460del');
+    expect(r.isValid).toBe(true);
+    expect(r.type).toBe('genomic');
+    expect(r.chromosome).toBe('9');
+    expect(r.position).toBe('38068458');
+    expect(r.endPosition).toBe('38068460');
+    expect(r.genomeBuild).toBe('GRCh38');
+    expect(r.ref).toBeUndefined();
+    expect(r.alt).toBeUndefined();
+  });
+
+  it('extracts geneSymbol from transcript map lookup', () => {
+    const r = parseVariant('NM_000277.3:c.1222C>T');
+    expect(r.geneSymbol).toBe('PAH');
+  });
+
+  it('extracts geneSymbol via free text search of known gene names', () => {
+    const r = parseVariant('PAH p.Arg408Trp');
+    expect(r.geneSymbol).toBe('PAH');
+  });
+});

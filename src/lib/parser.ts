@@ -19,7 +19,7 @@
 
 import { normaliseAlleles } from '../utils/normalize';
 import { GenomeBuild, DEFAULT_BUILD, detectGenomeBuild, ucscDb, gnomadDataset, spliceAiAssembly } from '../utils/genomeBuild';
-import { lookupGeneSymbol } from './geneSymbols';
+import { lookupGeneSymbol, TRANSCRIPT_TO_GENE } from './geneSymbols';
 
 export type { GenomeBuild };
 
@@ -37,6 +37,8 @@ export interface ParsedVariant {
   proteinChange?: string;
   /** Genome build detected in the raw input string, if present. */
   genomeBuild?: GenomeBuild;
+  /** Resolved HGNC gene symbol if available. */
+  geneSymbol?: string;
   diagnostics?: string[];
 }
 
@@ -244,10 +246,23 @@ export function parseVariant(input: string): ParsedVariant {
     diagnostics.push('Validation failed: string did not conform to any known variant format.');
   }
 
+  let geneSymbol = transcript ? (lookupGeneSymbol(transcript) ?? undefined) : undefined;
+  if (!geneSymbol) {
+    const upperRaw = raw.toUpperCase();
+    const foundGene = Object.values(TRANSCRIPT_TO_GENE).find(g => {
+      const regex = new RegExp(`\\b${g}\\b`, 'i');
+      return regex.test(upperRaw);
+    });
+    if (foundGene) {
+      geneSymbol = foundGene;
+    }
+  }
+
   return {
     raw, isValid, type, chromosome, position, endPosition, ref, alt,
     transcript, codingChange, proteinChange,
     genomeBuild: genomeBuild,
+    geneSymbol,
     diagnostics,
   };
 }
