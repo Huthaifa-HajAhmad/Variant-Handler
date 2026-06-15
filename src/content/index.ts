@@ -563,15 +563,30 @@ function injectButton(inputEl: HTMLInputElement, allowedTypes: ('variant' | 'gen
 
       const isUCSC = window.location.hostname.includes('genome.ucsc.edu');
       if (isUCSC) {
-        const related = document.querySelectorAll('input[name="position"], input[name="hgt.positionInput"], #positionInput');
-        related.forEach((el) => {
-          const input = el as HTMLInputElement;
-          input.focus();
-          input.value = formatted;
-          input.dispatchEvent(new Event('input', { bubbles: true }));
-          input.dispatchEvent(new Event('change', { bubbles: true }));
-          input.blur();
-        });
+        // Target only the one visible position input by its known ID.
+        // Using querySelectorAll across name variants can match hidden inputs
+        // which trigger UCSC's reset/validation logic and wipe the field.
+        const posInput = document.getElementById('positionInput') as HTMLInputElement | null
+          || document.querySelector('input[name="hgt.positionInput"]') as HTMLInputElement | null;
+        if (posInput) {
+          // Use the native setter to bypass React / framework value overrides.
+          const nativeSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')?.set;
+          if (nativeSetter) {
+            nativeSetter.call(posInput, formatted);
+          } else {
+            posInput.value = formatted;
+          }
+          posInput.dispatchEvent(new Event('input', { bubbles: true }));
+          posInput.dispatchEvent(new Event('change', { bubbles: true }));
+        }
+        // After filling, submit the form so UCSC actually searches.
+        const goBtn = (document.getElementById('hgtGoButton') || document.getElementById('gbtGoButton')) as HTMLInputElement | null;
+        if (goBtn) {
+          setTimeout(() => goBtn.click(), 80);
+        } else if (posInput?.form) {
+          setTimeout(() => posInput!.form!.submit(), 80);
+        }
+
       } else {
         const nativeSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')?.set;
         if (nativeSetter) {
@@ -657,21 +672,35 @@ function injectButton(inputEl: HTMLInputElement, allowedTypes: ('variant' | 'gen
   let targetAnchor: HTMLElement = inputEl;
 
   if (isUCSC) {
-    // Only look for the two well-known UCSC "go" button IDs.
-    // Using broad selectors (button, input[type="submit"]) hits navigation
-    // arrows elsewhere in the CGI form and breaks placement.
-    const goBtn = document.getElementById('hgtGoButton') || document.getElementById('gbtGoButton');
-    if (goBtn) {
-      targetAnchor = goBtn as HTMLElement;
-    }
-    // If neither button ID exists, targetAnchor stays as inputEl, placing the
-    // autofill container right after the search field — still correct.
-  }
+    // UCSC uses an HTML <table> layout. Inserting an inline element inside the
+    // same <td> as the input or go button causes visual overlap. Instead, walk
+    // up from the input to find its <tr> and append a new <td> for our button.
+    let trEl: HTMLElement | null = inputEl.parentElement;
+    while (trEl && trEl.tagName !== 'TR') trEl = trEl.parentElement;
 
-  if (targetAnchor.nextSibling) {
-    targetAnchor.parentNode?.insertBefore(btnContainer, targetAnchor.nextSibling);
+    if (trEl) {
+      const td = document.createElement('td');
+      td.style.cssText = 'vertical-align: middle; white-space: nowrap; padding-left: 6px;';
+      td.appendChild(btnContainer);
+      trEl.appendChild(td);
+      // Skip the generic insertion below — already inserted.
+    } else {
+      // Fallback: anchor after a known go-button ID if the TR walk failed
+      const goBtn = document.getElementById('hgtGoButton') || document.getElementById('gbtGoButton');
+      if (goBtn) targetAnchor = goBtn as HTMLElement;
+      if (targetAnchor.nextSibling) {
+        targetAnchor.parentNode?.insertBefore(btnContainer, targetAnchor.nextSibling);
+      } else {
+        targetAnchor.parentNode?.appendChild(btnContainer);
+      }
+    }
   } else {
-    targetAnchor.parentNode?.appendChild(btnContainer);
+    // Non-UCSC: use the standard inline insertion after targetAnchor
+    if (targetAnchor.nextSibling) {
+      targetAnchor.parentNode?.insertBefore(btnContainer, targetAnchor.nextSibling);
+    } else {
+      targetAnchor.parentNode?.appendChild(btnContainer);
+    }
   }
 
   const updateInputPadding = () => {

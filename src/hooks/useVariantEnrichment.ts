@@ -302,9 +302,18 @@ function parseApiResponse(data: any, queryKey: string): EnrichmentData {
   const clinvarReview: string | undefined =
     typeof rcv?.review_status === 'string' ? rcv.review_status : undefined;
 
-  // Gene symbol (from CADD annotation)
-  const geneSymbol: string | undefined =
-    typeof data?.cadd?.gene?.genename === 'string' ? data.cadd.gene.genename : undefined;
+  // Gene symbol (from CADD annotation — may be a string, or an array of
+  // { genename: string } objects for intergenic / multi-gene hits)
+  const caddGene = data?.cadd?.gene;
+  const geneSymbol: string | undefined = (() => {
+    if (!caddGene) return undefined;
+    if (typeof caddGene.genename === 'string') return caddGene.genename;
+    if (Array.isArray(caddGene)) {
+      const first = caddGene.find((g: any) => typeof g?.genename === 'string');
+      return first?.genename;
+    }
+    return undefined;
+  })();
 
   // HGVSg string (first in array if present)
   const hgvsGenomicRaw = data?.hgvs?.genomic;
