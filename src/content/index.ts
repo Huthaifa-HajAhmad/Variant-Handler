@@ -20,6 +20,46 @@
  */
 import { parseVariant, INITIAL_PLATFORMS, ParsedVariant } from '../lib/parser';
 
+// ── Context validation helpers ────────────────────────────────────────────────
+
+let observer: MutationObserver | null = null;
+let intervalId: ReturnType<typeof setInterval> | null = null;
+let debounceTimer: ReturnType<typeof setTimeout> | null = null;
+
+function isContextValid(): boolean {
+  try {
+    return typeof chrome !== 'undefined' && !!chrome.runtime && !!chrome.runtime.id;
+  } catch {
+    return false;
+  }
+}
+
+function handleInvalidatedContext(): void {
+  if (observer) {
+    observer.disconnect();
+    observer = null;
+  }
+  if (intervalId) {
+    clearInterval(intervalId);
+    intervalId = null;
+  }
+  if (debounceTimer) {
+    clearTimeout(debounceTimer);
+    debounceTimer = null;
+  }
+
+  // Clean up injected elements
+  const containers = document.querySelectorAll('.vh-injection-container-class');
+  containers.forEach((el) => el.remove());
+
+  const inputs = document.querySelectorAll('[data-vh-injected]');
+  inputs.forEach((el) => {
+    (el as HTMLElement).removeAttribute('data-vh-injected');
+  });
+
+  console.log('[Variant Handler] Extension invalidated/reloaded. Content script cleaned up.');
+}
+
 console.log('[Variant Handler] Content script active on', window.location.hostname);
 
 // ── Notification helper (replaces alert()) ───────────────────────────────────
@@ -109,6 +149,9 @@ function getFormattedVariant(parsed: ParsedVariant, format: string): string {
       // Build the most specific search string available, falling back to a
       // clean coordinate range or stripped raw input.
       if (chrom && pos && ref && alt) {
+        if (window.location.hostname.includes('ncbi.nlm.nih.gov')) {
+          return `${chrom}-${pos}-${ref}-${alt}`;
+        }
         return `chr${chrom}:g.${pos}${ref}>${alt}`;
       }
       if (parsed.transcript && parsed.codingChange) {
@@ -142,6 +185,57 @@ function findVisibleInput(selector: string): HTMLInputElement | null {
 }
 
 /**
+ * Helper to find the input associated with a given label element.
+ */
+function findAssociatedInput(labelEl: HTMLElement): HTMLInputElement | null {
+  if (labelEl.tagName === 'LABEL') {
+    const forId = labelEl.getAttribute('for');
+    if (forId) {
+      const input = document.getElementById(forId) as HTMLInputElement | null;
+      if (input) return input;
+    }
+  }
+  
+  const nested = labelEl.querySelector('input');
+  if (nested) return nested as HTMLInputElement;
+  
+  let parent = labelEl.parentElement;
+  while (parent) {
+    const input = parent.querySelector('input[type="text"], input[type="search"]');
+    if (input) return input as HTMLInputElement;
+    parent = parent.parentElement;
+  }
+  
+  return null;
+}
+
+/**
+ * Searches the page for labels 'Variant', 'Gene', and 'Genomic Location' to isolate ClinVar search fields.
+ */
+function findClinVarInputs(): { variant?: HTMLInputElement, gene?: HTMLInputElement, location?: HTMLInputElement } {
+  const inputs: { variant?: HTMLInputElement, gene?: HTMLInputElement, location?: HTMLInputElement } = {};
+  const elements = Array.from(document.querySelectorAll('label, span, div, legend')) as HTMLElement[];
+  
+  for (const el of elements) {
+    const text = (el.textContent ?? '').trim();
+    if (text.length > 40) continue; // Skip long descriptions
+
+    if (/^(Variant|Variant\s*ID|Variant\s*Name|Allele|Variant\s*Description|HGVS)\s*:?\s*\??$/i.test(text)) {
+      const input = findAssociatedInput(el);
+      if (input) inputs.variant = input;
+    } else if (/^(Gene|Gene\s*Symbol|Gene\s*Name|Gene\(s\))\s*:?\s*\??$/i.test(text)) {
+      const input = findAssociatedInput(el);
+      if (input) inputs.gene = input;
+    } else if (/^(Genomic\s*Location|Location|Coordinates|Genomic\s*Coordinates)\s*:?\s*\??$/i.test(text)) {
+      const input = findAssociatedInput(el);
+      if (input) inputs.location = input;
+    }
+  }
+  
+  return inputs;
+}
+
+/**
  * Finds the most relevant input field on the page.
  */
 function findSearchInput(): HTMLInputElement | null {
@@ -149,17 +243,21 @@ function findSearchInput(): HTMLInputElement | null {
 
   // Domain-specific overrides
   if (hostname.includes('gnomad.broadinstitute.org')) {
-    return findVisibleInput('input[placeholder*="Search"]');
+    const el = findVisibleInput('input[placeholder*="Search"]');
+    if (el) return el;
   }
   if (hostname.includes('genome.ucsc.edu')) {
-    return findVisibleInput('input[name="position"]');
+    const el = findVisibleInput('input[name="position"]');
+    if (el) return el;
   }
   if (hostname.includes('spliceailookup.broadinstitute.org')) {
-    return findVisibleInput('input[id="search-box"]');
+    const el = findVisibleInput('input[id="search-box"]');
+    if (el) return el;
   }
   if (hostname.includes('alphamissense.hegelab.org')) {
     // Both search input and results page have search_input or identifier
-    return findVisibleInput('input[id="search_input"]') || findVisibleInput('input[id="identifier"]');
+    const el = findVisibleInput('input[id="search_input"]') || findVisibleInput('input[id="identifier"]');
+    if (el) return el;
   }
   if (hostname.includes('ncbi.nlm.nih.gov')) {
     const selectors = [
@@ -175,7 +273,6 @@ function findSearchInput(): HTMLInputElement | null {
       const el = findVisibleInput(selector);
       if (el) return el;
     }
-    return null;
   }
 
   // Generic heuristic
@@ -288,76 +385,113 @@ function findAndHighlightProteinChange(proteinChange: string): boolean {
  * Helper to update injection button visibilities and text dynamically.
  */
 function updateVisibility(
-  btn: HTMLButtonElement,
-  btnGene: HTMLButtonElement,
-  btnFind: HTMLButtonElement,
-  rawInput: string
+  btn: HTMLButtonElement | null,
+  btnGene: HTMLButtonElement | null,
+  btnFind: HTMLButtonElement | null,
+  rawInput: string,
+  liveGeneSymbol?: string,
+  liveProteinChange?: string
 ) {
   const parsed = parseVariant(rawInput);
+  const geneSymbol = liveGeneSymbol || parsed.geneSymbol;
+  const proteinChange = liveProteinChange || parsed.proteinChange;
   const hostname = window.location.hostname;
-  
-  btn.style.display = 'inline-flex';
   
   const isClinVar = hostname.includes('ncbi.nlm.nih.gov');
   const isAlphaMissense = hostname.includes('alphamissense.hegelab.org');
 
-  if (parsed.geneSymbol && (isClinVar || isAlphaMissense)) {
-    btnGene.style.display = 'inline-flex';
-    btnGene.innerHTML = `
-      <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="margin-right: 4px;"><circle cx="12" cy="12" r="10"/><path d="M12 8v8"/><path d="M8 12h8"/></svg>
-      Autofill Gene (${parsed.geneSymbol})
-    `;
-    btnGene.dataset.gene = parsed.geneSymbol;
-  } else {
-    btnGene.style.display = 'none';
+  if (btn) {
+    if (isAlphaMissense) {
+      btn.style.display = 'none';
+    } else {
+      btn.style.display = 'inline-flex';
+    }
+  }
+
+  if (btnGene) {
+    if (geneSymbol && (isClinVar || isAlphaMissense)) {
+      btnGene.style.display = 'inline-flex';
+      btnGene.innerHTML = `
+        <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="margin-right: 4px;"><circle cx="12" cy="12" r="10"/><path d="M12 8v8"/><path d="M8 12h8"/></svg>
+        Autofill Gene (${geneSymbol})
+      `;
+      btnGene.dataset.gene = geneSymbol;
+    } else {
+      btnGene.style.display = 'none';
+    }
   }
   
-  const hasTable = document.querySelector('table') !== null;
-  if (parsed.proteinChange && hasTable && isAlphaMissense) {
-    btnFind.style.display = 'inline-flex';
-    btnFind.innerHTML = `
-      <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="margin-right: 4px;"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-      Find ${parsed.proteinChange}
-    `;
-    btnFind.dataset.protein = parsed.proteinChange;
-  } else {
-    btnFind.style.display = 'none';
+  if (btnFind) {
+    const hasTable = document.querySelector('table') !== null;
+    if (proteinChange && hasTable && isAlphaMissense) {
+      btnFind.style.display = 'inline-flex';
+      btnFind.innerHTML = `
+        <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="margin-right: 4px;"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+        Find ${proteinChange}
+      `;
+      btnFind.dataset.protein = proteinChange;
+    } else {
+      btnFind.style.display = 'none';
+    }
   }
 }
 
 /**
  * Injects the trigger button near the input element.
  */
-function injectButton(inputEl: HTMLInputElement) {
+function injectButton(inputEl: HTMLInputElement, allowedTypes: ('variant' | 'gene' | 'find')[] = ['variant', 'gene', 'find']) {
   if (inputEl.dataset.vhInjected) return;
   inputEl.dataset.vhInjected = 'true';
 
   const btnContainer = document.createElement('div');
-  const inputHeight = inputEl.offsetHeight > 20 ? `${inputEl.offsetHeight}px` : '36px';
+  const isBlockInput = window.getComputedStyle(inputEl).display === 'block' || inputEl.offsetWidth > 400 || window.location.hostname.includes('alphamissense.hegelab.org');
+
+  if (isBlockInput) {
+    const parent = inputEl.parentNode;
+    if (parent) {
+      const parentStyle = window.getComputedStyle(parent as Element);
+      if (parentStyle.position === 'static') {
+        (parent as HTMLElement).style.position = 'relative';
+      }
+    }
+  }
+
+  const btnHeight = isBlockInput ? 28 : (inputEl.offsetHeight > 20 ? inputEl.offsetHeight : 36);
 
   btnContainer.style.cssText = `
-    display: inline-flex;
+    display: flex;
     align-items: center;
-    margin-left: 8px;
+    position: ${isBlockInput ? 'absolute' : 'static'};
+    margin-left: ${isBlockInput ? '0px' : '8px'};
     vertical-align: middle;
     transition: opacity 0.3s ease;
     opacity: 0;
     pointer-events: none;
     z-index: 1000;
-    height: ${inputHeight};
+    height: ${btnHeight}px;
     gap: 6px;
   `;
-  btnContainer.id = 'vh-injection-container';
+  btnContainer.className = 'vh-injection-container-class';
+
+  const updatePosition = () => {
+    if (!isBlockInput) return;
+    const parent = inputEl.parentNode as HTMLElement | null;
+    if (!parent) return;
+    const topOffset = inputEl.offsetTop + (inputEl.offsetHeight - btnHeight) / 2;
+    const rightOffset = parent.offsetWidth - (inputEl.offsetLeft + inputEl.offsetWidth) + 12;
+    btnContainer.style.top = `${topOffset}px`;
+    btnContainer.style.right = `${rightOffset}px`;
+  };
 
   // Helper styles for buttons
   const baseBtnStyle = `
     display: inline-flex;
     align-items: center;
-    padding: 0 12px;
-    height: 100%;
+    padding: 0 10px;
+    height: ${isBlockInput ? '28px' : '100%'};
     color: white;
     border: none;
-    border-radius: 8px;
+    border-radius: 6px;
     font-size: 11px;
     font-weight: 600;
     cursor: pointer;
@@ -369,7 +503,7 @@ function injectButton(inputEl: HTMLInputElement) {
 
   // 1. Autofill Variant button
   const btn = document.createElement('button');
-  btn.id = 'vh-btn-autofill';
+  btn.className = 'vh-btn-autofill-class';
   btn.innerHTML = `
     <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="margin-right: 4px;"><path d="M12 2v20"/><path d="m4.9 4.9 14.2 14.2"/><path d="m4.9 19.1 14.2-14.2"/></svg>
     Autofill Variant
@@ -381,7 +515,7 @@ function injectButton(inputEl: HTMLInputElement) {
 
   // 2. Autofill Gene button
   const btnGene = document.createElement('button');
-  btnGene.id = 'vh-btn-autofill-gene';
+  btnGene.className = 'vh-btn-autofill-gene-class';
   btnGene.innerHTML = `
     <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="margin-right: 4px;"><circle cx="12" cy="12" r="10"/><path d="M12 8v8"/><path d="M8 12h8"/></svg>
     Autofill Gene
@@ -393,7 +527,7 @@ function injectButton(inputEl: HTMLInputElement) {
 
   // 3. Find Variant button
   const btnFind = document.createElement('button');
-  btnFind.id = 'vh-btn-find-variant';
+  btnFind.className = 'vh-btn-find-variant-class';
   btnFind.innerHTML = `
     <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="margin-right: 4px;"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
     Find Variant
@@ -406,7 +540,11 @@ function injectButton(inputEl: HTMLInputElement) {
   // Setup click handlers
   btn.addEventListener('click', async (e) => {
     e.preventDefault(); e.stopPropagation();
-    if (typeof chrome === 'undefined' || !chrome.storage) return;
+    if (!isContextValid()) {
+      handleInvalidatedContext();
+      showNotification('Extension was reloaded. Please refresh the page.', true);
+      return;
+    }
 
     try {
       const data = await chrome.storage.local.get('variantstream_active_input');
@@ -417,10 +555,10 @@ function injectButton(inputEl: HTMLInputElement) {
       }
 
       const parsed = parseVariant(rawInput);
-      const adapter = INITIAL_PLATFORMS.find(p => window.location.hostname.includes(p.domain));
+      const adapter = INITIAL_PLATFORMS.find(p => (window.location.hostname + window.location.pathname).includes(p.domain));
       const formatted = adapter ? getFormattedVariant(parsed, adapter.requiredFormat) : rawInput;
 
-      const currentInputEl = findSearchInput();
+      const currentInputEl = inputEl;
       if (!currentInputEl) return;
 
       const nativeSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')?.set;
@@ -440,6 +578,7 @@ function injectButton(inputEl: HTMLInputElement) {
         btn.style.background = 'linear-gradient(135deg, #4f46e5, #10b981)';
       }, 2000);
     } catch (err) {
+      console.error('[VariantHandler] Injection failed:', err);
       showNotification('Injection failed.', true);
     }
   });
@@ -449,7 +588,7 @@ function injectButton(inputEl: HTMLInputElement) {
     const geneSymbol = btnGene.dataset.gene;
     if (!geneSymbol) return;
 
-    const currentInputEl = findSearchInput();
+    const currentInputEl = inputEl;
     if (!currentInputEl) return;
 
     const nativeSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')?.set;
@@ -478,9 +617,15 @@ function injectButton(inputEl: HTMLInputElement) {
     }
   });
 
-  btnContainer.appendChild(btn);
-  btnContainer.appendChild(btnGene);
-  btnContainer.appendChild(btnFind);
+  if (allowedTypes.includes('variant')) {
+    btnContainer.appendChild(btn);
+  }
+  if (allowedTypes.includes('gene')) {
+    btnContainer.appendChild(btnGene);
+  }
+  if (allowedTypes.includes('find')) {
+    btnContainer.appendChild(btnFind);
+  }
 
   if (inputEl.nextSibling) {
     inputEl.parentNode?.insertBefore(btnContainer, inputEl.nextSibling);
@@ -488,21 +633,45 @@ function injectButton(inputEl: HTMLInputElement) {
     inputEl.parentNode?.appendChild(btnContainer);
   }
 
-  const updateButtonsVisibility = (rawInput: string) => {
-    updateVisibility(btn, btnGene, btnFind, rawInput);
+  const updateInputPadding = () => {
+    if (!isBlockInput) return;
+    let visibleWidth = 0;
+    if (btn && btn.style.display !== 'none') visibleWidth += 115;
+    if (btnGene && btnGene.style.display !== 'none') visibleWidth += 105;
+    if (btnFind && btnFind.style.display !== 'none') visibleWidth += 105;
+    if (visibleWidth > 0) {
+      inputEl.style.paddingRight = `${visibleWidth + 20}px`;
+    } else {
+      inputEl.style.paddingRight = '';
+    }
+  };
+
+  const updateButtonsVisibility = (rawInput: string, liveGeneSymbol?: string, liveProteinChange?: string) => {
+    updateVisibility(btn, btnGene, btnFind, rawInput, liveGeneSymbol, liveProteinChange);
+    updateInputPadding();
   };
 
   const checkPanelState = async () => {
-    if (typeof chrome !== 'undefined' && chrome.storage) {
-      const data = await chrome.storage.local.get(['variantHandlerPanelOpen', 'variantstream_active_input']);
+    if (!isContextValid()) {
+      handleInvalidatedContext();
+      return;
+    }
+    try {
+      const data = await chrome.storage.local.get(['variantHandlerPanelOpen', 'variantstream_active_input', 'variantstream_active_gene', 'variantstream_active_protein']);
       if (data.variantHandlerPanelOpen && data.variantstream_active_input) {
         btnContainer.style.opacity = '1';
         btnContainer.style.pointerEvents = 'auto';
-        updateButtonsVisibility(data.variantstream_active_input);
+        updatePosition();
+        updateButtonsVisibility(data.variantstream_active_input, data.variantstream_active_gene, data.variantstream_active_protein);
       } else {
         btnContainer.style.opacity = '0';
         btnContainer.style.pointerEvents = 'none';
+        if (isBlockInput) {
+          inputEl.style.paddingRight = '';
+        }
       }
+    } catch (err) {
+      handleInvalidatedContext();
     }
   };
 
@@ -510,10 +679,124 @@ function injectButton(inputEl: HTMLInputElement) {
 
   if (typeof chrome !== 'undefined' && chrome.storage) {
     chrome.storage.onChanged.addListener((changes, area) => {
-      if (area === 'local') {
-        if (changes.variantHandlerPanelOpen || changes.variantstream_active_input) {
-          checkPanelState();
+      if (!isContextValid()) {
+        handleInvalidatedContext();
+        return;
+      }
+      try {
+        if (area === 'local') {
+          if (changes.variantHandlerPanelOpen || changes.variantstream_active_input || changes.variantstream_active_gene || changes.variantstream_active_protein) {
+            checkPanelState();
+          }
         }
+      } catch (err) {
+        handleInvalidatedContext();
+      }
+    });
+  }
+}
+
+/**
+ * Injects the "Find [Variant]" helper next to the results table on AlphaMissense page.
+ */
+function injectAlphaMissenseTableHelper(tableEl: HTMLTableElement) {
+  if (tableEl.dataset.vhInjected) return;
+  tableEl.dataset.vhInjected = 'true';
+
+  const btnContainer = document.createElement('div');
+  btnContainer.className = 'vh-injection-container-class vh-table-container-class';
+  btnContainer.style.cssText = `
+    display: inline-flex;
+    align-items: center;
+    margin-bottom: 16px;
+    margin-top: 8px;
+    transition: opacity 0.3s ease;
+    opacity: 0;
+    pointer-events: none;
+    z-index: 1000;
+    gap: 8px;
+  `;
+
+  const baseBtnStyle = `
+    display: inline-flex;
+    align-items: center;
+    padding: 0 12px;
+    height: 36px;
+    color: white;
+    border: none;
+    border-radius: 8px;
+    font-size: 11px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+    font-family: system-ui, -apple-system, sans-serif;
+    white-space: nowrap;
+    box-sizing: border-box;
+  `;
+
+  // Find Variant button
+  const btnFind = document.createElement('button');
+  btnFind.className = 'vh-btn-find-variant-class';
+  btnFind.title = 'Locate and highlight this variant in the results table';
+  btnFind.style.cssText = baseBtnStyle + 'background: linear-gradient(135deg, #f59e0b, #ec4899); box-shadow: 0 2px 4px rgba(236, 72, 153, 0.2);';
+  btnFind.onmouseover = () => { btnFind.style.transform = 'translateY(-1px)'; btnFind.style.boxShadow = '0 4px 6px rgba(236, 72, 153, 0.3)'; };
+  btnFind.onmouseout = () => { btnFind.style.transform = 'none'; btnFind.style.boxShadow = '0 2px 4px rgba(236, 72, 153, 0.2)'; };
+
+  btnFind.addEventListener('click', (e) => {
+    e.preventDefault(); e.stopPropagation();
+    const proteinChange = btnFind.dataset.protein;
+    if (proteinChange) {
+      findAndHighlightProteinChange(proteinChange);
+    }
+  });
+
+  btnContainer.appendChild(btnFind);
+
+  // Insert before the table
+  if (tableEl.parentNode) {
+    tableEl.parentNode.insertBefore(btnContainer, tableEl);
+  }
+
+  const updateButtonsVisibility = (rawInput: string, liveGeneSymbol?: string, liveProteinChange?: string) => {
+    updateVisibility(null, null, btnFind, rawInput, liveGeneSymbol, liveProteinChange);
+  };
+
+  const checkPanelState = async () => {
+    if (!isContextValid()) {
+      handleInvalidatedContext();
+      return;
+    }
+    try {
+      const data = await chrome.storage.local.get(['variantHandlerPanelOpen', 'variantstream_active_input', 'variantstream_active_gene', 'variantstream_active_protein']);
+      if (data.variantHandlerPanelOpen && data.variantstream_active_input) {
+        btnContainer.style.opacity = '1';
+        btnContainer.style.pointerEvents = 'auto';
+        updateButtonsVisibility(data.variantstream_active_input, data.variantstream_active_gene, data.variantstream_active_protein);
+      } else {
+        btnContainer.style.opacity = '0';
+        btnContainer.style.pointerEvents = 'none';
+      }
+    } catch (err) {
+      handleInvalidatedContext();
+    }
+  };
+
+  checkPanelState();
+
+  if (typeof chrome !== 'undefined' && chrome.storage) {
+    chrome.storage.onChanged.addListener((changes, area) => {
+      if (!isContextValid()) {
+        handleInvalidatedContext();
+        return;
+      }
+      try {
+        if (area === 'local') {
+          if (changes.variantHandlerPanelOpen || changes.variantstream_active_input || changes.variantstream_active_gene || changes.variantstream_active_protein) {
+            checkPanelState();
+          }
+        }
+      } catch (err) {
+        handleInvalidatedContext();
       }
     });
   }
@@ -526,22 +809,59 @@ function injectButton(inputEl: HTMLInputElement) {
  * Returns true if injection succeeded (used to stop the observer).
  */
 function init(): boolean {
-  const input = findSearchInput();
-  if (input) {
-    injectButton(input);
+  const hostname = window.location.hostname;
+  const isClinVar = hostname.includes('ncbi.nlm.nih.gov');
+  const isAlphaMissense = hostname.includes('alphamissense.hegelab.org');
+  
+  let injectedAny = false;
 
-    // If already injected, update visibility based on latest state
-    const container = document.getElementById('vh-injection-container');
-    if (container && typeof chrome !== 'undefined' && chrome.storage) {
-      chrome.storage.local.get(['variantstream_active_input', 'variantHandlerPanelOpen']).then(data => {
-        const btn = document.getElementById('vh-btn-autofill') as HTMLButtonElement | null;
-        const btnGene = document.getElementById('vh-btn-autofill-gene') as HTMLButtonElement | null;
-        const btnFind = document.getElementById('vh-btn-find-variant') as HTMLButtonElement | null;
-        
-        if (btn && btnGene && btnFind && data.variantHandlerPanelOpen && data.variantstream_active_input) {
-          updateVisibility(btn, btnGene, btnFind, data.variantstream_active_input);
+  if (isClinVar) {
+    const clinVarInputs = findClinVarInputs();
+    if (clinVarInputs.variant && clinVarInputs.gene) {
+      injectButton(clinVarInputs.variant, ['variant']);
+      injectButton(clinVarInputs.gene, ['gene']);
+      injectedAny = true;
+    }
+  }
+
+  // Fallback if not ClinVar homepage inputs or if ClinVar inputs were not found
+  if (!injectedAny) {
+    const input = findSearchInput();
+    if (input) {
+      injectButton(input);
+      injectedAny = true;
+    }
+  }
+
+  // Special case for AlphaMissense results page table injection
+  if (isAlphaMissense) {
+    const table = document.querySelector('table');
+    if (table) {
+      injectAlphaMissenseTableHelper(table as HTMLTableElement);
+      injectedAny = true;
+    }
+  }
+
+  if (injectedAny) {
+    // If already injected, update visibility based on latest state for all containers
+    const containers = document.querySelectorAll('.vh-injection-container-class');
+    if (containers.length > 0 && isContextValid()) {
+      chrome.storage.local.get(['variantstream_active_input', 'variantHandlerPanelOpen', 'variantstream_active_gene', 'variantstream_active_protein']).then(data => {
+        if (!isContextValid()) {
+          handleInvalidatedContext();
+          return;
         }
-      }).catch(() => {});
+        if (data.variantHandlerPanelOpen && data.variantstream_active_input) {
+          containers.forEach(container => {
+            const btn = container.querySelector('.vh-btn-autofill-class') as HTMLButtonElement | null;
+            const btnGene = container.querySelector('.vh-btn-autofill-gene-class') as HTMLButtonElement | null;
+            const btnFind = container.querySelector('.vh-btn-find-variant-class') as HTMLButtonElement | null;
+            updateVisibility(btn, btnGene, btnFind, data.variantstream_active_input, data.variantstream_active_gene, data.variantstream_active_protein);
+          });
+        }
+      }).catch((err) => {
+        console.warn('[VariantHandler] error in init storage lookup:', err);
+      });
     }
 
     return true;
@@ -550,29 +870,43 @@ function init(): boolean {
 }
 
 // Run immediately
-init();
-
-// FIX MEDIUM-6: Debounce the MutationObserver so that rapid DOM mutations
-// (common in React SPAs like gnomAD) do not trigger findSearchInput() +
-// getComputedStyle() on every individual change.
-// The observer also disconnects itself once injection succeeds.
-let debounceTimer: ReturnType<typeof setTimeout> | null = null;
-const observer = new MutationObserver(() => {
-  if (debounceTimer) clearTimeout(debounceTimer);
-  debounceTimer = setTimeout(() => {
-    init();
-  }, 150);
-});
-observer.observe(document.body, { childList: true, subtree: true });
-
-// FIX MEDIUM-6: Interval fallback capped at 5 attempts (covers slow-loading
-// pages that take up to 15 s) instead of running indefinitely.
-let intervalAttempts = 0;
-const MAX_INTERVAL_ATTEMPTS = 5;
-const intervalId = setInterval(() => {
-  intervalAttempts++;
+if (isContextValid()) {
   init();
-  if (intervalAttempts >= MAX_INTERVAL_ATTEMPTS) {
-    clearInterval(intervalId);
-  }
-}, 3000);
+
+  // FIX MEDIUM-6: Debounce the MutationObserver so that rapid DOM mutations
+  // (common in React SPAs like gnomAD) do not trigger findSearchInput() +
+  // getComputedStyle() on every individual change.
+  // The observer also disconnects itself once injection succeeds.
+  observer = new MutationObserver(() => {
+    if (!isContextValid()) {
+      handleInvalidatedContext();
+      return;
+    }
+    if (debounceTimer) clearTimeout(debounceTimer);
+    debounceTimer = setTimeout(() => {
+      if (isContextValid()) {
+        init();
+      } else {
+        handleInvalidatedContext();
+      }
+    }, 150);
+  });
+  observer.observe(document.body, { childList: true, subtree: true });
+
+  // FIX MEDIUM-6: Interval fallback capped at 5 attempts (covers slow-loading
+  // pages that take up to 15 s) instead of running indefinitely.
+  let intervalAttempts = 0;
+  const MAX_INTERVAL_ATTEMPTS = 5;
+  intervalId = setInterval(() => {
+    if (!isContextValid()) {
+      handleInvalidatedContext();
+      return;
+    }
+    intervalAttempts++;
+    init();
+    if (intervalAttempts >= MAX_INTERVAL_ATTEMPTS) {
+      if (intervalId) clearInterval(intervalId);
+      intervalId = null;
+    }
+  }, 3000);
+}

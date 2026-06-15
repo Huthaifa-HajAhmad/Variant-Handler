@@ -108,6 +108,22 @@ export default function EnrichmentPanel({
 
   // ── No data (API returned nothing useful) ──────────────────────────────────
   if (!enrichment || (!enrichment.rsId && enrichment.gnomadAf === undefined && !enrichment.clinvarSignificance && !enrichment.geneSymbol)) {
+    if (enrichment) {
+      return (
+        <div className={`pt-3 border-t ${borderCls}`}>
+          <div className={`flex items-center justify-between gap-2 p-2 rounded-lg border ${
+            isLight ? 'bg-emerald-50 border-emerald-200' : 'bg-emerald-950/30 border-emerald-900/50'
+          }`}>
+            <div className="flex items-center gap-1.5 text-[10px]">
+              <Globe className={`w-3.5 h-3.5 shrink-0 ${isLight ? 'text-emerald-600' : 'text-emerald-400'}`} />
+              <span className={`font-semibold ${isLight ? 'text-emerald-700' : 'text-emerald-300'}`}>
+                Live lookup successful — no records found in MyVariant.info.
+              </span>
+            </div>
+          </div>
+        </div>
+      );
+    }
     return null;
   }
 
@@ -141,7 +157,12 @@ export default function EnrichmentPanel({
         {enrichment.geneSymbol && (
           <div className={cellCls}>
             <span className={labelCls}>Gene</span>
-            <span className={valCls}>{enrichment.geneSymbol}</span>
+            <div className="flex items-center gap-1.5">
+              <span className={valCls}>{enrichment.geneSymbol}</span>
+              <span className={`text-[8px] px-1 py-0.2 rounded border font-semibold ${isLight ? 'text-emerald-700 border-emerald-200 bg-emerald-50' : 'text-emerald-400 border-emerald-900 bg-emerald-950/40'}`}>
+                Live
+              </span>
+            </div>
           </div>
         )}
 

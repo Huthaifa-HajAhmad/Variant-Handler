@@ -403,7 +403,16 @@ function hasRealAllele(allele?: string): boolean {
   return !!allele && allele !== '-';
 }
 
-export function getMissingDataReason(parsed: ParsedVariant, adapter: PlatformAdapter): string | null {
+export function getMissingDataReason(
+  parsed: ParsedVariant,
+  adapter: PlatformAdapter,
+  enrichment?: { geneSymbol?: string } | null,
+): string | null {
+  const gene = enrichment?.geneSymbol || parsed.geneSymbol;
+  if (gene) {
+    return null; // Fallback to gene-level search is available
+  }
+
   const needsCoords  = ['dash', 'hgvs_g', 'coordinate'].includes(adapter.requiredFormat);
   const needsAlleles = ['dash', 'hgvs_g'].includes(adapter.requiredFormat);
   const needsHgvsC   = adapter.requiredFormat === 'hgvs_c';
@@ -437,8 +446,9 @@ export function buildPlatformUrl(
   parsed: ParsedVariant,
   adapter: PlatformAdapter,
   build: GenomeBuild = DEFAULT_BUILD,
+  enrichment?: { geneSymbol?: string; rsId?: string; hgvsg?: string; proteinChange?: string; codingChange?: string; transcript?: string } | null,
 ): string | null {
-  const missingReason = getMissingDataReason(parsed, adapter);
+  const missingReason = getMissingDataReason(parsed, adapter, enrichment);
   if (missingReason) return null;
 
   const chrom = parsed.chromosome ?? '';
@@ -446,6 +456,12 @@ export function buildPlatformUrl(
   const ref   = parsed.ref        ?? '';
   const alt   = parsed.alt        ?? '';
   const raw   = parsed.raw;
+
+  const gene = enrichment?.geneSymbol || parsed.geneSymbol || '';
+  const rsId = enrichment?.rsId;
+  const hgvsg = enrichment?.hgvsg;
+  const hgvsc = (enrichment?.transcript && enrichment?.codingChange) ? `${enrichment.transcript}:${enrichment.codingChange}` : '';
+  const hgvsp = enrichment?.proteinChange;
 
   // Sprint 2: normalise alleles before URL construction
   const { pos: nPos, ref: nRef, alt: nAlt } = normaliseAlleles(pos, ref, alt);
@@ -455,20 +471,103 @@ export function buildPlatformUrl(
     : nRef && nAlt
     ? computeEndPos(nPos, nRef, nAlt)
     : nPos;
+
   const fullHgvsC = parsed.transcript && parsed.codingChange
     ? `${parsed.transcript}:${parsed.codingChange}` : '';
   const fullHgvsG = chrom && nPos && hasRealAllele(nRef) && hasRealAllele(nAlt)
     ? `chr${chrom}:g.${nPos}${nRef}>${nAlt}` : '';
 
-  // Build the most specific search string available, falling back to gene
-  // symbol and finally the raw input.
-  const geneSymbol = parsed.transcript ? lookupGeneSymbol(parsed.transcript) : null;
-  const variantFormatted = fullHgvsG || fullHgvsC || geneSymbol || raw;
-
-  // Sprint 2: build-aware substitutions
   const db       = ucscDb(build);
   const dataset  = gnomadDataset(build);
   const assembly = spliceAiAssembly(build);
+
+  // 1. gnomad
+  if (adapter.id === 'gnomad') {
+    if (chrom && pos && hasRealAllele(ref) && hasRealAllele(alt)) {
+      return `https://gnomad.broadinstitute.org/variant/${chrom}-${nPos}-${nRef}-${nAlt}?dataset=${dataset}`;
+    }
+    if (gene) {
+      return `https://gnomad.broadinstitute.org/gene/${encodeURIComponent(gene)}?dataset=${dataset}`;
+    }
+    return `https://gnomad.broadinstitute.org/search?q=${encodeURIComponent(raw)}&dataset=${dataset}`;
+  }
+
+  // 2. ucsc
+  if (adapter.id === 'ucsc') {
+    if (chrom && pos) {
+      return `https://genome.ucsc.edu/cgi-bin/hgTracks?db=${db}&position=chr${chrom}:${nPos}-${endPos}`;
+    }
+    if (gene) {
+      return `https://genome.ucsc.edu/cgi-bin/hgTracks?db=${db}&position=${encodeURIComponent(gene)}`;
+    }
+    return `https://genome.ucsc.edu/cgi-bin/hgTracks?db=${db}`;
+  }
+
+  // 3. spliceai
+  if (adapter.id === 'spliceai') {
+    if (chrom && pos && hasRealAllele(ref) && hasRealAllele(alt)) {
+      return `https://spliceailookup.broadinstitute.org/?variant=chr${chrom}-${nPos}-${nRef}-${nAlt}&assembly=${assembly}`;
+    }
+    if (gene) {
+      return `https://spliceailookup.broadinstitute.org/?variant=${encodeURIComponent(gene)}&assembly=${assembly}`;
+    }
+    return 'https://spliceailookup.broadinstitute.org/';
+  }
+
+  // 4. alphamissense
+  if (adapter.id === 'alphamissense') {
+    const term = hgvsp || hgvsg || hgvsc || rsId || fullHgvsG || fullHgvsC || gene || raw;
+    return `https://alphamissense.hegelab.org/search?variant=${encodeURIComponent(term)}`;
+  }
+
+  // 5. clinvar
+  if (adapter.id === 'clinvar') {
+    const variantTerm = rsId || hgvsg || hgvsc || hgvsp || fullHgvsG || fullHgvsC;
+    if (variantTerm) {
+      return `https://www.ncbi.nlm.nih.gov/clinvar/?term=${encodeURIComponent(variantTerm)}`;
+    }
+    if (gene) {
+      return `https://www.ncbi.nlm.nih.gov/clinvar/?term=${encodeURIComponent(gene)}%5Bgene%5D`;
+    }
+    return `https://www.ncbi.nlm.nih.gov/clinvar/?term=${encodeURIComponent(raw)}`;
+  }
+
+  // 6. dbsnp
+  if (adapter.id === 'dbsnp') {
+    const variantTerm = rsId || hgvsg || hgvsc || fullHgvsG || fullHgvsC;
+    if (variantTerm) {
+      return `https://www.ncbi.nlm.nih.gov/snp/?term=${encodeURIComponent(variantTerm)}`;
+    }
+    if (gene) {
+      return `https://www.ncbi.nlm.nih.gov/snp/?term=${encodeURIComponent(gene)}%5Bgene%5D`;
+    }
+    return `https://www.ncbi.nlm.nih.gov/snp/?term=${encodeURIComponent(raw)}`;
+  }
+
+  // 7. mutalyzer
+  if (adapter.id === 'mutalyzer') {
+    const variantTerm = hgvsc || fullHgvsC;
+    if (variantTerm) {
+      return `https://mutalyzer.nl/name-checker?description=${encodeURIComponent(variantTerm)}`;
+    }
+    if (gene) {
+      return `https://mutalyzer.nl/name-checker?description=${encodeURIComponent(gene)}`;
+    }
+    return `https://mutalyzer.nl/name-checker?description=${encodeURIComponent(raw)}`;
+  }
+
+  // 8. variantvalidator
+  if (adapter.id === 'variantvalidator') {
+    const variantTerm = hgvsc || hgvsg || fullHgvsC || fullHgvsG;
+    if (variantTerm) {
+      return `https://variantvalidator.org/service/validate/${encodeURIComponent(variantTerm)}`;
+    }
+    return 'https://variantvalidator.org/';
+  }
+
+  // Fallback to template mechanism
+  const geneSymbol = parsed.transcript ? lookupGeneSymbol(parsed.transcript) : null;
+  const variantFormatted = fullHgvsG || fullHgvsC || geneSymbol || raw;
 
   let url = adapter.urlTemplate;
 

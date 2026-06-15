@@ -134,7 +134,7 @@ export default function SettingsModal({
           </div>
           <p className={subCls}>
             Fetches dbSNP, gnomAD allele frequency, and ClinVar data for the active variant
-            from <span className={`font-mono ${isLight ? 'text-indigo-700' : 'text-indigo-400'}`}>api.myvariant.info</span>.
+            from <span className={`font-mono ${isLight ? 'text-indigo-700' : 'text-indigo-400'}`}>myvariant.info</span>.
             Disable for sensitive variants that should not leave the browser.
           </p>
           <p className={`${subCls} mt-1 opacity-70`}>

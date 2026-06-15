@@ -35,6 +35,31 @@ if (typeof chrome !== 'undefined' && chrome.runtime) {
       });
     }
   });
+
+  chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+    if (message && message.type === 'FETCH_VARIANT_ENRICHMENT') {
+      fetch(message.url, {
+        headers: { Accept: 'application/json' },
+      })
+        .then(async (res) => {
+          if (!res.ok) {
+            if (res.status === 404) {
+              return { notfound: true };
+            }
+            throw new Error(`API error ${res.status}: ${res.statusText}`);
+          }
+          return res.json();
+        })
+        .then((data) => {
+          sendResponse({ success: true, data });
+        })
+        .catch((err) => {
+          console.warn('[Variant Handler] Background fetch failed:', err);
+          sendResponse({ success: false, error: err.message || String(err) });
+        });
+      return true; // Keep the message channel open for async response
+    }
+  });
 }
 
 console.log('[Variant Handler] Background Service Worker initialized.');

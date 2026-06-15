@@ -97,32 +97,62 @@ export default function SidepanelView() {
     }
   }, [parsed.genomeBuild]); // eslint-disable-line react-hooks/exhaustive-deps -- intentional one-way sync from input
 
+  // Sprint 2: live enrichment hook
+  const { enrichment, isLoading: enrichmentLoading, error: enrichmentError } =
+    useVariantEnrichment(parsed, liveEnrichmentEnabled);
+
   // Sprint 2: build-aware URL generation
   const platformUrls = useMemo(
     () => INITIAL_PLATFORMS.map((p) => ({
       platform: p,
-      url: buildPlatformUrl(parsed, p, genomeBuild),
-      reason: getMissingDataReason(parsed, p),
+      url: buildPlatformUrl(parsed, p, genomeBuild, enrichment),
+      reason: getMissingDataReason(parsed, p, enrichment),
     })),
-    [parsed, genomeBuild],
+    [parsed, genomeBuild, enrichment],
   );
 
   const parsedHistoryItems = useMemo(
     () => history.map((input) => ({ input, parsed: parseVariant(input) })),
     [history],
   );
-
-  // Sprint 2: live enrichment hook
-  const { enrichment, isLoading: enrichmentLoading, error: enrichmentError } =
-    useVariantEnrichment(parsed, liveEnrichmentEnabled);
 // ── Effects ─────────────────────────────────────────────────────────
 
 useEffect(() => {
   if (typeof chrome !== 'undefined' && chrome.runtime) {
-    // Connect to background script to keep a heartbeat of the panel's active state
-    const port = chrome.runtime.connect({ name: 'variant-handler-panel' });
+    let port: chrome.runtime.Port | null = null;
+    let isMounted = true;
+
+    const connect = () => {
+      if (!isMounted) return;
+      try {
+        port = chrome.runtime.connect({ name: 'variant-handler-panel' });
+        chrome.storage.local.set({ variantHandlerPanelOpen: true }).catch(() => {});
+
+        port.onDisconnect.addListener(() => {
+          port = null;
+          chrome.storage.local.set({ variantHandlerPanelOpen: false }).catch(() => {});
+          // If disconnected but panel is still mounted, try to reconnect after 1s
+          setTimeout(() => {
+            if (isMounted && chrome.runtime && chrome.runtime.id) {
+              connect();
+            }
+          }, 1000);
+        });
+      } catch (err) {
+        console.warn('[VariantHandler] Reconnection failed:', err);
+      }
+    };
+
+    connect();
+
     return () => {
-      port.disconnect();
+      isMounted = false;
+      if (port) {
+        try {
+          port.disconnect();
+        } catch {}
+      }
+      chrome.storage.local.set({ variantHandlerPanelOpen: false }).catch(() => {});
     };
   }
 }, []);
@@ -147,6 +177,26 @@ useEffect(() => {
       });
     }
   }, [activeInput]);
+
+  useEffect(() => {
+    if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local) {
+      chrome.storage.local.set({ 
+        variantstream_active_gene: enrichment?.geneSymbol ?? parsed.geneSymbol ?? null 
+      }).catch((err) => {
+        console.warn('[VariantHandler] Failed to sync active gene to chrome storage:', err);
+      });
+    }
+  }, [enrichment?.geneSymbol, parsed.geneSymbol]);
+
+  useEffect(() => {
+    if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local) {
+      chrome.storage.local.set({ 
+        variantstream_active_protein: enrichment?.proteinChange ?? parsed.proteinChange ?? null 
+      }).catch((err) => {
+        console.warn('[VariantHandler] Failed to sync active protein to chrome storage:', err);
+      });
+    }
+  }, [enrichment?.proteinChange, parsed.proteinChange]);
 
   // ── Keyboard shortcuts ───────────────────────────────────────────────────
   useKeyboardShortcuts({
@@ -188,7 +238,7 @@ useEffect(() => {
 
   const handleLaunchPlatform = (platform: PlatformAdapter) => {
     // Sprint 2: pass genomeBuild to URL builder
-    const url = buildPlatformUrl(parsed, platform, genomeBuild);
+    const url = buildPlatformUrl(parsed, platform, genomeBuild, enrichment);
     if (!url) {
       triggerAlert(`Cannot launch ${platform.name}: missing required coordinate data for this variant.`);
       return;

@@ -36,6 +36,9 @@ export interface EnrichmentData {
   clinvarSignificance?: string;
   clinvarReview?: string;
   hgvsg?: string;         // HGVSg from API (may backfill coordinates)
+  proteinChange?: string; // HGVSp resolved live
+  codingChange?: string;  // HGVSc resolved live
+  transcript?: string;    // HGVSc transcript resolved live
   source: 'myvariant';
   fetchedAt: number;      // Unix ms — used for 24 h TTL
 }
@@ -45,7 +48,7 @@ export interface EnrichmentData {
 const CACHE_STORAGE_KEY = 'variantstream_enrichment_cache';
 const CACHE_TTL_MS      = 24 * 60 * 60 * 1000; // 24 hours
 const DEBOUNCE_MS       = 800;
-const API_BASE          = 'https://api.myvariant.info/v1/variant';
+const API_BASE          = 'https://myvariant.info/v1/variant';
 const FIELDS = [
   'dbsnp.rsid',
   'gnomad_genome.af.af',
@@ -53,6 +56,16 @@ const FIELDS = [
   'clinvar.rcv.review_status',
   'cadd.gene.genename',
   'hgvs.genomic',
+  'hgvsp',
+  'clinvar.hgvs.protein',
+  'dbnsfp.hgvsp',
+  'snpeff.ann.hgvs_p',
+  'evs.hgvs.protein',
+  'clinvar.hgvs.coding',
+  'dbnsfp.hgvsc',
+  'snpeff.ann.hgvs_c',
+  'evs.hgvs.coding',
+  'evs.gene.accession',
 ].join(',');
 
 // ── In-memory cache ───────────────────────────────────────────────────────────
@@ -68,8 +81,15 @@ function loadPersistentCache(): Map<string, EnrichmentData> {
     const obj = JSON.parse(raw) as Record<string, EnrichmentData>;
     const now = Date.now();
     const result = new Map<string, EnrichmentData>();
+    // Invalidate cache entries created before the HGVSc update (2026-06-15T20:40:00+01:00)
+    const invalidationThreshold = Date.parse("2026-06-15T20:40:00+01:00");
     for (const [k, v] of Object.entries(obj)) {
-      if (v && typeof v.fetchedAt === 'number' && now - v.fetchedAt < CACHE_TTL_MS) {
+      if (
+        v &&
+        typeof v.fetchedAt === 'number' &&
+        now - v.fetchedAt < CACHE_TTL_MS &&
+        v.fetchedAt > invalidationThreshold
+      ) {
         result.set(k, v);
       }
     }
@@ -118,6 +138,141 @@ function deriveQueryKey(parsed: ParsedVariant): string | null {
 // ── Response parsing ──────────────────────────────────────────────────────────
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
+function extractCodingChange(data: any): { codingChange?: string; transcript?: string } | undefined {
+  if (!data) return undefined;
+
+  const parseHgvscString = (str: any) => {
+    if (typeof str !== 'string') return null;
+    const parts = str.split(':');
+    if (parts.length > 1) {
+      const transcript = parts[0];
+      const codingChange = parts[1];
+      if (codingChange.startsWith('c.')) {
+        return { transcript, codingChange };
+      }
+    } else if (str.startsWith('c.')) {
+      return { codingChange: str };
+    }
+    return null;
+  };
+
+  // 1. clinvar.hgvs.coding
+  const clinvarCoding = data.clinvar?.hgvs?.coding;
+  if (Array.isArray(clinvarCoding)) {
+    const nmItem = clinvarCoding.find(item => typeof item === 'string' && item.startsWith('NM_'));
+    if (nmItem) {
+      const res = parseHgvscString(nmItem);
+      if (res) return res;
+    }
+    for (const item of clinvarCoding) {
+      const res = parseHgvscString(item);
+      if (res) return res;
+    }
+  } else if (typeof clinvarCoding === 'string') {
+    const res = parseHgvscString(clinvarCoding);
+    if (res) return res;
+  }
+
+  // 2. snpeff.ann
+  const snpeffAnn = data.snpeff?.ann;
+  if (Array.isArray(snpeffAnn)) {
+    const nmAnn = snpeffAnn.find(ann => typeof ann?.feature_id === 'string' && ann.feature_id.startsWith('NM_'));
+    if (nmAnn && typeof nmAnn.hgvs_c === 'string' && nmAnn.hgvs_c.startsWith('c.')) {
+      return { transcript: nmAnn.feature_id, codingChange: nmAnn.hgvs_c };
+    }
+    for (const ann of snpeffAnn) {
+      if (ann && typeof ann.hgvs_c === 'string' && ann.hgvs_c.startsWith('c.')) {
+        return { transcript: ann.feature_id, codingChange: ann.hgvs_c };
+      }
+    }
+  }
+
+  // 3. dbnsfp.hgvsc
+  const dbnsfp = data.dbnsfp?.hgvsc;
+  if (Array.isArray(dbnsfp)) {
+    const found = dbnsfp.find(c => typeof c === 'string' && c.startsWith('c.'));
+    if (found) return { codingChange: found };
+  } else if (typeof dbnsfp === 'string' && dbnsfp.startsWith('c.')) {
+    return { codingChange: dbnsfp };
+  }
+
+  // 4. evs.hgvs.coding
+  const evsCoding = data.evs?.hgvs?.coding;
+  if (typeof evsCoding === 'string' && evsCoding.startsWith('c.')) {
+    return { codingChange: evsCoding, transcript: data.evs?.gene?.accession };
+  }
+
+  return undefined;
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function extractProteinChange(data: any): string | undefined {
+  if (!data) return undefined;
+
+  const extractFromClinvarString = (str: any): string | null => {
+    if (typeof str !== 'string') return null;
+    const parts = str.split(':');
+    const pPart = parts.length > 1 ? parts[1] : parts[0];
+    if (pPart.startsWith('p.')) return pPart;
+    return null;
+  };
+
+  // 1. Direct hgvsp field
+  const direct = data.hgvsp;
+  if (Array.isArray(direct)) {
+    const found = direct.find(p => typeof p === 'string' && p.startsWith('p.'));
+    if (found) return found;
+  } else if (typeof direct === 'string' && direct.startsWith('p.')) {
+    return direct;
+  }
+
+  // 2. clinvar.hgvs.protein
+  const clinvarProt = data.clinvar?.hgvs?.protein;
+  if (Array.isArray(clinvarProt)) {
+    for (const item of clinvarProt) {
+      const res = extractFromClinvarString(item);
+      if (res) return res;
+    }
+  } else if (typeof clinvarProt === 'string') {
+    const res = extractFromClinvarString(clinvarProt);
+    if (res) return res;
+  }
+
+  // 3. snpeff.ann
+  const snpeffAnn = data.snpeff?.ann;
+  if (Array.isArray(snpeffAnn)) {
+    for (const ann of snpeffAnn) {
+      const p = ann?.hgvs_p;
+      if (typeof p === 'string' && p.startsWith('p.')) return p;
+    }
+  } else if (snpeffAnn && typeof snpeffAnn === 'object') {
+    const p = (snpeffAnn as any).hgvs_p;
+    if (typeof p === 'string' && p.startsWith('p.')) return p;
+  }
+
+  // 4. dbnsfp.hgvsp
+  const dbnsfp = data.dbnsfp?.hgvsp;
+  if (Array.isArray(dbnsfp)) {
+    const threeLetter = dbnsfp.find(p => typeof p === 'string' && /^p\.[A-Z][a-z]{2}\d+[A-Z][a-z]{2}$/i.test(p));
+    if (threeLetter) return threeLetter;
+    
+    const anyP = dbnsfp.find(p => typeof p === 'string' && p.startsWith('p.'));
+    if (anyP) return anyP;
+  } else if (typeof dbnsfp === 'string' && dbnsfp.startsWith('p.')) {
+    return dbnsfp;
+  }
+
+  // 5. evs.hgvs.protein
+  const evs = data.evs?.hgvs?.protein;
+  if (typeof evs === 'string') {
+    const cleaned = evs.replace(/[\(\)]/g, '');
+    if (cleaned.startsWith('p.')) return cleaned;
+  }
+
+  return undefined;
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 function parseApiResponse(data: any, queryKey: string): EnrichmentData {
   // dbSNP rs ID
   const rsId: string | undefined =
@@ -154,6 +309,14 @@ function parseApiResponse(data: any, queryKey: string): EnrichmentData {
     ? hgvsGenomicRaw
     : undefined;
 
+  // HGVSp protein change (starts with p.)
+  const proteinChange = extractProteinChange(data);
+
+  // HGVSc coding change and transcript
+  const resolvedCoding = extractCodingChange(data);
+  const codingChange = resolvedCoding?.codingChange;
+  const transcript = resolvedCoding?.transcript;
+
   // If we got a 'notfound' response body, return a minimal record
   if (data?.notfound === true || data?._id === undefined) {
     return { source: 'myvariant', fetchedAt: Date.now() };
@@ -166,6 +329,9 @@ function parseApiResponse(data: any, queryKey: string): EnrichmentData {
     clinvarSignificance,
     clinvarReview,
     hgvsg,
+    proteinChange,
+    codingChange,
+    transcript,
     source: 'myvariant',
     fetchedAt: Date.now(),
   };
@@ -195,12 +361,15 @@ export function useVariantEnrichment(
     const cached = memoryCache.get(queryKey);
     if (cached) {
       const age = Date.now() - cached.fetchedAt;
-      if (age < CACHE_TTL_MS) {
+      const isGenomic = queryKey.match(/^chr(2[0-2]|1[0-9]|[1-9]|X|Y|MT|M):g\./i);
+      const isEmpty = !cached.rsId && cached.gnomadAf === undefined && !cached.clinvarSignificance && !cached.geneSymbol;
+
+      if (age < CACHE_TTL_MS && !(isGenomic && isEmpty)) {
         setEnrichment(cached);
         setIsLoading(false);
         return;
       }
-      // Expired — remove and re-fetch
+      // Expired or empty genomic — remove and re-fetch
       memoryCache.delete(queryKey);
     }
 
@@ -212,25 +381,63 @@ export function useVariantEnrichment(
     setError(null);
 
     try {
-      const url = `${API_BASE}/${encodeURIComponent(queryKey)}?fields=${FIELDS}`;
-      const res = await fetch(url, {
-        signal: abortRef.current.signal,
-        headers: { Accept: 'application/json' },
-      });
+      let url: string;
+      const genomicMatch = queryKey.match(/^chr(2[0-2]|1[0-9]|[1-9]|X|Y|MT|M):g\.([0-9]+)([ACGTN\-]+)>([ACGTN\-]+)$/i);
 
-      if (!res.ok) {
-        // 404 = variant not found in MyVariant.info — not an error, just no data
-        if (res.status === 404) {
-          const notFound: EnrichmentData = { source: 'myvariant', fetchedAt: Date.now() };
-          memoryCache.set(queryKey, notFound);
-          setEnrichment(notFound);
-          setIsLoading(false);
-          return;
-        }
-        throw new Error(`API error ${res.status}: ${res.statusText}`);
+      if (genomicMatch) {
+        const chrom = genomicMatch[1];
+        const pos = genomicMatch[2];
+        const ref = genomicMatch[3];
+        const alt = genomicMatch[4];
+        const q = `chrom:${chrom} AND (pos:${pos} OR clinvar.hg38.start:${pos} OR hg38.start:${pos}) AND (ref:${ref} OR clinvar.ref:${ref}) AND (alt:${alt} OR clinvar.alt:${alt})`;
+        url = `https://myvariant.info/v1/query?q=${encodeURIComponent(q)}&fields=${FIELDS}&size=1`;
+      } else {
+        url = `${API_BASE}/${encodeURIComponent(queryKey)}?fields=${FIELDS}`;
       }
 
-      const data = await res.json();
+      let data: any;
+
+      if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.sendMessage) {
+        const response = await new Promise<{ success: boolean; data?: any; error?: string }>((resolve) => {
+          chrome.runtime.sendMessage({ type: 'FETCH_VARIANT_ENRICHMENT', url }, (res) => {
+            const err = chrome.runtime.lastError;
+            if (err) {
+              resolve({ success: false, error: err.message });
+            } else {
+              resolve(res || { success: false, error: 'No response from background worker' });
+            }
+          });
+        });
+
+        if (!response.success) {
+          throw new Error(response.error || 'Failed to fetch variant enrichment');
+        }
+        data = response.data;
+      } else {
+        const res = await fetch(url, {
+          signal: abortRef.current.signal,
+          headers: { Accept: 'application/json' },
+        });
+
+        if (!res.ok) {
+          if (res.status === 404) {
+            data = { notfound: true };
+          } else {
+            throw new Error(`API error ${res.status}: ${res.statusText}`);
+          }
+        } else {
+          data = await res.json();
+        }
+      }
+
+      if (data && Array.isArray(data.hits)) {
+        if (data.hits.length > 0) {
+          data = data.hits[0];
+        } else {
+          data = { notfound: true };
+        }
+      }
+
       const enrichmentData = parseApiResponse(data, queryKey);
 
       // Store in both cache layers

@@ -8,7 +8,7 @@
  *  - EnrichmentPanel slot below coordinate breakdown
  */
 import React, { useState, useEffect } from 'react';
-import { Edit3, Check, Copy, Cpu, ClipboardPaste, Dna } from 'lucide-react';
+import { Edit3, Check, Copy, Cpu, ClipboardPaste, Dna, Plus, Minus } from 'lucide-react';
 import { ParsedVariant } from '../lib/parser';
 import { GenomeBuild } from '../utils/genomeBuild';
 import { ColorTheme } from '../lib/themes';
@@ -56,6 +56,7 @@ export default function VariantWorkbench({
 }: VariantWorkbenchProps) {
   const isLight = activeTheme.isLight;
   const [isSaving, setIsSaving] = useState(false);
+  const [noteExpanded, setNoteExpanded] = useState(false);
 
   useEffect(() => {
     if (!microNote) return;
@@ -72,6 +73,48 @@ export default function VariantWorkbench({
 
   // Auto-detected build from the raw input (set in parser)
   const autoDetectedBuild = parsed.genomeBuild;
+
+  // Helper to parse HGVSg genomic coordinate string e.g. "chr4:g.110667561T>G"
+  const parseGenomicString = (str: string) => {
+    const match = str.match(/^(?:chr)?([0-9XxYyMmTt]+):g\.([0-9]+)([A-Za-z\-]+)>([A-Za-z\-]+)$/i);
+    if (match) {
+      return {
+        chromosome: match[1],
+        position: match[2],
+        ref: match[3],
+        alt: match[4]
+      };
+    }
+    return null;
+  };
+
+  let chromosome = parsed.chromosome;
+  let position = parsed.position;
+  let ref = parsed.ref;
+  let alt = parsed.alt;
+  let isGenomicLiveResolved = false;
+
+  if (enrichment?.hgvsg) {
+    const resolvedGenomic = parseGenomicString(enrichment.hgvsg);
+    if (resolvedGenomic) {
+      chromosome = resolvedGenomic.chromosome;
+      position = resolvedGenomic.position;
+      ref = resolvedGenomic.ref;
+      alt = resolvedGenomic.alt;
+      isGenomicLiveResolved = !parsed.chromosome;
+    }
+  }
+
+  const codingChange = enrichment?.codingChange || parsed.codingChange;
+  const transcript = enrichment?.transcript || parsed.transcript;
+  const isCodingLiveResolved = !!(enrichment?.codingChange && !parsed.codingChange);
+
+  const proteinChange = enrichment?.proteinChange || parsed.proteinChange;
+  const isProteinLiveResolved = !!(enrichment?.proteinChange && !parsed.proteinChange);
+
+  const genomicValue = enrichment?.hgvsg || (chromosome && position && ref && alt ? `chr${chromosome}:g.${position}${ref}>${alt}` : '');
+  const codingValue = codingChange && transcript ? `${transcript}:${codingChange}` : '';
+  const proteinValue = proteinChange ?? '';
 
   return (
     <div className={`${cardBase} p-4 relative`}>
@@ -180,14 +223,39 @@ export default function VariantWorkbench({
         <div className="grid grid-cols-2 gap-2">
           {/* g. coord */}
           <div className={`p-1.5 px-2 rounded-lg border flex flex-col justify-between ${isLight ? 'bg-sky-50 border-sky-100' : 'bg-sky-950/30 border-sky-900/50'}`}>
-            <span className={rowLabelCls}>Genomic Coordinate</span>
+            <div className="flex items-center justify-between">
+              <span className={rowLabelCls}>Genomic Coordinate</span>
+              <div className="flex items-center gap-1">
+                {isGenomicLiveResolved && (
+                  <span className={`text-[8px] px-1 rounded border font-semibold ${isLight ? 'text-emerald-700 border-emerald-200 bg-emerald-50' : 'text-emerald-400 border-emerald-900 bg-emerald-950/40'}`}>
+                    Live
+                  </span>
+                )}
+                {parsed.isValid && genomicValue && (
+                  <button
+                    type="button"
+                    title="Copy Genomic Notation"
+                    onClick={() => handleCopyValue(genomicValue, 'copy-g')}
+                    className={`p-1 rounded transition-colors ${
+                      copiedId === 'copy-g'
+                        ? 'text-emerald-600 bg-emerald-50 dark:bg-emerald-500/10 dark:text-emerald-400'
+                        : isLight
+                        ? 'text-slate-400 hover:text-indigo-600 hover:bg-indigo-50'
+                        : 'text-slate-500 hover:text-indigo-400 hover:bg-slate-800'
+                    }`}
+                  >
+                    {copiedId === 'copy-g' ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
+                  </button>
+                )}
+              </div>
+            </div>
             <div className="mt-1">
               <span className={rowValCls}>
-                {parsed.chromosome ? `chr${parsed.chromosome}:${parsed.position}` : '—'}
+                {chromosome ? `chr${chromosome}:${position}` : '—'}
               </span>
-              {parsed.ref && parsed.alt && (
+              {ref && alt && (
                 <span className={`text-[11px] font-mono break-all block mt-0.5 ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>
-                  {parsed.ref} → {parsed.alt}
+                  {ref} → {alt}
                 </span>
               )}
             </div>
@@ -195,23 +263,75 @@ export default function VariantWorkbench({
 
           {/* c. coding */}
           <div className={`p-1.5 px-2 rounded-lg border flex flex-col justify-between ${isLight ? 'bg-indigo-50 border-indigo-100' : 'bg-indigo-950/30 border-indigo-900/50'}`}>
-            <span className={rowLabelCls}>Coding Sequence</span>
+            <div className="flex items-center justify-between">
+              <span className={rowLabelCls}>Coding Sequence</span>
+              <div className="flex items-center gap-1">
+                {isCodingLiveResolved && (
+                  <span className={`text-[8px] px-1 rounded border font-semibold ${isLight ? 'text-emerald-700 border-emerald-200 bg-emerald-50' : 'text-emerald-400 border-emerald-900 bg-emerald-950/40'}`}>
+                    Live
+                  </span>
+                )}
+                {parsed.isValid && codingValue && (
+                  <button
+                    type="button"
+                    title="Copy Coding Notation"
+                    onClick={() => handleCopyValue(codingValue, 'copy-c')}
+                    className={`p-1 rounded transition-colors ${
+                      copiedId === 'copy-c'
+                        ? 'text-emerald-600 bg-emerald-50 dark:bg-emerald-500/10 dark:text-emerald-400'
+                        : isLight
+                        ? 'text-slate-400 hover:text-indigo-600 hover:bg-indigo-50'
+                        : 'text-slate-500 hover:text-indigo-400 hover:bg-slate-800'
+                    }`}
+                  >
+                    {copiedId === 'copy-c' ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
+                  </button>
+                )}
+              </div>
+            </div>
             <div className="mt-1">
-              <span className={rowValCls}>{parsed.codingChange || '—'}</span>
-              {parsed.transcript && (
+              <span className={rowValCls}>{codingChange || '—'}</span>
+              {transcript && (
                 <span className={`text-[11px] font-mono break-all block mt-0.5 ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>
-                  {parsed.transcript}
+                  {transcript}
                 </span>
               )}
             </div>
           </div>
 
           {/* p. protein (full width) */}
-          <div className={`col-span-2 p-1.5 px-2 rounded-lg border flex justify-between items-center ${isLight ? 'bg-pink-50 border-pink-100' : 'bg-pink-950/30 border-pink-900/50'}`}>
-            <span className={rowLabelCls}>Protein Alteration</span>
-            <span className={`${rowValCls} ${!parsed.proteinChange ? (isLight ? 'text-slate-400 font-normal' : 'text-slate-500 font-normal') : ''}`}>
-              {parsed.proteinChange || 'No protein impact mapped'}
-            </span>
+          <div className={`col-span-2 p-1.5 px-2 rounded-lg border flex flex-col justify-between ${isLight ? 'bg-pink-50 border-pink-100' : 'bg-pink-950/30 border-pink-900/50'}`}>
+            <div className="flex items-center justify-between">
+              <span className={rowLabelCls}>Protein Alteration</span>
+              <div className="flex items-center gap-1">
+                {isProteinLiveResolved && (
+                  <span className={`text-[8px] px-1 rounded border font-semibold ${isLight ? 'text-emerald-700 border-emerald-200 bg-emerald-50' : 'text-emerald-400 border-emerald-900 bg-emerald-950/40'}`}>
+                    Live
+                  </span>
+                )}
+                {parsed.isValid && proteinValue && (
+                  <button
+                    type="button"
+                    title="Copy Protein Notation"
+                    onClick={() => handleCopyValue(proteinValue, 'copy-p')}
+                    className={`p-1 rounded transition-colors ${
+                      copiedId === 'copy-p'
+                        ? 'text-emerald-600 bg-emerald-50 dark:bg-emerald-500/10 dark:text-emerald-400'
+                        : isLight
+                        ? 'text-slate-400 hover:text-indigo-600 hover:bg-indigo-50'
+                        : 'text-slate-500 hover:text-indigo-400 hover:bg-slate-800'
+                    }`}
+                  >
+                    {copiedId === 'copy-p' ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
+                  </button>
+                )}
+              </div>
+            </div>
+            <div className="mt-1">
+              <span className={`${rowValCls} ${!proteinChange ? (isLight ? 'text-slate-400 font-normal' : 'text-slate-500 font-normal') : ''}`}>
+                {proteinChange || 'No protein impact mapped'}
+              </span>
+            </div>
           </div>
         </div>
 
@@ -228,68 +348,55 @@ export default function VariantWorkbench({
 
       {/* Gene + Note */}
       <div className={`space-y-3 pt-4 border-t ${isLight ? 'border-slate-200' : 'border-slate-800'}`}>
-        {/* Live gene chip */}
-        {enrichment?.geneSymbol && (
-          <div className="flex items-center gap-2">
-            <Dna className={`w-3.5 h-3.5 ${isLight ? 'text-indigo-500' : 'text-indigo-400'}`} />
-            <span className={`text-[10px] font-bold uppercase tracking-wide ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>Gene</span>
-            <span className={`text-xs font-mono font-semibold px-2 py-0.5 rounded-md border ${isLight ? 'bg-indigo-50 border-indigo-200 text-indigo-700' : 'bg-indigo-950/40 border-indigo-900 text-indigo-300'}`}>
-              {enrichment.geneSymbol}
-            </span>
-          </div>
-        )}
-
         {/* Note textarea */}
-        <div>
-          <div className="flex items-center justify-between mb-1.5">
-            <span className={`text-xs flex items-center gap-1.5 font-semibold ${isLight ? 'text-slate-700' : 'text-slate-300'}`}>
-              <Edit3 className="w-3.5 h-3.5" /> Analysis Notes
+        <div className={`rounded-lg border transition-all ${isLight ? 'bg-slate-50 border-slate-200/60' : 'bg-slate-900/30 border-slate-800'}`}>
+          <button
+            type="button"
+            onClick={() => setNoteExpanded(!noteExpanded)}
+            className="w-full flex items-center justify-between px-3 py-2 text-xs font-bold font-display cursor-pointer select-none"
+          >
+            <span className={`flex items-center gap-1.5 ${isLight ? 'text-slate-700' : 'text-slate-300'}`}>
+              <Edit3 className="w-3.5 h-3.5 text-indigo-500" />
+              Analysis Notes
+              {microNote && (
+                <span className="w-1.5 h-1.5 rounded-full bg-indigo-500 shrink-0" />
+              )}
             </span>
-            <span className={`text-[10px] font-medium transition-colors ${isSaving ? (isLight ? 'text-emerald-600' : 'text-emerald-400') : (isLight ? 'text-slate-400' : 'text-slate-500')}`}>
-              {isSaving ? 'Saved!' : 'Auto-saves'}
-            </span>
-          </div>
-          <div className="relative">
-            <textarea
-              id="add-note-textarea"
-              value={microNote}
-              onChange={(e) => handleSaveMicroNote(e.target.value)}
-              rows={2}
-              maxLength={2000}
-              placeholder="Enter clinical report details, reference comments, or notes..."
-              className={`w-full text-xs px-3 py-2.5 rounded-lg border shadow-inner resize-none outline-none transition-all ${isLight ? 'bg-slate-50 border-slate-200 text-slate-800 placeholder-slate-400 focus:border-indigo-400 focus:bg-white focus:ring-2 focus:ring-indigo-100' : 'bg-slate-900/50 border-slate-700 text-slate-200 placeholder-slate-600 focus:border-indigo-500 focus:bg-slate-900 focus:ring-2 focus:ring-indigo-500/20'}`}
-            />
-          </div>
-        </div>
-
-        {/* Copy action */}
-        {parsed.isValid && (
-          <div className="flex gap-2 pt-2">
-            {[
-              { label: 'Genomic', value: parsed.chromosome && parsed.position && parsed.ref && parsed.alt ? `chr${parsed.chromosome}:g.${parsed.position}${parsed.ref}>${parsed.alt}` : '', id: 'copy-g' },
-              { label: 'Coding',  value: parsed.codingChange && parsed.transcript ? `${parsed.transcript}:${parsed.codingChange}` : '', id: 'copy-c' },
-              { label: 'Protein', value: parsed.proteinChange ?? '', id: 'copy-p' },
-            ].filter((item) => item.value).map(({ label, value, id }) => (
-              <button
-                key={id}
-                id={id}
-                type="button"
-                title={`Copy ${label} notation`}
-                onClick={() => handleCopyValue(value, id)}
-                className={`flex items-center justify-center flex-1 gap-1.5 px-2 py-1.5 rounded-md text-xs font-mono font-bold border cursor-pointer transition-all ${
-                  copiedId === id
-                    ? 'text-emerald-600 border-emerald-300 bg-emerald-50 dark:bg-emerald-500/10 dark:text-emerald-400 dark:border-emerald-500/30'
-                    : isLight
-                    ? 'text-slate-600 border-slate-200 hover:border-indigo-300 hover:bg-indigo-50 hover:text-indigo-700'
-                    : 'text-slate-400 border-slate-700 hover:border-slate-500 hover:bg-slate-800 hover:text-slate-200'
-                }`}
+            <div className="flex items-center gap-2">
+              {noteExpanded && (
+                <span className={`text-[10px] font-medium transition-colors ${isSaving ? (isLight ? 'text-emerald-600' : 'text-emerald-400') : (isLight ? 'text-slate-400' : 'text-slate-500')}`}>
+                  {isSaving ? 'Saved!' : 'Auto-saves'}
+                </span>
+              )}
+              <svg
+                className={`w-3.5 h-3.5 transform transition-transform duration-200 ${noteExpanded ? 'rotate-180' : ''} ${isLight ? 'text-slate-400' : 'text-slate-500'}`}
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+                strokeWidth={2.5}
               >
-                {copiedId === id ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
-                {label}
-              </button>
-            ))}
-          </div>
-        )}
+                <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+              </svg>
+            </div>
+          </button>
+          {noteExpanded && (
+            <div className="px-3 pb-3">
+              <textarea
+                id="add-note-textarea"
+                value={microNote}
+                onChange={(e) => handleSaveMicroNote(e.target.value)}
+                rows={2}
+                maxLength={2000}
+                placeholder="Enter clinical report details, reference comments, or notes..."
+                className={`w-full text-xs px-2.5 py-2 rounded-md border shadow-inner resize-none outline-none transition-all ${
+                  isLight
+                    ? 'bg-white border-slate-200 text-slate-800 placeholder-slate-400 focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100'
+                    : 'bg-slate-900 border-slate-700 text-slate-200 placeholder-slate-500 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20'
+                }`}
+              />
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );
