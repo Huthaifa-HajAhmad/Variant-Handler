@@ -444,7 +444,7 @@ function injectButton(inputEl: HTMLInputElement, allowedTypes: ('variant' | 'gen
   inputEl.dataset.vhInjected = 'true';
 
   const btnContainer = document.createElement('div');
-  const isBlockInput = window.getComputedStyle(inputEl).display === 'block' || inputEl.offsetWidth > 400 || window.location.hostname.includes('alphamissense.hegelab.org');
+  const isBlockInput = (window.getComputedStyle(inputEl).display === 'block' || inputEl.offsetWidth > 400 || window.location.hostname.includes('alphamissense.hegelab.org')) && !window.location.hostname.includes('genome.ucsc.edu');
 
   if (isBlockInput) {
     const parent = inputEl.parentNode;
