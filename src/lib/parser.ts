@@ -19,7 +19,7 @@
 
 import { normaliseAlleles } from '../utils/normalize';
 import { GenomeBuild, DEFAULT_BUILD, detectGenomeBuild, ucscDb, gnomadDataset, spliceAiAssembly } from '../utils/genomeBuild';
-import { lookupGeneSymbol, TRANSCRIPT_TO_GENE } from './geneSymbols';
+import { lookupGeneSymbol, TRANSCRIPT_TO_GENE, GENE_TO_DEFAULT_TRANSCRIPT } from './geneSymbols';
 
 export type { GenomeBuild };
 
@@ -119,6 +119,7 @@ export function parseVariant(input: string): ParsedVariant {
   let transcript: string | undefined;
   let codingChange: string | undefined;
   let proteinChange: string | undefined;
+  let geneSymbol: string | undefined;
 
   // Sprint 2: extract genome build annotation from input before matching
   const genomeBuild: GenomeBuild | undefined = detectGenomeBuild(raw) ?? undefined;
@@ -166,15 +167,26 @@ export function parseVariant(input: string): ParsedVariant {
   }
 
   // ── 2. HGVSc coding transcript ───────────────────────────────────────────
+  // Supports transcript or gene symbol prefix, e.g. PAH:c.1222C>T or PAH c.1222C>T
   const codingTranscriptRegex =
-    /((?:ENST|NM_|NR_|NC_|XM_|XR_|NP_|LRG_)\d+(?:\.\d+)?)\s*:\s*c\.\s*([0-9_+\-*a-zA-Z0-9>]+)(?:\s*\(\s*(p\.[A-Za-z0-9_()]+)\s*\))?/i;
+    /(?:((?:ENST|NM_|NR_|NC_|XM_|XR_|NP_|LRG_)\d+(?:\.\d+)?)|([A-Za-z0-9_-]+))\s*[:\s]\s*c\.\s*([0-9_+\-*a-zA-Z0-9>]+)(?:\s*\(\s*(p\.[A-Za-z0-9_()]+)\s*\))?/i;
 
   const codingMatch = raw.match(codingTranscriptRegex);
   if (codingMatch) {
-    transcript   = codingMatch[1];
-    codingChange = `c.${codingMatch[2]}`;
-    if (codingMatch[3]) {
-      proteinChange = codingMatch[3];
+    if (codingMatch[1]) {
+      transcript = codingMatch[1];
+    } else if (codingMatch[2]) {
+      geneSymbol = codingMatch[2];
+      const defaultTx = GENE_TO_DEFAULT_TRANSCRIPT[geneSymbol.toUpperCase()];
+      if (defaultTx) {
+        transcript = defaultTx;
+        diagnostics.push(`Backfilled default transcript ${transcript} for gene ${geneSymbol}`);
+      }
+    }
+    
+    codingChange = `c.${codingMatch[3]}`;
+    if (codingMatch[4]) {
+      proteinChange = codingMatch[4];
       type = 'hybrid';
       diagnostics.push('Matched hybrid transcript coding/protein sequence');
     } else {
@@ -186,7 +198,7 @@ export function parseVariant(input: string): ParsedVariant {
     if (proteinChange) diagnostics.push(`Extracted linked protein change: ${proteinChange}`);
 
     // NC_ chromosome inference
-    if (transcript.startsWith('NC_')) {
+    if (transcript && transcript.startsWith('NC_')) {
       if (/^NC_012920/i.test(transcript)) {
         chromosome = 'MT';
         diagnostics.push(`Inferred mitochondrial chromosome (MT) from accession ${transcript}`);
@@ -202,12 +214,22 @@ export function parseVariant(input: string): ParsedVariant {
 
   // ── 3. HGVSp protein-only ────────────────────────────────────────────────
   if (!isValid) {
+    // Supports transcript or gene symbol prefix, e.g. PAH p.Arg408Trp or PAH:p.Arg408Trp
     const proteinRegex =
-      /(?:([A-Z0-9_.]+)\s*:\s*)?p\.\s*(\(?[A-Za-z0-9_*?]+(?:[A-Za-z0-9_*?()]+)*\)?)/i;
+      /(?:(?:((?:ENST|NM_|NR_|NC_|XM_|XR_|NP_|LRG_)\d+(?:\.\d+)?)|([A-Za-z0-9_-]+))\s*[:\s]\s*)?p\.\s*(\(?[A-Za-z0-9_*?]+(?:[A-Za-z0-9_*?()]+)*\)?)/i;
     const pMatch = raw.match(proteinRegex);
     if (pMatch) {
-      if (pMatch[1]) transcript = pMatch[1];
-      proteinChange = `p.${pMatch[2]}`;
+      if (pMatch[1]) {
+        transcript = pMatch[1];
+      } else if (pMatch[2]) {
+        geneSymbol = pMatch[2];
+        const defaultTx = GENE_TO_DEFAULT_TRANSCRIPT[geneSymbol.toUpperCase()];
+        if (defaultTx) {
+          transcript = defaultTx;
+          diagnostics.push(`Backfilled default transcript ${transcript} for gene ${geneSymbol}`);
+        }
+      }
+      proteinChange = `p.${pMatch[3]}`;
       isValid = true;
       type    = transcript ? 'hybrid' : 'protein';
       diagnostics.push('Matched protein coordinate signature');
@@ -224,9 +246,18 @@ export function parseVariant(input: string): ParsedVariant {
     const data    = CANONICAL_DATABASE[k];
     const keyTx   = data.tx ? stripVersion(data.tx).toUpperCase() : '';
     const keyC    = data.c  ? data.c.toUpperCase() : '';
+    const keyP    = data.p  ? data.p.toUpperCase() : '';
     const parsedTx = transcript ? stripVersion(transcript).toUpperCase() : '';
-    return parsedTx && keyTx && codingChange &&
-           parsedTx === keyTx && codingChange.toUpperCase() === keyC;
+    
+    if (parsedTx && keyTx && parsedTx === keyTx) {
+      if (codingChange && codingChange.toUpperCase() === keyC) {
+        return true;
+      }
+      if (proteinChange && proteinChange.toUpperCase() === keyP) {
+        return true;
+      }
+    }
+    return false;
   });
 
   if (searchKey) {
@@ -235,7 +266,7 @@ export function parseVariant(input: string): ParsedVariant {
     position      = position      || data.pos;
     ref           = ref           || data.ref;
     alt           = alt           || data.alt;
-    transcript    = transcript    || data.tx;
+    transcript    = (transcript && transcript.includes('.')) ? transcript : (data.tx || transcript);
     codingChange  = codingChange  || data.c;
     proteinChange = proteinChange || data.p;
     diagnostics.push(`Matched canonical genomic database entry for ${searchKey}! Backfilled all coordinates.`);
@@ -246,7 +277,9 @@ export function parseVariant(input: string): ParsedVariant {
     diagnostics.push('Validation failed: string did not conform to any known variant format.');
   }
 
-  let geneSymbol = transcript ? (lookupGeneSymbol(transcript) ?? undefined) : undefined;
+  if (!geneSymbol) {
+    geneSymbol = transcript ? (lookupGeneSymbol(transcript) ?? undefined) : undefined;
+  }
   if (!geneSymbol) {
     const upperRaw = raw.toUpperCase();
     const foundGene = Object.values(TRANSCRIPT_TO_GENE).find(g => {

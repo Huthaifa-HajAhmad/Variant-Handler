@@ -622,4 +622,33 @@ describe('Sprint 3: genomic deletion parsing and gene symbol extraction', () => 
     const r = parseVariant('PAH p.Arg408Trp');
     expect(r.geneSymbol).toBe('PAH');
   });
+
+  it('parses gene-prefixed coding variant and backfills canonical details', () => {
+    const r = parseVariant('PAH:c.1222C>T');
+    expect(r.isValid).toBe(true);
+    expect(r.geneSymbol).toBe('PAH');
+    expect(r.transcript).toBe('NM_000277.3'); // Backfilled and matched from canonical database
+    expect(r.codingChange).toBe('c.1222C>T');
+    expect(r.chromosome).toBe('12');
+    expect(r.position).toBe('102867431');
+  });
+
+  it('parses gene-prefixed coding variant with space separator', () => {
+    const r = parseVariant('PAH c.1222C>T');
+    expect(r.isValid).toBe(true);
+    expect(r.geneSymbol).toBe('PAH');
+    expect(r.transcript).toBe('NM_000277.3');
+    expect(r.codingChange).toBe('c.1222C>T');
+  });
+
+  it('parses gene-prefixed protein variant and backfills canonical details', () => {
+    const r = parseVariant('PAH p.Arg408Trp');
+    expect(r.isValid).toBe(true);
+    expect(r.geneSymbol).toBe('PAH');
+    expect(r.transcript).toBe('NM_000277.3'); // Backfilled and matched from canonical database
+    expect(r.proteinChange).toBe('p.Arg408Trp');
+    expect(r.chromosome).toBe('12');
+    expect(r.position).toBe('102867431');
+  });
 });
+

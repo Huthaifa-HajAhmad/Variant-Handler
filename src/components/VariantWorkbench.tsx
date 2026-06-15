@@ -8,7 +8,7 @@
  *  - EnrichmentPanel slot below coordinate breakdown
  */
 import React, { useState, useEffect } from 'react';
-import { Edit3, Check, Copy, Cpu, ClipboardPaste, Plus, Minus, Dna } from 'lucide-react';
+import { Edit3, Check, Copy, Cpu, ClipboardPaste, Dna } from 'lucide-react';
 import { ParsedVariant } from '../lib/parser';
 import { GenomeBuild } from '../utils/genomeBuild';
 import { ColorTheme } from '../lib/themes';
@@ -56,7 +56,6 @@ export default function VariantWorkbench({
 }: VariantWorkbenchProps) {
   const isLight = activeTheme.isLight;
   const [isSaving, setIsSaving] = useState(false);
-  const [noteExpanded, setNoteExpanded] = useState(false);
 
   useEffect(() => {
     if (!microNote) return;
@@ -246,46 +245,21 @@ export default function VariantWorkbench({
             <span className={`text-xs flex items-center gap-1.5 font-semibold ${isLight ? 'text-slate-700' : 'text-slate-300'}`}>
               <Edit3 className="w-3.5 h-3.5" /> Analysis Notes
             </span>
-            {(noteExpanded || microNote) && (
-              <span className={`text-[10px] font-medium transition-colors ${isSaving ? (isLight ? 'text-emerald-600' : 'text-emerald-400') : (isLight ? 'text-slate-400' : 'text-slate-500')}`}>
-                {isSaving ? 'Saved!' : 'Auto-saves'}
-              </span>
-            )}
+            <span className={`text-[10px] font-medium transition-colors ${isSaving ? (isLight ? 'text-emerald-600' : 'text-emerald-400') : (isLight ? 'text-slate-400' : 'text-slate-500')}`}>
+              {isSaving ? 'Saved!' : 'Auto-saves'}
+            </span>
           </div>
-          {(noteExpanded || microNote) ? (
-            <div className="relative">
-              <textarea
-                id="add-note-textarea"
-                value={microNote}
-                onChange={(e) => handleSaveMicroNote(e.target.value)}
-                rows={2}
-                maxLength={2000}
-                placeholder="Enter clinical report details, reference comments, or notes..."
-                className={`w-full text-xs px-3 py-2.5 rounded-lg border shadow-inner resize-none outline-none transition-all ${isLight ? 'bg-slate-50 border-slate-200 text-slate-800 placeholder-slate-400 focus:border-indigo-400 focus:bg-white focus:ring-2 focus:ring-indigo-100' : 'bg-slate-900/50 border-slate-700 text-slate-200 placeholder-slate-600 focus:border-indigo-500 focus:bg-slate-900 focus:ring-2 focus:ring-indigo-500/20'}`}
-              />
-              <button
-                type="button"
-                onClick={() => setNoteExpanded(false)}
-                title="Collapse notes"
-                className={`absolute top-1.5 right-1.5 p-0.5 rounded cursor-pointer ${isLight ? 'text-slate-400 hover:text-slate-700 hover:bg-slate-200' : 'text-slate-500 hover:text-slate-300 hover:bg-slate-800'}`}
-              >
-                <Minus className="w-3 h-3" />
-              </button>
-            </div>
-          ) : (
-            <button
-              type="button"
-              id="btn-add-note"
-              onClick={() => setNoteExpanded(true)}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold border cursor-pointer transition-all ${
-                isLight
-                  ? 'bg-slate-100 border-slate-200 text-slate-600 hover:border-indigo-300 hover:bg-indigo-50 hover:text-indigo-700'
-                  : 'bg-slate-900 border-slate-800 text-slate-400 hover:border-indigo-500 hover:bg-indigo-950/30 hover:text-indigo-300'
-              }`}
-            >
-              <Plus className="w-3.5 h-3.5" /> Add note
-            </button>
-          )}
+          <div className="relative">
+            <textarea
+              id="add-note-textarea"
+              value={microNote}
+              onChange={(e) => handleSaveMicroNote(e.target.value)}
+              rows={2}
+              maxLength={2000}
+              placeholder="Enter clinical report details, reference comments, or notes..."
+              className={`w-full text-xs px-3 py-2.5 rounded-lg border shadow-inner resize-none outline-none transition-all ${isLight ? 'bg-slate-50 border-slate-200 text-slate-800 placeholder-slate-400 focus:border-indigo-400 focus:bg-white focus:ring-2 focus:ring-indigo-100' : 'bg-slate-900/50 border-slate-700 text-slate-200 placeholder-slate-600 focus:border-indigo-500 focus:bg-slate-900 focus:ring-2 focus:ring-indigo-500/20'}`}
+            />
+          </div>
         </div>
 
         {/* Copy action */}

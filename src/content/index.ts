@@ -285,6 +285,47 @@ function findAndHighlightProteinChange(proteinChange: string): boolean {
 }
 
 /**
+ * Helper to update injection button visibilities and text dynamically.
+ */
+function updateVisibility(
+  btn: HTMLButtonElement,
+  btnGene: HTMLButtonElement,
+  btnFind: HTMLButtonElement,
+  rawInput: string
+) {
+  const parsed = parseVariant(rawInput);
+  const hostname = window.location.hostname;
+  
+  btn.style.display = 'inline-flex';
+  
+  const isClinVar = hostname.includes('ncbi.nlm.nih.gov');
+  const isAlphaMissense = hostname.includes('alphamissense.hegelab.org');
+
+  if (parsed.geneSymbol && (isClinVar || isAlphaMissense)) {
+    btnGene.style.display = 'inline-flex';
+    btnGene.innerHTML = `
+      <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="margin-right: 4px;"><circle cx="12" cy="12" r="10"/><path d="M12 8v8"/><path d="M8 12h8"/></svg>
+      Autofill Gene (${parsed.geneSymbol})
+    `;
+    btnGene.dataset.gene = parsed.geneSymbol;
+  } else {
+    btnGene.style.display = 'none';
+  }
+  
+  const hasTable = document.querySelector('table') !== null;
+  if (parsed.proteinChange && hasTable && isAlphaMissense) {
+    btnFind.style.display = 'inline-flex';
+    btnFind.innerHTML = `
+      <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="margin-right: 4px;"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+      Find ${parsed.proteinChange}
+    `;
+    btnFind.dataset.protein = parsed.proteinChange;
+  } else {
+    btnFind.style.display = 'none';
+  }
+}
+
+/**
  * Injects the trigger button near the input element.
  */
 function injectButton(inputEl: HTMLInputElement) {
@@ -448,32 +489,7 @@ function injectButton(inputEl: HTMLInputElement) {
   }
 
   const updateButtonsVisibility = (rawInput: string) => {
-    const parsed = parseVariant(rawInput);
-    
-    btn.style.display = 'inline-flex';
-    
-    if (parsed.geneSymbol) {
-      btnGene.style.display = 'inline-flex';
-      btnGene.innerHTML = `
-        <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="margin-right: 4px;"><circle cx="12" cy="12" r="10"/><path d="M12 8v8"/><path d="M8 12h8"/></svg>
-        Autofill Gene (${parsed.geneSymbol})
-      `;
-      btnGene.dataset.gene = parsed.geneSymbol;
-    } else {
-      btnGene.style.display = 'none';
-    }
-    
-    const hasTable = document.querySelector('table') !== null;
-    if (parsed.proteinChange && hasTable) {
-      btnFind.style.display = 'inline-flex';
-      btnFind.innerHTML = `
-        <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="margin-right: 4px;"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-        Find ${parsed.proteinChange}
-      `;
-      btnFind.dataset.protein = parsed.proteinChange;
-    } else {
-      btnFind.style.display = 'none';
-    }
+    updateVisibility(btn, btnGene, btnFind, rawInput);
   };
 
   const checkPanelState = async () => {
@@ -523,32 +539,7 @@ function init(): boolean {
         const btnFind = document.getElementById('vh-btn-find-variant') as HTMLButtonElement | null;
         
         if (btn && btnGene && btnFind && data.variantHandlerPanelOpen && data.variantstream_active_input) {
-          const parsed = parseVariant(data.variantstream_active_input);
-          
-          btn.style.display = 'inline-flex';
-          
-          if (parsed.geneSymbol) {
-            btnGene.style.display = 'inline-flex';
-            btnGene.innerHTML = `
-              <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="margin-right: 4px;"><circle cx="12" cy="12" r="10"/><path d="M12 8v8"/><path d="M8 12h8"/></svg>
-              Autofill Gene (${parsed.geneSymbol})
-            `;
-            btnGene.dataset.gene = parsed.geneSymbol;
-          } else {
-            btnGene.style.display = 'none';
-          }
-          
-          const hasTable = document.querySelector('table') !== null;
-          if (parsed.proteinChange && hasTable) {
-            btnFind.style.display = 'inline-flex';
-            btnFind.innerHTML = `
-              <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="margin-right: 4px;"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-              Find ${parsed.proteinChange}
-            `;
-            btnFind.dataset.protein = parsed.proteinChange;
-          } else {
-            btnFind.style.display = 'none';
-          }
+          updateVisibility(btn, btnGene, btnFind, data.variantstream_active_input);
         }
       }).catch(() => {});
     }
@@ -569,11 +560,7 @@ let debounceTimer: ReturnType<typeof setTimeout> | null = null;
 const observer = new MutationObserver(() => {
   if (debounceTimer) clearTimeout(debounceTimer);
   debounceTimer = setTimeout(() => {
-    const injected = init();
-    if (injected) {
-      // Injection succeeded — no need to keep observing
-      observer.disconnect();
-    }
+    init();
   }, 150);
 });
 observer.observe(document.body, { childList: true, subtree: true });
@@ -584,8 +571,8 @@ let intervalAttempts = 0;
 const MAX_INTERVAL_ATTEMPTS = 5;
 const intervalId = setInterval(() => {
   intervalAttempts++;
-  const injected = init();
-  if (injected || intervalAttempts >= MAX_INTERVAL_ATTEMPTS) {
+  init();
+  if (intervalAttempts >= MAX_INTERVAL_ATTEMPTS) {
     clearInterval(intervalId);
   }
 }, 3000);
