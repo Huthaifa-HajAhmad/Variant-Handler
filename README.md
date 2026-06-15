@@ -2,7 +2,7 @@
 
 # 🧬 Variant Handler
 
-**A stateful Chrome sidebar extension for clinical genomic coordinate parsing, triage, and cross-portal navigation.**
+**A stateful Chrome sidebar extension for clinical genomic coordinate parsing, and cross-portal navigation.**
 
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.8-3178c6?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
 [![React](https://img.shields.io/badge/React-19-61dafb?logo=react&logoColor=black)](https://react.dev/)
