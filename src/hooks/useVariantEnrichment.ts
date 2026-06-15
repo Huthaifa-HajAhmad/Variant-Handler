@@ -356,7 +356,7 @@ export function useVariantEnrichment(
   const debounceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const abortRef      = useRef<AbortController | null>(null);
 
-  const fetchEnrichment = useCallback(async (queryKey: string) => {
+  const fetchEnrichment = useCallback(async (queryKey: string, build: string | undefined) => {
     // Check in-memory cache first (zero network cost)
     const cached = memoryCache.get(queryKey);
     if (cached) {
@@ -385,7 +385,7 @@ export function useVariantEnrichment(
       let mappedPos = '';
       const genomicMatch = queryKey.match(/^chr(2[0-2]|1[0-9]|[1-9]|X|Y|MT|M):g\.([0-9]+)([ACGTN\-]+)>([ACGTN\-]+)$/i);
 
-      if (genomicMatch && parsed.genomeBuild === 'GRCh38') {
+      if (genomicMatch && build === 'GRCh38') {
         const chrom = genomicMatch[1];
         const pos = genomicMatch[2];
         const ref = genomicMatch[3];
@@ -532,7 +532,7 @@ export function useVariantEnrichment(
     // Debounce: wait for the user to finish typing
     if (debounceTimer.current) clearTimeout(debounceTimer.current);
     debounceTimer.current = setTimeout(() => {
-      fetchEnrichment(queryKey);
+      fetchEnrichment(queryKey, parsed.genomeBuild);
     }, DEBOUNCE_MS);
 
     return () => {

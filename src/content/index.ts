@@ -563,14 +563,15 @@ function injectButton(inputEl: HTMLInputElement, allowedTypes: ('variant' | 'gen
 
       const isUCSC = window.location.hostname.includes('genome.ucsc.edu');
       if (isUCSC) {
-        currentInputEl.focus();
-        currentInputEl.value = formatted;
-        currentInputEl.dispatchEvent(new Event('input', { bubbles: true }));
-        currentInputEl.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true }));
-        currentInputEl.dispatchEvent(new KeyboardEvent('keypress', { bubbles: true }));
-        currentInputEl.dispatchEvent(new KeyboardEvent('keyup', { bubbles: true }));
-        currentInputEl.dispatchEvent(new Event('change', { bubbles: true }));
-        currentInputEl.blur();
+        const related = document.querySelectorAll('input[name="position"], input[name="hgt.positionInput"], #positionInput');
+        related.forEach((el) => {
+          const input = el as HTMLInputElement;
+          input.focus();
+          input.value = formatted;
+          input.dispatchEvent(new Event('input', { bubbles: true }));
+          input.dispatchEvent(new Event('change', { bubbles: true }));
+          input.blur();
+        });
       } else {
         const nativeSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')?.set;
         if (nativeSetter) {
@@ -605,14 +606,15 @@ function injectButton(inputEl: HTMLInputElement, allowedTypes: ('variant' | 'gen
 
     const isUCSC = window.location.hostname.includes('genome.ucsc.edu');
     if (isUCSC) {
-      currentInputEl.focus();
-      currentInputEl.value = geneSymbol;
-      currentInputEl.dispatchEvent(new Event('input', { bubbles: true }));
-      currentInputEl.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true }));
-      currentInputEl.dispatchEvent(new KeyboardEvent('keypress', { bubbles: true }));
-      currentInputEl.dispatchEvent(new KeyboardEvent('keyup', { bubbles: true }));
-      currentInputEl.dispatchEvent(new Event('change', { bubbles: true }));
-      currentInputEl.blur();
+      const related = document.querySelectorAll('input[name="position"], input[name="hgt.positionInput"], #positionInput');
+      related.forEach((el) => {
+        const input = el as HTMLInputElement;
+        input.focus();
+        input.value = geneSymbol;
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+        input.dispatchEvent(new Event('change', { bubbles: true }));
+        input.blur();
+      });
     } else {
       const nativeSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')?.set;
       if (nativeSetter) {
