@@ -122,12 +122,17 @@ function savePersistentCache(map: Map<string, EnrichmentData>): void {
  *
  * Priority:
  *   1. HGVSg: chr{chrom}:g.{pos}{ref}>{alt}   (most specific)
+ *      — For GRCh38 variants, a build suffix is appended to the cache key
+ *        to prevent cross-build collisions (the liftover produces a
+ *        different hg19 position that gets stored under the mapped key).
  *   2. HGVSc: {transcript}:{codingChange}       (fallback)
  *   3. null — not enough data to query
  */
 function deriveQueryKey(parsed: ParsedVariant): string | null {
   if (parsed.chromosome && parsed.position && parsed.ref && parsed.alt) {
-    return `chr${parsed.chromosome}:g.${parsed.position}${parsed.ref}>${parsed.alt}`;
+    const base = `chr${parsed.chromosome}:g.${parsed.position}${parsed.ref}>${parsed.alt}`;
+    // Append build to avoid serving a stale GRCh37 cache entry for a GRCh38 input
+    return parsed.genomeBuild === 'GRCh38' ? `${base}@GRCh38` : base;
   }
   if (parsed.transcript && parsed.codingChange) {
     return `${parsed.transcript}:${parsed.codingChange}`;
@@ -383,7 +388,12 @@ export function useVariantEnrichment(
     try {
       let activeQueryKey = queryKey;
       let mappedPos = '';
-      const genomicMatch = queryKey.match(/^chr(2[0-2]|1[0-9]|[1-9]|X|Y|MT|M):g\.([0-9]+)([ACGTN\-]+)>([ACGTN\-]+)$/i);
+      // Strip the @GRCh38 build suffix we append to cache keys to prevent cross-build collisions
+      const rawQueryKey = queryKey.replace(/@GRCh38$/, '');
+      const genomicMatch = rawQueryKey.match(/^chr(2[0-2]|1[0-9]|[1-9]|X|Y|MT|M):g\.([0-9]+)([ACGTN\-]+)>([ACGTN\-]+)$/i);
+      // Ensure activeQueryKey uses the raw (no-suffix) key for actual API calls
+      if (queryKey !== rawQueryKey) activeQueryKey = rawQueryKey;
+
 
       if (genomicMatch && build === 'GRCh38') {
         const chrom = genomicMatch[1];
@@ -540,7 +550,7 @@ export function useVariantEnrichment(
     };
   }, [parsed.chromosome, parsed.position, parsed.ref, parsed.alt,
       parsed.transcript, parsed.codingChange, parsed.isValid,
-      enabled, fetchEnrichment]);
+      parsed.genomeBuild, enabled, fetchEnrichment]);
 
   // Cleanup on unmount
   useEffect(() => {

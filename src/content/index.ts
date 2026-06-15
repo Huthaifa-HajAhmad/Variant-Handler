@@ -659,7 +659,7 @@ function injectButton(inputEl: HTMLInputElement, allowedTypes: ('variant' | 'gen
   if (isUCSC) {
     const parent = inputEl.parentNode as HTMLElement | null;
     const form = inputEl.form;
-    const selector = '#gbtGoButton, #hgtGoButton, input[name*="positionInput"], input[type="submit"], button, input[type="button"], input[value="Search" i], input[value="go" i]';
+    const selector = '#gbtGoButton, #hgtGoButton, input[type="submit"], button, input[type="button"], input[value="Search" i], input[value="go" i]';
     
     let searchBtn = parent?.querySelector(selector) as HTMLElement | null;
     if (!searchBtn && form) {
