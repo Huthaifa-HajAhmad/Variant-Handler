@@ -284,18 +284,44 @@ function findClinVarClearAllFiltersButton(): HTMLElement | null {
 }
 
 /**
- * Checks if the URL has 'vh_clear_filters=true', indicating we need to clear previous filters.
- * If filters are active on page load, clicks the 'Clear all' button and strips the query param.
+ * Clears pre-existing ClinVar filters when `vh_clear_filters=true` was in the URL.
+ *
+ * ClinVar is a server-rendered page with async content — the "Clear all" button
+ * may not exist in the DOM at page load. This function uses a dedicated
+ * MutationObserver (separate from init()) to keep looking for the button for up
+ * to 10 seconds. Once found, it clicks the button, stores a pending autofill in
+ * sessionStorage (so the variant is re-injected after ClinVar reloads), and
+ * disconnects.
  */
 function handleClinVarClearFiltersUrl() {
-  if (isClearFiltersPending) {
-    // Look for Clear all filters button and click it to clear filters
+  if (!isClearFiltersPending) return;
+
+  const tryClear = (): boolean => {
     const clearBtn = findClinVarClearAllFiltersButton();
     if (clearBtn) {
       clearBtn.click();
       isClearFiltersPending = false;
+      return true;
     }
-  }
+    return false;
+  };
+
+  // Try immediately — the button may already be in the DOM.
+  if (tryClear()) return;
+
+  // Not yet in the DOM — observe mutations until it appears (max 10 s).
+  const clearObserver = new MutationObserver(() => {
+    if (tryClear()) {
+      clearObserver.disconnect();
+      clearTimeout(clearTimeout_);
+    }
+  });
+  clearObserver.observe(document.body, { childList: true, subtree: true });
+
+  const clearTimeout_ = setTimeout(() => {
+    clearObserver.disconnect();
+    isClearFiltersPending = false; // give up
+  }, 10_000);
 }
 
 /**
@@ -1160,7 +1186,6 @@ function init(): boolean {
   const isAlphaMissense = hostname.includes('alphamissense.hegelab.org');
 
   if (isClinVar) {
-    handleClinVarClearFiltersUrl();
     handlePendingClinVarAutofill();
   }
   
@@ -1239,6 +1264,11 @@ if (isContextValid()) {
     const newSearch = initialParams.toString();
     const newUrl = window.location.pathname + (newSearch ? '?' + newSearch : '') + window.location.hash;
     window.history.replaceState(null, '', newUrl);
+
+    // Start filter-clearing immediately (uses its own observer, independent of init).
+    if (window.location.hostname.includes('ncbi.nlm.nih.gov')) {
+      handleClinVarClearFiltersUrl();
+    }
   }
 
   init();
