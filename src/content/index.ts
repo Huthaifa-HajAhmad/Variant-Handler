@@ -254,8 +254,14 @@ function findSearchInput(): HTMLInputElement | null {
     if (el) return el;
   }
   if (hostname.includes('genome.ucsc.edu')) {
-    const el = (document.getElementById('positionInput') as HTMLInputElement | null) || findVisibleInput('input[name="position"]');
-    if (el) return el;
+    // IMPORTANT: return early (even with null) — do NOT fall through to the
+    // generic heuristic. UCSC pages include a site-wide search bar on every
+    // page; the generic heuristic would bind to that instead of the genomic
+    // position input, causing injection on the wrong field.
+    const el = (document.getElementById('positionInput') as HTMLInputElement | null)
+      ?? document.querySelector<HTMLInputElement>('input[name="hgt.positionInput"]')
+      ?? document.querySelector<HTMLInputElement>('input[name="position"]');
+    return el ?? null; // null = not a genomic-position page; skip injection
   }
   if (hostname.includes('spliceailookup.broadinstitute.org')) {
     const el = findVisibleInput('input[id="search-box"]');
@@ -700,8 +706,21 @@ function injectButton(inputEl: HTMLInputElement, allowedTypes: ('variant' | 'gen
     const syncPosition = () => {
       const rect = inputEl.getBoundingClientRect();
       if (rect.width === 0) return; // input not yet visible
-      btnContainer.style.top  = `${rect.top  + Math.max(0, (rect.height - 36) / 2)}px`;
-      btnContainer.style.left = `${rect.right + 10}px`;
+
+      // If a submit button sits immediately after the input in the same form,
+      // anchor to its right edge so we never overlap it.
+      const form = (inputEl as HTMLInputElement).form;
+      const submitBtn = form?.querySelector<HTMLElement>(
+        'input[type="submit"], button[type="submit"], input[name*="goButton"], input[value="go" i]'
+      );
+      const sRect = submitBtn?.getBoundingClientRect();
+      const anchorRight = (sRect && sRect.right > rect.right) ? sRect.right : rect.right;
+      const anchorTop   = (sRect && sRect.right > rect.right)
+        ? sRect.top + Math.max(0, (sRect.height - 36) / 2)
+        : rect.top + Math.max(0, (rect.height - 36) / 2);
+
+      btnContainer.style.top  = `${anchorTop}px`;
+      btnContainer.style.left = `${anchorRight + 10}px`;
     };
     syncPosition();
 
