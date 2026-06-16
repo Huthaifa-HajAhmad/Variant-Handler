@@ -694,19 +694,25 @@ function injectButton(inputEl: HTMLInputElement, allowedTypes: ('variant' | 'gen
 
         // Submit the form. Try (in order):
         //  1. Known go-button IDs (gateway pages)
-        //  2. submit input with name containing 'go' or value 'go' (hgTracks)
-        //  3. form.requestSubmit()  — fires submit event, lets UCSC JS intercept
-        //  4. form.submit()         — silent last-resort
+        //  2. hgt.goButton by name  — the canonical UCSC position-jump button
+        //  3. Any other go-named input or submit in the form
+        //  4. form.requestSubmit()  — fires submit event, lets UCSC JS intercept
+        //  5. form.submit()         — silent last-resort
         const trySubmit = () => {
           const goById = document.getElementById('hgtGoButton') ?? document.getElementById('gbtGoButton');
           if (goById) { (goById as HTMLElement).click(); return; }
 
-          const goByAttr = posInput?.form?.querySelector<HTMLElement>(
-            'input[name*="goButton"], input[value="go" i], button[type="submit"]'
+          const form = posInput?.form;
+          // Prefer hgt.goButton specifically — this is the position-jump submit,
+          // not the "Search" button which operates on the gene-search input.
+          const goByName = form?.querySelector<HTMLElement>('input[name="hgt.goButton"]');
+          if (goByName) { goByName.click(); return; }
+
+          const goByAttr = form?.querySelector<HTMLElement>(
+            'input[name*="goButton"], input[value="go" i]'
           );
           if (goByAttr) { goByAttr.click(); return; }
 
-          const form = posInput?.form;
           if (form) {
             try { (form as any).requestSubmit(); }
             catch { form.submit(); }
@@ -826,30 +832,35 @@ function injectButton(inputEl: HTMLInputElement, allowedTypes: ('variant' | 'gen
       const rect = inputEl.getBoundingClientRect();
       if (rect.width === 0) return false; // not painted yet
 
-      // Scan ALL submit-like buttons in the form and pick the rightmost VISIBLE
-      // one. UCSC has hidden submit buttons (e.g. #hgtGoButton) that return
-      // getBoundingClientRect().right === 0 — picking those as the anchor would
-      // land the button on top of the visible "Search" button.
+      // UCSC's toolbar has MANY submit buttons (<<<, <<, <, >, >>, >>>, Search).
+      // querySelector() returns the first one (a nav arrow on the left).
+      // Instead scan all buttons/submits on the same visual row as the position
+      // input and pick the one with the largest right-edge value.
       const form = (inputEl as HTMLInputElement).form;
       const candidates = Array.from(
-        form?.querySelectorAll<HTMLElement>(
-          'input[type="submit"], button[type="submit"], input[name*="goButton"]'
-        ) ?? []
+        (form ?? document).querySelectorAll<HTMLElement>(
+          'input[type="submit"], button[type="submit"], input[type="button"]'
+        )
       );
+      // "Same row" = vertical centre within 1.5× the input height.
+      const inputCentreY = rect.top + rect.height / 2;
+      const sameRow = candidates.filter(el => {
+        const r = el.getBoundingClientRect();
+        return r.width > 0 && Math.abs((r.top + r.height / 2) - inputCentreY) < rect.height * 1.5;
+      });
+      const rightmost = sameRow.reduce<HTMLElement | null>((best, el) => {
+        const r = el.getBoundingClientRect();
+        return (!best || r.right > best.getBoundingClientRect().right) ? el : best;
+      }, null);
 
-      let anchorRight = rect.right;
-      let anchorTop   = rect.top + Math.max(0, (rect.height - 36) / 2);
-
-      for (const btn of candidates) {
-        const bRect = btn.getBoundingClientRect();
-        if (bRect.width > 0 && bRect.right > anchorRight) {
-          anchorRight = bRect.right;
-          anchorTop   = bRect.top + Math.max(0, (bRect.height - 36) / 2);
-        }
-      }
+      const sRect = rightmost?.getBoundingClientRect();
+      const anchorRight = (sRect && sRect.right > rect.right) ? sRect.right : rect.right;
+      const anchorTop   = (sRect && sRect.right > rect.right)
+        ? sRect.top + Math.max(0, (sRect.height - 36) / 2)
+        : rect.top + Math.max(0, (rect.height - 36) / 2);
 
       btnContainer.style.top  = `${anchorTop}px`;
-      btnContainer.style.left = `${anchorRight + 10}px`;
+      btnContainer.style.left = `${anchorRight + 16}px`;
       return true;
     };
 
