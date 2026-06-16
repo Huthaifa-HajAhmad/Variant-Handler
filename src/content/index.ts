@@ -821,46 +821,25 @@ function injectButton(inputEl: HTMLInputElement, allowedTypes: ('variant' | 'gen
   let ucscSyncPosition: (() => void) | null = null;
 
   if (isUCSC) {
-    // Use fixed positioning anchored to the input's bounding rect.
-    // Completely DOM-structure agnostic — works regardless of UCSC layout.
     btnContainer.style.position = 'fixed';
     btnContainer.style.zIndex  = '2147483647';
     btnContainer.style.margin  = '0';
+    // top/right are set by computeAndSetPosition via rAF once painted
     document.body.appendChild(btnContainer);
-
     const computeAndSetPosition = () => {
       const rect = inputEl.getBoundingClientRect();
       if (rect.width === 0) return false; // not painted yet
 
-      // UCSC's toolbar has MANY submit buttons (<<<, <<, <, >, >>, >>>, Search).
-      // querySelector() returns the first one (a nav arrow on the left).
-      // Instead scan all buttons/submits on the same visual row as the position
-      // input and pick the one with the largest right-edge value.
-      const form = (inputEl as HTMLInputElement).form;
-      const candidates = Array.from(
-        (form ?? document).querySelectorAll<HTMLElement>(
-          'input[type="submit"], button[type="submit"], input[type="button"]'
-        )
-      );
-      // "Same row" = vertical centre within 1.5× the input height.
-      const inputCentreY = rect.top + rect.height / 2;
-      const sameRow = candidates.filter(el => {
-        const r = el.getBoundingClientRect();
-        return r.width > 0 && Math.abs((r.top + r.height / 2) - inputCentreY) < rect.height * 1.5;
-      });
-      const rightmost = sameRow.reduce<HTMLElement | null>((best, el) => {
-        const r = el.getBoundingClientRect();
-        return (!best || r.right > best.getBoundingClientRect().right) ? el : best;
-      }, null);
-
-      const sRect = rightmost?.getBoundingClientRect();
-      const anchorRight = (sRect && sRect.right > rect.right) ? sRect.right : rect.right;
-      const anchorTop   = (sRect && sRect.right > rect.right)
-        ? sRect.top + Math.max(0, (sRect.height - 36) / 2)
-        : rect.top + Math.max(0, (rect.height - 36) / 2);
-
-      btnContainer.style.top  = `${anchorTop}px`;
-      btnContainer.style.left = `${anchorRight + 16}px`;
+      // Anchor to the RIGHT edge of the viewport at the same vertical level as
+      // the position input. Scanning DOM elements is unreliable on UCSC because
+      // the toolbar contains heterogeneous elements: nav arrows, submit inputs,
+      // and <a> links like "Examples" that our button kept overlapping.
+      // position: fixed + right: 8px is the standard pattern for extension
+      // buttons and is guaranteed never to overlap any page content.
+      const verticalCentre = rect.top + Math.max(0, (rect.height - 36) / 2);
+      btnContainer.style.top   = `${verticalCentre}px`;
+      btnContainer.style.right = '8px';
+      btnContainer.style.left  = ''; // clear any previous left value
       return true;
     };
 
