@@ -652,3 +652,38 @@ describe('Sprint 3: genomic deletion parsing and gene symbol extraction', () => 
   });
 });
 
+describe('ClinVar URL generation and filter-clearing parameter', () => {
+  const clinvar = INITIAL_PLATFORMS.find((p) => p.id === 'clinvar')!;
+
+  it('builds ClinVar URL with vh_clear_filters=true', () => {
+    const r = parseVariant('chr7:g.140753336A>T');
+    const url = buildPlatformUrl(r, clinvar);
+    expect(url).toContain('vh_clear_filters=true');
+  });
+
+  it('prioritises highly specific coordinates/transcripts over protein changes', () => {
+    const r = parseVariant('NM_000277.3:c.1222C>T');
+    // Provide both protein change and transcript-level coding change in enrichment
+    const enrichment = {
+      geneSymbol: 'PAH',
+      proteinChange: 'p.Arg408Trp',
+      transcript: 'NM_000277.3',
+      codingChange: 'c.1222C>T'
+    };
+    const url = buildPlatformUrl(r, clinvar, 'GRCh38', enrichment);
+    // Should use the coding change, not bare protein change
+    expect(url).toContain(encodeURIComponent('NM_000277.3:c.1222C>T'));
+    expect(url).not.toContain(encodeURIComponent('p.Arg408Trp'));
+  });
+
+  it('combines protein change with gene symbol when falling back to hgvsp', () => {
+    const r = parseVariant('p.Arg408Trp');
+    const enrichment = {
+      geneSymbol: 'PAH',
+      proteinChange: 'p.Arg408Trp'
+    };
+    const url = buildPlatformUrl(r, clinvar, 'GRCh38', enrichment);
+    expect(url).toContain(encodeURIComponent('PAH p.Arg408Trp'));
+  });
+});
+

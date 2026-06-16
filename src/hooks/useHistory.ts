@@ -66,5 +66,11 @@ export function useHistory(defaultItems: string[] = []) {
     };
   }, []);
 
-  return { history, addToHistory, removeFromHistory };
+  const clearHistory = useCallback(() => {
+    setHistory([]);
+    localStorage.removeItem(STORAGE_KEY);
+  }, []);
+
+  return { history, addToHistory, removeFromHistory, clearHistory };
 }
+

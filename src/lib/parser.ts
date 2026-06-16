@@ -522,14 +522,18 @@ export function buildPlatformUrl(
 
   // 5. clinvar
   if (adapter.id === 'clinvar') {
-    const variantTerm = rsId || hgvsg || hgvsc || hgvsp || fullHgvsG || fullHgvsC;
+    const variantTerm = rsId || hgvsg || hgvsc || fullHgvsG || fullHgvsC || hgvsp;
     if (variantTerm) {
-      return `https://www.ncbi.nlm.nih.gov/clinvar/?term=${encodeURIComponent(variantTerm)}`;
+      let queryTerm = variantTerm;
+      if (variantTerm === hgvsp && gene) {
+        queryTerm = `${gene} ${hgvsp}`;
+      }
+      return `https://www.ncbi.nlm.nih.gov/clinvar/?term=${encodeURIComponent(queryTerm)}&vh_clear_filters=true`;
     }
     if (gene) {
-      return `https://www.ncbi.nlm.nih.gov/clinvar/?term=${encodeURIComponent(gene)}%5Bgene%5D`;
+      return `https://www.ncbi.nlm.nih.gov/clinvar/?term=${encodeURIComponent(gene)}%5Bgene%5D&vh_clear_filters=true`;
     }
-    return `https://www.ncbi.nlm.nih.gov/clinvar/?term=${encodeURIComponent(raw)}`;
+    return `https://www.ncbi.nlm.nih.gov/clinvar/?term=${encodeURIComponent(raw)}&vh_clear_filters=true`;
   }
 
   // 6. dbsnp

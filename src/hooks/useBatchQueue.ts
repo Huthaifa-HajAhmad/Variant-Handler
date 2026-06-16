@@ -100,5 +100,12 @@ export function useBatchQueue(defaultItems: BatchItem[]) {
     });
   }, []);
 
-  return { batchQueue, addItem, removeItem, upsertItem };
+  /** Clear the entire queue. */
+  const clearQueue = useCallback(() => {
+    setBatchQueue([]);
+    localStorage.removeItem(STORAGE_KEY);
+  }, []);
+
+  return { batchQueue, addItem, removeItem, upsertItem, clearQueue };
 }
+

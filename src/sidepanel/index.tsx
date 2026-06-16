@@ -53,8 +53,8 @@ const DEFAULT_BATCH: BatchItem[] = [
 export default function SidepanelView() {
   // ── Hooks ───────────────────────────────────────────────────────────────
   const { themeId, activeTheme, selectTheme, toggleTheme } = useTheme();
-  const { batchQueue, addItem, removeItem, upsertItem }    = useBatchQueue(DEFAULT_BATCH);
-  const { history, addToHistory, removeFromHistory }       = useHistory(DEFAULT_BATCH.map((b) => b.input));
+  const { batchQueue, addItem, removeItem, upsertItem, clearQueue }    = useBatchQueue(DEFAULT_BATCH);
+  const { history, addToHistory, removeFromHistory, clearHistory }       = useHistory(DEFAULT_BATCH.map((b) => b.input));
 
   // ── Local state ─────────────────────────────────────────────────────────
   const [activeInput,    setActiveInput]    = useState('NM_000492.4:c.1521_1523delCTT');
@@ -99,7 +99,7 @@ export default function SidepanelView() {
   }, [parsed.genomeBuild]); // eslint-disable-line react-hooks/exhaustive-deps -- intentional one-way sync from input
 
   // Sprint 2: live enrichment hook
-  const { enrichment, isLoading: enrichmentLoading, error: enrichmentError } =
+  const { enrichment, isLoading: enrichmentLoading, error: enrichmentError, refetch: refetchEnrichment } =
     useVariantEnrichment(parsed, liveEnrichmentEnabled);
 
   // Sprint 2: build-aware URL generation
@@ -328,7 +328,6 @@ useEffect(() => {
           parsed={parsed}
           microNote={microNote}
           handleSaveMicroNote={handleSaveMicroNote}
-          handleManualAdd={handleManualAdd}
           handleCopyValue={handleCopyValue}
           copiedId={copiedId}
           activeTheme={activeTheme}
@@ -339,6 +338,7 @@ useEffect(() => {
           enrichmentLoading={enrichmentLoading}
           enrichmentError={enrichmentError}
           liveEnrichmentEnabled={liveEnrichmentEnabled}
+          onRefreshEnrichment={refetchEnrichment}
         />
 
         <PlatformLaunchpad
@@ -363,6 +363,8 @@ useEffect(() => {
           onExportPPT={() => exportPPT(batchQueue, history, triggerAlert)}
           triggerAlert={triggerAlert}
           addItem={addItem}
+          clearQueue={clearQueue}
+          clearHistory={clearHistory}
         />
       </div>
 

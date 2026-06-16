@@ -8,13 +8,38 @@
  *  - EnrichmentPanel slot below coordinate breakdown
  */
 import React, { useState, useEffect } from 'react';
-import { Edit3, Check, Copy, Cpu, ClipboardPaste, Dna, Plus, Minus } from 'lucide-react';
+import { Edit3, Check, Copy, Cpu, ClipboardPaste, Dna, Plus, Minus, Loader2, Globe, AlertCircle, RotateCw } from 'lucide-react';
 import { ParsedVariant } from '../lib/parser';
 import { GenomeBuild } from '../utils/genomeBuild';
 import { ColorTheme } from '../lib/themes';
 import HighlightedCoordinate from './HighlightedCoordinate';
-import EnrichmentPanel from './EnrichmentPanel';
 import { EnrichmentData } from '../hooks/useVariantEnrichment';
+
+// ClinVar review star count (0–4)
+function reviewStars(review: string): number {
+  const r = review.toLowerCase();
+  if (r.includes('practice guideline'))                        return 4;
+  if (r.includes('expert panel'))                              return 3;
+  if (r.includes('criteria provided') && r.includes('conflicting')) return 1;
+  if (r.includes('criteria provided'))                         return 2;
+  if (r.includes('no criteria'))                               return 1;
+  return 0;
+}
+
+// Allele frequency to colour
+function afColor(af: number): string {
+  if (af >= 0.05)  return '#10b981'; // common   — emerald
+  if (af >= 0.001) return '#f59e0b'; // low freq — amber
+  if (af >= 1e-4)  return '#ef4444'; // rare     — red
+  return '#8b5cf6';                  // very rare — violet
+}
+
+function formatAf(af: number): string {
+  if (af === 0) return '0';
+  if (af < 0.0001) return af.toExponential(2);
+  return af.toPrecision(3);
+}
+
 
 interface VariantWorkbenchProps {
   activeInput: string;
@@ -22,7 +47,6 @@ interface VariantWorkbenchProps {
   parsed: ParsedVariant;
   microNote: string;
   handleSaveMicroNote: (note: string) => void;
-  handleManualAdd: (e: React.FormEvent) => void;
   handleCopyValue: (text: string, id: string) => void;
   copiedId: string | null;
   activeTheme: ColorTheme;
@@ -34,6 +58,7 @@ interface VariantWorkbenchProps {
   enrichmentLoading: boolean;
   enrichmentError: string | null;
   liveEnrichmentEnabled: boolean;
+  onRefreshEnrichment?: () => void;
 }
 
 export default function VariantWorkbench({
@@ -42,7 +67,6 @@ export default function VariantWorkbench({
   parsed,
   microNote,
   handleSaveMicroNote,
-  handleManualAdd,
   handleCopyValue,
   copiedId,
   activeTheme,
@@ -53,6 +77,7 @@ export default function VariantWorkbench({
   enrichmentLoading,
   enrichmentError,
   liveEnrichmentEnabled,
+  onRefreshEnrichment,
 }: VariantWorkbenchProps) {
   const isLight = activeTheme.isLight;
   const [isSaving, setIsSaving] = useState(false);
@@ -115,13 +140,70 @@ export default function VariantWorkbench({
   const genomicValue = enrichment?.hgvsg || (chromosome && position && ref && alt ? `chr${chromosome}:g.${position}${ref}>${alt}` : '');
   const codingValue = codingChange && transcript ? `${transcript}:${codingChange}` : '';
   const proteinValue = proteinChange ?? '';
+  const isSplicingOrIntronic = codingChange ? /c\.\d+([+-]\d+)/.test(codingChange) : false;
 
   return (
     <div className={`${cardBase} p-4 relative`}>
-      <h2 className={sectionTitleCls}>Variant Details</h2>
+      <div className="flex items-center justify-between mb-3">
+        <h2 className={sectionTitleCls}>Variant Details</h2>
+        {liveEnrichmentEnabled && parsed.isValid && (
+          <div className="flex items-center gap-1.5">
+            {enrichmentLoading && (
+              <span className="flex items-center gap-1 text-[9px] font-semibold text-slate-400">
+                <Loader2 className="w-2.5 h-2.5 animate-spin" />
+                Live lookup...
+              </span>
+            )}
+            {enrichmentError && (
+              <span className="text-[9px] font-bold px-1.5 py-0.5 rounded border border-amber-200 bg-amber-50 text-amber-600">
+                Lookup failed
+              </span>
+            )}
+            {!enrichmentLoading && !enrichmentError && enrichment && (
+              <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded border font-mono ${
+                enrichment.source === 'myvariant'
+                  ? isLight
+                    ? 'text-indigo-600 border-indigo-200 bg-indigo-50'
+                    : 'text-indigo-400 border-indigo-900 bg-indigo-950/40'
+                  : enrichment.source === 'ensembl'
+                  ? isLight
+                    ? 'text-teal-600 border-teal-200 bg-teal-50'
+                    : 'text-teal-400 border-teal-900 bg-teal-950/40'
+                  : enrichment.source === 'both'
+                  ? isLight
+                    ? 'text-purple-600 border-purple-200 bg-purple-50'
+                    : 'text-purple-400 border-purple-900 bg-purple-950/40'
+                  : isLight
+                  ? 'text-slate-500 border-slate-200 bg-slate-50'
+                  : 'text-slate-400 border-slate-800 bg-slate-900/40'
+              }`}>
+                {enrichment.source === 'myvariant' && 'myvariant.info'}
+                {enrichment.source === 'ensembl' && 'Ensembl'}
+                {enrichment.source === 'both' && 'MyVariant & Ensembl'}
+                {enrichment.source === 'none' && 'No annotations found'}
+              </span>
+            )}
+            {onRefreshEnrichment && (
+              <button
+                onClick={onRefreshEnrichment}
+                disabled={enrichmentLoading}
+                className={`p-1 rounded-md transition-colors ${
+                  isLight
+                    ? 'text-slate-400 hover:text-slate-600 hover:bg-slate-100 disabled:opacity-50'
+                    : 'text-slate-500 hover:text-slate-300 hover:bg-slate-800 disabled:opacity-50'
+                }`}
+                title="Force refresh live annotations"
+                aria-label="Refresh live annotations"
+              >
+                <RotateCw className={`w-3 h-3 ${enrichmentLoading ? 'animate-spin' : ''}`} />
+              </button>
+            )}
+          </div>
+        )}
+      </div>
 
-      {/* Input form */}
-      <form onSubmit={handleManualAdd} className="flex gap-2 mb-3">
+      {/* Input lookup field */}
+      <div className="flex gap-2 mb-3">
         <div className={`flex-grow flex items-center px-3 py-1.5 rounded-lg border shadow-inner ${isLight ? 'bg-slate-50 border-slate-200 focus-within:border-indigo-400 focus-within:ring-2 focus-within:ring-indigo-100' : 'bg-slate-900/50 border-slate-700 focus-within:border-indigo-500 focus-within:ring-2 focus-within:ring-indigo-500/20'} transition-all`}>
           <input
             id="variant-input"
@@ -152,15 +234,7 @@ export default function VariantWorkbench({
             <ClipboardPaste className="w-4 h-4" />
           </button>
         </div>
-        <button
-          type="submit"
-          id="btn-add-to-queue"
-          title="Add Variant to Batch Checklist"
-          className={`px-3 py-1.5 rounded-lg text-xs font-bold shrink-0 cursor-pointer transition-all shadow-sm ${isLight ? 'bg-indigo-600 hover:bg-indigo-700 text-white' : 'bg-indigo-600 hover:bg-indigo-500 text-white'}`}
-        >
-          Add
-        </button>
-      </form>
+      </div>
 
       {/* ── Genome Build Selector ─────────────────────────────────────────── */}
       <div className="flex items-center gap-2 mb-4">
@@ -329,21 +403,171 @@ export default function VariantWorkbench({
             </div>
             <div className="mt-1">
               <span className={`${rowValCls} ${!proteinChange ? (isLight ? 'text-slate-400 font-normal' : 'text-slate-500 font-normal') : ''}`}>
-                {proteinChange || 'No protein impact mapped'}
+                {proteinChange || (isSplicingOrIntronic ? 'No protein impact mapped (splicing/intronic variant)' : 'No protein impact mapped')}
               </span>
             </div>
           </div>
-        </div>
 
-        {/* ── Live Enrichment Panel ────────────────────────────────────── */}
-        {liveEnrichmentEnabled && parsed.isValid && (
-          <EnrichmentPanel
-            enrichment={enrichment}
-            isLoading={enrichmentLoading}
-            error={enrichmentError}
-            activeTheme={activeTheme}
-          />
-        )}
+          {/* ── Live Enrichment Fields ────────────────────────────────── */}
+          {liveEnrichmentEnabled && parsed.isValid && (
+            enrichmentError ? (
+              <div className={`col-span-2 p-2 rounded-lg border flex items-center gap-1.5 text-[10px] ${
+                isLight ? 'bg-amber-50 border-amber-200 text-amber-700' : 'bg-amber-950/30 border-amber-900/50 text-amber-300'
+              }`}>
+                <AlertCircle className="w-3.5 h-3.5 shrink-0 text-amber-500" />
+                <span className="font-semibold">
+                  Live lookup unavailable — extension works normally without it.
+                </span>
+              </div>
+            ) : enrichmentLoading ? (
+              <>
+                <div className={`p-1.5 px-2 rounded-lg border flex flex-col justify-between ${isLight ? 'bg-emerald-50/50 border-emerald-100/50' : 'bg-emerald-950/20 border-emerald-900/30'}`}>
+                  <span className={rowLabelCls}>Gene Symbol</span>
+                  <div className={`h-4 w-12 rounded mt-1 ${isLight ? 'bg-emerald-200/50' : 'bg-emerald-800/30'} animate-pulse`} />
+                </div>
+                <div className={`p-1.5 px-2 rounded-lg border flex flex-col justify-between ${isLight ? 'bg-purple-50/50 border-purple-100/50' : 'bg-purple-950/20 border-purple-900/30'}`}>
+                  <span className={rowLabelCls}>dbSNP ID</span>
+                  <div className={`h-4 w-12 rounded mt-1 ${isLight ? 'bg-purple-200/50' : 'bg-purple-800/30'} animate-pulse`} />
+                </div>
+                <div className={`p-1.5 px-2 rounded-lg border flex flex-col justify-between ${isLight ? 'bg-amber-50/50 border-amber-100/50' : 'bg-amber-950/20 border-amber-900/30'}`}>
+                  <span className={rowLabelCls}>gnomAD AF</span>
+                  <div className={`h-4 w-20 rounded mt-1 ${isLight ? 'bg-amber-200/50' : 'bg-amber-800/30'} animate-pulse`} />
+                </div>
+                <div className={`p-1.5 px-2 rounded-lg border flex flex-col justify-between ${isLight ? 'bg-rose-50/50 border-rose-100/50' : 'bg-rose-950/20 border-rose-900/30'}`}>
+                  <span className={rowLabelCls}>ClinVar Status</span>
+                  <div className={`h-4 w-24 rounded mt-1 ${isLight ? 'bg-rose-200/50' : 'bg-rose-800/30'} animate-pulse`} />
+                </div>
+              </>
+            ) : enrichment ? (
+              <>
+                {/* Gene Symbol */}
+                <div className={`p-1.5 px-2 rounded-lg border flex flex-col justify-between ${isLight ? 'bg-emerald-50 border-emerald-100' : 'bg-emerald-950/30 border-emerald-900/50'}`}>
+                  <div className="flex items-center justify-between">
+                    <span className={rowLabelCls}>Gene Symbol</span>
+                    {enrichment.geneSymbol && (
+                      <span className={`text-[8px] px-1 rounded border font-semibold ${isLight ? 'text-emerald-700 border-emerald-200 bg-emerald-50' : 'text-emerald-400 border-emerald-900 bg-emerald-950/40'}`}>
+                        Live
+                      </span>
+                    )}
+                  </div>
+                  <div className="mt-1">
+                    <span className={rowValCls}>{enrichment.geneSymbol || '—'}</span>
+                  </div>
+                </div>
+
+                {/* dbSNP ID */}
+                <div className={`p-1.5 px-2 rounded-lg border flex flex-col justify-between ${isLight ? 'bg-purple-50 border-purple-100' : 'bg-purple-950/30 border-purple-900/50'}`}>
+                  <div className="flex items-center justify-between">
+                    <span className={rowLabelCls}>dbSNP ID</span>
+                    {enrichment.rsId && (
+                      <button
+                        type="button"
+                        title="Copy dbSNP ID"
+                        onClick={() => handleCopyValue(enrichment.rsId!, 'copy-rs')}
+                        className={`p-1 rounded transition-colors ${
+                          copiedId === 'copy-rs'
+                            ? 'text-emerald-600 bg-emerald-50 dark:bg-emerald-500/10 dark:text-emerald-400'
+                            : isLight
+                            ? 'text-slate-400 hover:text-indigo-600 hover:bg-indigo-50'
+                            : 'text-slate-500 hover:text-indigo-400 hover:bg-slate-800'
+                        }`}
+                      >
+                        {copiedId === 'copy-rs' ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
+                      </button>
+                    )}
+                  </div>
+                  <div className="mt-1">
+                    <span className={rowValCls}>{enrichment.rsId || '—'}</span>
+                  </div>
+                </div>
+
+                {/* gnomAD AF */}
+                <div className={`p-1.5 px-2 rounded-lg border flex flex-col justify-between ${isLight ? 'bg-amber-50 border-amber-100' : 'bg-amber-950/30 border-amber-900/50'}`}>
+                  <span className={rowLabelCls}>gnomAD AF</span>
+                  <div className="mt-1">
+                    {enrichment.gnomadAf !== undefined ? (
+                      <div className="flex items-center gap-2">
+                        <span className={rowValCls} style={{ color: afColor(enrichment.gnomadAf) }}>
+                          {formatAf(enrichment.gnomadAf)}
+                        </span>
+                        <div className={`flex-grow h-1 rounded-full overflow-hidden ${isLight ? 'bg-slate-200' : 'bg-slate-800'}`}>
+                          <div
+                            className="h-full rounded-full transition-all"
+                            style={{
+                              width: `${Math.min(100, enrichment.gnomadAf * 2000)}%`,
+                              minWidth: enrichment.gnomadAf > 0 ? '2px' : '0',
+                              background: afColor(enrichment.gnomadAf),
+                            }}
+                          />
+                        </div>
+                      </div>
+                    ) : (
+                      <span className={rowValCls}>—</span>
+                    )}
+                  </div>
+                </div>
+
+                {/* ClinVar Status */}
+                <div className={`p-1.5 px-2 rounded-lg border flex flex-col justify-between ${isLight ? 'bg-rose-50 border-rose-100' : 'bg-rose-950/30 border-rose-900/50'}`}>
+                  <span className={rowLabelCls}>ClinVar Status</span>
+                  <div className="mt-1">
+                    {enrichment.clinvarSignificance ? (
+                      <div>
+                        <div className="flex items-center justify-between gap-1 flex-wrap">
+                          <span className={`text-xs font-semibold capitalize truncate ${isLight ? 'text-slate-800' : 'text-slate-100'}`}>
+                            {enrichment.clinvarSignificance}
+                          </span>
+                          {reviewStars(enrichment.clinvarReview || '') > 0 && (
+                            <span className="flex gap-px shrink-0">
+                              {Array.from({ length: 4 }).map((_, i) => (
+                                <span
+                                  key={i}
+                                  className={`text-[9px] ${
+                                    i < reviewStars(enrichment.clinvarReview || '')
+                                      ? isLight ? 'text-amber-500' : 'text-amber-400'
+                                      : isLight ? 'text-slate-300' : 'text-slate-700'
+                                  }`}
+                                >
+                                  ★
+                                </span>
+                              ))}
+                            </span>
+                          )}
+                        </div>
+                        {enrichment.clinvarReview && (
+                          <span className={`text-[9px] block ${isLight ? 'text-slate-400' : 'text-slate-500'} truncate`}>
+                            {enrichment.clinvarReview}
+                          </span>
+                        )}
+                      </div>
+                    ) : (
+                      <span className={rowValCls}>—</span>
+                    )}
+                  </div>
+                </div>
+
+                {/* Banners */}
+                {enrichment.source === 'ensembl' && (
+                  <div className={`col-span-2 p-2 rounded-lg border text-[10px] font-semibold flex items-center gap-1.5 ${
+                    isLight ? 'bg-teal-50 border-teal-200 text-teal-700' : 'bg-teal-950/30 border-teal-900/50 text-teal-300'
+                  }`}>
+                    <Globe className="w-3.5 h-3.5 shrink-0 text-teal-500" />
+                    Gene resolved via Ensembl region overlap (no records in MyVariant.info).
+                  </div>
+                )}
+
+                {enrichment.source === 'none' && (
+                  <div className={`col-span-2 p-2 rounded-lg border text-[10px] font-semibold flex items-center gap-1.5 ${
+                    isLight ? 'bg-amber-50 border-amber-200 text-amber-700' : 'bg-amber-950/30 border-amber-900/50 text-amber-300'
+                  }`}>
+                    <Globe className="w-3.5 h-3.5 shrink-0 text-amber-500" />
+                    Live lookup successful — no records found in MyVariant.info or Ensembl.
+                  </div>
+                )}
+              </>
+            ) : null
+          )}
+        </div>
       </div>
 
       {/* Gene + Note */}

@@ -27,6 +27,7 @@ let intervalId: ReturnType<typeof setInterval> | null = null;
 let debounceTimer: ReturnType<typeof setTimeout> | null = null;
 // Cleanup for UCSC fixed-position button listeners (keyed by button container element)
 const ucscCleanupFns: Array<() => void> = [];
+let isClearFiltersPending = false;
 
 function isContextValid(): boolean {
   try {
@@ -146,10 +147,14 @@ function getFormattedVariant(parsed: ParsedVariant, format: string): string {
         : cleanRaw;
     case 'coordinate': {
       if (!chrom || !pos) return cleanRaw;
-      // FIX MEDIUM-2: compute end position for indels
       const start = parseInt(pos, 10);
-      const span  = ref && alt ? Math.max(ref.length, alt.length) - 1 : 0;
-      const end   = isNaN(start) ? pos : String(start + span);
+      let end = pos;
+      if (parsed.endPosition) {
+        end = parsed.endPosition;
+      } else {
+        const span = ref && alt ? Math.max(ref.length, alt.length) - 1 : 0;
+        end = isNaN(start) ? pos : String(start + span);
+      }
       return `chr${chrom}:${pos}-${end}`;
     }
     case 'custom': {
@@ -240,6 +245,92 @@ function findClinVarInputs(): { variant?: HTMLInputElement, gene?: HTMLInputElem
   }
   
   return inputs;
+}
+
+/**
+ * Searches the page for elements indicating applied filters on ClinVar (NCBI) and returns
+ * the 'Clear all' button if found.
+ */
+function findClinVarClearAllFiltersButton(): HTMLElement | null {
+  const elements = Array.from(
+    document.querySelectorAll('a, button, span, input[type="button"], input[type="submit"], [role="button"]')
+  ) as HTMLElement[];
+  for (const el of elements) {
+    const text = (el instanceof HTMLInputElement ? el.value : el.textContent ?? '').trim();
+    if (
+      /^(Clear all|Clear all filters|Clear applied filters|Clear filters)$/i.test(text) ||
+      (text.toLowerCase().includes('clear all') && text.length < 40)
+    ) {
+      return el;
+    }
+  }
+  // Check for common class names and attributes as a fallback
+  const selectors = [
+    '.filter-clear',
+    '.clear-all',
+    '.c_clear',
+    '.c-clear',
+    '.reset-filters',
+    'button[aria-label*="Clear"]',
+    'a[aria-label*="Clear"]',
+    'button[aria-label*="Reset"]',
+    'a[aria-label*="Reset"]'
+  ];
+  for (const selector of selectors) {
+    const el = document.querySelector(selector) as HTMLElement | null;
+    if (el) return el;
+  }
+  return null;
+}
+
+/**
+ * Checks if the URL has 'vh_clear_filters=true', indicating we need to clear previous filters.
+ * If filters are active on page load, clicks the 'Clear all' button and strips the query param.
+ */
+function handleClinVarClearFiltersUrl() {
+  if (isClearFiltersPending) {
+    // Look for Clear all filters button and click it to clear filters
+    const clearBtn = findClinVarClearAllFiltersButton();
+    if (clearBtn) {
+      clearBtn.click();
+      isClearFiltersPending = false;
+    }
+  }
+}
+
+/**
+ * Checks for a pending ClinVar autofill action stored in sessionStorage, which is used
+ * to carry over the autofilled value after the page reloads from clearing filters.
+ */
+function handlePendingClinVarAutofill() {
+  try {
+    const pendingStr = sessionStorage.getItem('vh_pending_autofill');
+    if (pendingStr) {
+      const pending = JSON.parse(pendingStr);
+      // Ensure it is fresh (within 10 seconds)
+      if (pending && Date.now() - pending.timestamp < 10000) {
+        const type = pending.type;
+        const value = pending.value;
+        const clinVarInputs = findClinVarInputs();
+        const targetInput = type === 'variant' ? clinVarInputs.variant : clinVarInputs.gene;
+        if (targetInput) {
+          const nativeSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')?.set;
+          if (nativeSetter) {
+            nativeSetter.call(targetInput, value);
+          } else {
+            targetInput.value = value;
+          }
+          targetInput.dispatchEvent(new Event('input', { bubbles: true }));
+          targetInput.dispatchEvent(new Event('change', { bubbles: true }));
+          showNotification(`Autofilled ${type} (${value}) and cleared filters!`);
+        }
+      }
+      sessionStorage.removeItem('vh_pending_autofill');
+    }
+  } catch (err) {
+    console.warn('[VariantHandler] Error handling pending autofill:', err);
+    sessionStorage.removeItem('vh_pending_autofill');
+  }
 }
 
 /**
@@ -560,7 +651,7 @@ function injectButton(inputEl: HTMLInputElement, allowedTypes: ('variant' | 'gen
     }
 
     try {
-      const data = await chrome.storage.local.get('variantstream_active_input');
+      const data = await chrome.storage.local.get('variantstream_active_input') as any;
       const rawInput = data.variantstream_active_input;
       if (!rawInput) {
         showNotification('No active variant found.', true);
@@ -573,6 +664,19 @@ function injectButton(inputEl: HTMLInputElement, allowedTypes: ('variant' | 'gen
 
       const currentInputEl = inputEl;
       if (!currentInputEl) return;
+
+      if (window.location.hostname.includes('ncbi.nlm.nih.gov')) {
+        const clearBtn = findClinVarClearAllFiltersButton();
+        if (clearBtn) {
+          sessionStorage.setItem('vh_pending_autofill', JSON.stringify({
+            type: 'variant',
+            value: formatted,
+            timestamp: Date.now()
+          }));
+          clearBtn.click();
+          return;
+        }
+      }
 
       const isUCSC = window.location.hostname.includes('genome.ucsc.edu');
       if (isUCSC) {
@@ -642,6 +746,19 @@ function injectButton(inputEl: HTMLInputElement, allowedTypes: ('variant' | 'gen
     const currentInputEl = inputEl;
     if (!currentInputEl) return;
 
+    if (window.location.hostname.includes('ncbi.nlm.nih.gov')) {
+      const clearBtn = findClinVarClearAllFiltersButton();
+      if (clearBtn) {
+        sessionStorage.setItem('vh_pending_autofill', JSON.stringify({
+          type: 'gene',
+          value: geneSymbol,
+          timestamp: Date.now()
+        }));
+        clearBtn.click();
+        return;
+      }
+    }
+
     const isUCSC = window.location.hostname.includes('genome.ucsc.edu');
     if (isUCSC) {
       const related = document.querySelectorAll('input[name="position"], input[name="hgt.positionInput"], #positionInput');
@@ -709,16 +826,27 @@ function injectButton(inputEl: HTMLInputElement, allowedTypes: ('variant' | 'gen
       const rect = inputEl.getBoundingClientRect();
       if (rect.width === 0) return false; // not painted yet
 
-      // Anchor after the submit button if one sits to the right of the input.
+      // Scan ALL submit-like buttons in the form and pick the rightmost VISIBLE
+      // one. UCSC has hidden submit buttons (e.g. #hgtGoButton) that return
+      // getBoundingClientRect().right === 0 — picking those as the anchor would
+      // land the button on top of the visible "Search" button.
       const form = (inputEl as HTMLInputElement).form;
-      const submitBtn = form?.querySelector<HTMLElement>(
-        'input[type="submit"], button[type="submit"], input[name*="goButton"], input[value="go" i]'
+      const candidates = Array.from(
+        form?.querySelectorAll<HTMLElement>(
+          'input[type="submit"], button[type="submit"], input[name*="goButton"]'
+        ) ?? []
       );
-      const sRect = submitBtn?.getBoundingClientRect();
-      const anchorRight = (sRect && sRect.right > rect.right) ? sRect.right : rect.right;
-      const anchorTop   = (sRect && sRect.right > rect.right)
-        ? sRect.top + Math.max(0, (sRect.height - 36) / 2)
-        : rect.top + Math.max(0, (rect.height - 36) / 2);
+
+      let anchorRight = rect.right;
+      let anchorTop   = rect.top + Math.max(0, (rect.height - 36) / 2);
+
+      for (const btn of candidates) {
+        const bRect = btn.getBoundingClientRect();
+        if (bRect.width > 0 && bRect.right > anchorRight) {
+          anchorRight = bRect.right;
+          anchorTop   = bRect.top + Math.max(0, (bRect.height - 36) / 2);
+        }
+      }
 
       btnContainer.style.top  = `${anchorTop}px`;
       btnContainer.style.left = `${anchorRight + 10}px`;
@@ -774,7 +902,7 @@ function injectButton(inputEl: HTMLInputElement, allowedTypes: ('variant' | 'gen
       return;
     }
     try {
-      const data = await chrome.storage.local.get(['variantHandlerPanelOpen', 'variantstream_active_input', 'variantstream_active_gene', 'variantstream_active_protein']);
+      const data = await chrome.storage.local.get(['variantHandlerPanelOpen', 'variantstream_active_input', 'variantstream_active_gene', 'variantstream_active_protein']) as any;
       if (data.variantHandlerPanelOpen && data.variantstream_active_input) {
         // Re-sync position before making visible (in case first rAF fired
         // before the toolbar had painted).
@@ -887,7 +1015,7 @@ function injectAlphaMissenseTableHelper(tableEl: HTMLTableElement) {
       return;
     }
     try {
-      const data = await chrome.storage.local.get(['variantHandlerPanelOpen', 'variantstream_active_input', 'variantstream_active_gene', 'variantstream_active_protein']);
+      const data = await chrome.storage.local.get(['variantHandlerPanelOpen', 'variantstream_active_input', 'variantstream_active_gene', 'variantstream_active_protein']) as any;
       if (data.variantHandlerPanelOpen && data.variantstream_active_input) {
         btnContainer.style.opacity = '1';
         btnContainer.style.pointerEvents = 'auto';
@@ -961,7 +1089,7 @@ function injectUcscHomepageButton(): boolean {
   floatBtn.addEventListener('click', async () => {
     if (!isContextValid()) return;
     try {
-      const data = await chrome.storage.local.get('variantstream_active_input');
+      const data = await chrome.storage.local.get('variantstream_active_input') as any;
       const rawInput = data.variantstream_active_input;
       if (!rawInput) { showNotification('No active variant found.', true); return; }
 
@@ -974,8 +1102,14 @@ function injectUcscHomepageButton(): boolean {
       let ucscPos = '';
       if (chrom && pos) {
         const start = parseInt(pos, 10);
-        const span  = ref && alt ? Math.max(ref.length, alt.length) - 1 : 0;
-        ucscPos = `${chrom}:${pos}-${isNaN(start) ? pos : String(start + span)}`;
+        let end = pos;
+        if (parsed.endPosition) {
+          end = parsed.endPosition;
+        } else {
+          const span = ref && alt ? Math.max(ref.length, alt.length) - 1 : 0;
+          end = isNaN(start) ? pos : String(start + span);
+        }
+        ucscPos = `${chrom}:${pos}-${end}`;
       } else {
         ucscPos = rawInput;
       }
@@ -992,7 +1126,7 @@ function injectUcscHomepageButton(): boolean {
   const syncVisibility = async () => {
     if (!isContextValid()) return;
     try {
-      const data = await chrome.storage.local.get(['variantHandlerPanelOpen', 'variantstream_active_input']);
+      const data = await chrome.storage.local.get(['variantHandlerPanelOpen', 'variantstream_active_input']) as any;
       floatBtn.style.display = (data.variantHandlerPanelOpen && data.variantstream_active_input) ? 'block' : 'none';
     } catch { /* context invalidated */ }
   };
@@ -1013,6 +1147,11 @@ function init(): boolean {
   const hostname = window.location.hostname;
   const isClinVar = hostname.includes('ncbi.nlm.nih.gov');
   const isAlphaMissense = hostname.includes('alphamissense.hegelab.org');
+
+  if (isClinVar) {
+    handleClinVarClearFiltersUrl();
+    handlePendingClinVarAutofill();
+  }
   
   let injectedAny = false;
 
@@ -1056,7 +1195,8 @@ function init(): boolean {
     // If already injected, update visibility based on latest state for all containers
     const containers = document.querySelectorAll('.vh-injection-container-class');
     if (containers.length > 0 && isContextValid()) {
-      chrome.storage.local.get(['variantstream_active_input', 'variantHandlerPanelOpen', 'variantstream_active_gene', 'variantstream_active_protein']).then(data => {
+      chrome.storage.local.get(['variantstream_active_input', 'variantHandlerPanelOpen', 'variantstream_active_gene', 'variantstream_active_protein']).then(dataObj => {
+        const data = dataObj as any;
         if (!isContextValid()) {
           handleInvalidatedContext();
           return;
@@ -1081,6 +1221,15 @@ function init(): boolean {
 
 // Run immediately
 if (isContextValid()) {
+  const initialParams = new URLSearchParams(window.location.search);
+  if (initialParams.has('vh_clear_filters')) {
+    isClearFiltersPending = true;
+    initialParams.delete('vh_clear_filters');
+    const newSearch = initialParams.toString();
+    const newUrl = window.location.pathname + (newSearch ? '?' + newSearch : '') + window.location.hash;
+    window.history.replaceState(null, '', newUrl);
+  }
+
   init();
 
   // FIX MEDIUM-6: Debounce the MutationObserver so that rapid DOM mutations

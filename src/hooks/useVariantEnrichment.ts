@@ -39,7 +39,7 @@ export interface EnrichmentData {
   proteinChange?: string; // HGVSp resolved live
   codingChange?: string;  // HGVSc resolved live
   transcript?: string;    // HGVSc transcript resolved live
-  source: 'myvariant';
+  source: 'myvariant' | 'ensembl' | 'both' | 'none';
   fetchedAt: number;      // Unix ms — used for 24 h TTL
 }
 
@@ -55,6 +55,9 @@ const FIELDS = [
   'clinvar.rcv.clinical_significance',
   'clinvar.rcv.review_status',
   'cadd.gene.genename',
+  'dbnsfp.genename',
+  'snpeff.ann.genename',
+  'clinvar.gene',
   'hgvs.genomic',
   'hgvsp',
   'clinvar.hgvs.protein',
@@ -81,8 +84,8 @@ function loadPersistentCache(): Map<string, EnrichmentData> {
     const obj = JSON.parse(raw) as Record<string, EnrichmentData>;
     const now = Date.now();
     const result = new Map<string, EnrichmentData>();
-    // Invalidate cache entries created before the HGVSc update (2026-06-15T20:40:00+01:00)
-    const invalidationThreshold = Date.parse("2026-06-15T20:40:00+01:00");
+    // Invalidate cache entries created before the source badge updates (2026-06-16T18:20:00Z)
+    const invalidationThreshold = Date.parse("2026-06-16T18:20:00Z");
     for (const [k, v] of Object.entries(obj)) {
       if (
         v &&
@@ -189,6 +192,11 @@ function extractCodingChange(data: any): { codingChange?: string; transcript?: s
       if (ann && typeof ann.hgvs_c === 'string' && ann.hgvs_c.startsWith('c.')) {
         return { transcript: ann.feature_id, codingChange: ann.hgvs_c };
       }
+    }
+  } else if (snpeffAnn && typeof snpeffAnn === 'object') {
+    const ann = snpeffAnn as any;
+    if (typeof ann.hgvs_c === 'string' && ann.hgvs_c.startsWith('c.')) {
+      return { transcript: ann.feature_id, codingChange: ann.hgvs_c };
     }
   }
 
@@ -302,16 +310,50 @@ function parseApiResponse(data: any, queryKey: string): EnrichmentData {
   const clinvarReview: string | undefined =
     typeof rcv?.review_status === 'string' ? rcv.review_status : undefined;
 
-  // Gene symbol (from CADD annotation — may be a string, or an array of
-  // { genename: string } objects for intergenic / multi-gene hits)
-  const caddGene = data?.cadd?.gene;
+  // Gene symbol fallback extraction
   const geneSymbol: string | undefined = (() => {
-    if (!caddGene) return undefined;
-    if (typeof caddGene.genename === 'string') return caddGene.genename;
-    if (Array.isArray(caddGene)) {
-      const first = caddGene.find((g: any) => typeof g?.genename === 'string');
-      return first?.genename;
+    // 1. CADD genename
+    const caddGene = data?.cadd?.gene;
+    if (caddGene) {
+      if (typeof caddGene.genename === 'string') return caddGene.genename;
+      if (Array.isArray(caddGene)) {
+        const first = caddGene.find((g: any) => typeof g?.genename === 'string');
+        if (first?.genename) return first.genename;
+      }
     }
+
+    // 2. dbNSFP genename
+    const dbnsfpGene = data?.dbnsfp?.genename;
+    if (dbnsfpGene) {
+      if (typeof dbnsfpGene === 'string') return dbnsfpGene;
+      if (Array.isArray(dbnsfpGene)) {
+        const first = dbnsfpGene.find((g: any) => typeof g === 'string');
+        if (first) return first;
+      }
+    }
+
+    // 3. SnpEff genename
+    const snpeffAnn = data?.snpeff?.ann;
+    if (snpeffAnn) {
+      if (Array.isArray(snpeffAnn)) {
+        const first = snpeffAnn.find((g: any) => g && typeof g.genename === 'string');
+        if (first?.genename) return first.genename;
+      } else if (typeof snpeffAnn === 'object') {
+        const ann = snpeffAnn as any;
+        if (typeof ann.genename === 'string') return ann.genename;
+      }
+    }
+
+    // 4. ClinVar gene
+    const clinvarGene = data?.clinvar?.gene;
+    if (clinvarGene) {
+      if (typeof clinvarGene === 'string') return clinvarGene;
+      if (typeof clinvarGene === 'object' && clinvarGene !== null) {
+        const symbol = (clinvarGene as any).symbol;
+        if (typeof symbol === 'string') return symbol;
+      }
+    }
+
     return undefined;
   })();
 
@@ -333,7 +375,7 @@ function parseApiResponse(data: any, queryKey: string): EnrichmentData {
 
   // If we got a 'notfound' response body, return a minimal record
   if (data?.notfound === true || data?._id === undefined) {
-    return { source: 'myvariant', fetchedAt: Date.now() };
+    return { source: 'none', fetchedAt: Date.now() };
   }
 
   return {
@@ -357,6 +399,7 @@ interface UseVariantEnrichmentResult {
   enrichment: EnrichmentData | null;
   isLoading: boolean;
   error: string | null;
+  refetch: () => void;
 }
 
 export function useVariantEnrichment(
@@ -370,21 +413,27 @@ export function useVariantEnrichment(
   const debounceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const abortRef      = useRef<AbortController | null>(null);
 
-  const fetchEnrichment = useCallback(async (queryKey: string, build: string | undefined) => {
+  const fetchEnrichment = useCallback(async (queryKey: string, build: string | undefined, forceFresh = false) => {
     // Check in-memory cache first (zero network cost)
-    const cached = memoryCache.get(queryKey);
-    if (cached) {
-      const age = Date.now() - cached.fetchedAt;
-      const isGenomic = queryKey.match(/^chr(2[0-2]|1[0-9]|[1-9]|X|Y|MT|M):g\./i);
-      const isEmpty = !cached.rsId && cached.gnomadAf === undefined && !cached.clinvarSignificance && !cached.geneSymbol;
+    if (!forceFresh) {
+      const cached = memoryCache.get(queryKey);
+      if (cached) {
+        const age = Date.now() - cached.fetchedAt;
+        const isGenomic = queryKey.match(/^chr(2[0-2]|1[0-9]|[1-9]|X|Y|MT|M):g\./i);
+        const isEmpty = !cached.rsId && (cached.gnomadAf === undefined || cached.gnomadAf === null) && !cached.clinvarSignificance && !cached.geneSymbol;
 
-      if (age < CACHE_TTL_MS && !(isGenomic && isEmpty)) {
-        setEnrichment(cached);
-        setIsLoading(false);
-        return;
+        if (age < CACHE_TTL_MS && !(isGenomic && isEmpty)) {
+          setEnrichment(cached);
+          setIsLoading(false);
+          return;
+        }
+        // Expired or empty genomic — remove and re-fetch
+        memoryCache.delete(queryKey);
+        savePersistentCache(memoryCache);
       }
-      // Expired or empty genomic — remove and re-fetch
+    } else {
       memoryCache.delete(queryKey);
+      savePersistentCache(memoryCache);
     }
 
     // Cancel any in-flight request
@@ -434,11 +483,24 @@ export function useVariantEnrichment(
               activeQueryKey = `chr${chrom}:g.${mappedStart}${ref}>${alt}`;
               
               // Check mapped cache
-              const cachedMapped = memoryCache.get(activeQueryKey);
-              if (cachedMapped) {
-                setEnrichment(cachedMapped);
-                setIsLoading(false);
-                return;
+              if (!forceFresh) {
+                const cachedMapped = memoryCache.get(activeQueryKey);
+                if (cachedMapped) {
+                  const age = Date.now() - cachedMapped.fetchedAt;
+                  const isGenomic = activeQueryKey.match(/^chr(2[0-2]|1[0-9]|[1-9]|X|Y|MT|M):g\./i);
+                  const isEmpty = !cachedMapped.rsId && (cachedMapped.gnomadAf === undefined || cachedMapped.gnomadAf === null) && !cachedMapped.clinvarSignificance && !cachedMapped.geneSymbol;
+                  if (age < CACHE_TTL_MS && !(isGenomic && isEmpty)) {
+                    setEnrichment(cachedMapped);
+                    setIsLoading(false);
+                    return;
+                  }
+                  // Expired or empty genomic — remove and re-fetch
+                  memoryCache.delete(activeQueryKey);
+                  savePersistentCache(memoryCache);
+                }
+              } else {
+                memoryCache.delete(activeQueryKey);
+                savePersistentCache(memoryCache);
               }
             }
           }
@@ -491,7 +553,7 @@ export function useVariantEnrichment(
         const pos = genomicMatch[2];
         const ref = genomicMatch[3];
         const alt = genomicMatch[4];
-        const q = `chrom:${chrom} AND (pos:${pos} OR clinvar.hg38.start:${pos} OR hg38.start:${pos} OR clinvar.hg19.start:${pos} OR hg19.start:${pos}) AND (ref:${ref} OR clinvar.ref:${ref}) AND (alt:${alt} OR clinvar.alt:${alt})`;
+        const q = `chrom:${chrom} AND (pos:${pos} OR clinvar.hg38.start:${pos} OR hg38.start:${pos} OR clinvar.hg19.start:${pos} OR hg19.start:${pos}) AND (ref:"${ref}" OR clinvar.ref:"${ref}") AND (alt:"${alt}" OR clinvar.alt:"${alt}")`;
         const queryUrl = `https://myvariant.info/v1/query?q=${encodeURIComponent(q)}&fields=${FIELDS}&size=1`;
         
         try {
@@ -513,6 +575,75 @@ export function useVariantEnrichment(
       }
 
       const enrichmentData = parseApiResponse(data, activeQueryKey);
+
+      // Fallback: If no gene symbol or coding sequence was resolved, query Ensembl VEP to find them
+      if ((!enrichmentData.geneSymbol || !enrichmentData.codingChange) && genomicMatch) {
+        const chrom = genomicMatch[1];
+        const pos = genomicMatch[2];
+        const alt = genomicMatch[4];
+        const serverBase = build === 'GRCh37' ? 'https://grch37.rest.ensembl.org' : 'https://rest.ensembl.org';
+        const vepUrl = `${serverBase}/vep/homo_sapiens/region/${chrom}:${pos}-${pos}:1/${alt}?content-type=application/json&hgvs=1&mane=1`;
+        try {
+          const vepData = await performFetch(vepUrl);
+          if (Array.isArray(vepData) && vepData.length > 0) {
+            const consequences = vepData[0].transcript_consequences || [];
+            
+            const getConsequenceScore = (c: any): number => {
+              let score = 0;
+              const isMane = !!c.mane_select || (Array.isArray(c.mane) && c.mane.includes('MANE_Select'));
+              if (isMane) score += 1000;
+              const hasHgvsp = !!c.hgvsp;
+              const hasHgvsc = !!c.hgvsc;
+              const isProteinCoding = c.biotype === 'protein_coding';
+              if (hasHgvsp && isProteinCoding) {
+                score += 100;
+              } else if (hasHgvsp) {
+                score += 50;
+              } else if (hasHgvsc && isProteinCoding) {
+                score += 30;
+              } else if (hasHgvsc) {
+                score += 10;
+              }
+              return score;
+            };
+
+            const sortedCons = [...consequences].sort((a: any, b: any) => getConsequenceScore(b) - getConsequenceScore(a));
+            const bestCons = sortedCons[0];
+              
+            if (bestCons) {
+              if (bestCons.gene_symbol && !enrichmentData.geneSymbol) {
+                enrichmentData.geneSymbol = bestCons.gene_symbol;
+              }
+              
+              if (bestCons.hgvsc && !enrichmentData.codingChange) {
+                const parts = bestCons.hgvsc.split(':');
+                if (parts.length > 1) {
+                  enrichmentData.transcript = parts[0];
+                  enrichmentData.codingChange = parts[1];
+                } else if (bestCons.hgvsc.startsWith('c.')) {
+                  enrichmentData.codingChange = bestCons.hgvsc;
+                }
+              }
+              
+              if (bestCons.hgvsp && !enrichmentData.proteinChange) {
+                const parts = bestCons.hgvsp.split(':');
+                enrichmentData.proteinChange = parts.length > 1 ? parts[1] : parts[0];
+              }
+              
+              // If we succeeded in resolving any new fields, update source
+              if (enrichmentData.geneSymbol || enrichmentData.codingChange) {
+                if (enrichmentData.source === 'none') {
+                  enrichmentData.source = 'ensembl';
+                } else if (enrichmentData.source === 'myvariant') {
+                  enrichmentData.source = 'both';
+                }
+              }
+            }
+          }
+        } catch (e) {
+          console.warn('[VariantHandler] Ensembl VEP query failed:', e);
+        }
+      }
 
       // Store in both cache layers
       memoryCache.set(queryKey, enrichmentData);
@@ -569,5 +700,11 @@ export function useVariantEnrichment(
     };
   }, []);
 
-  return { enrichment, isLoading, error };
+  const refetch = useCallback(() => {
+    const queryKey = deriveQueryKey(parsed);
+    if (!queryKey) return;
+    fetchEnrichment(queryKey, parsed.genomeBuild, true);
+  }, [parsed, fetchEnrichment]);
+
+  return { enrichment, isLoading, error, refetch };
 }
