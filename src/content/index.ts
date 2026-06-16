@@ -692,23 +692,24 @@ function injectButton(inputEl: HTMLInputElement, allowedTypes: ('variant' | 'gen
   }
 
   const isUCSC = window.location.hostname.includes('genome.ucsc.edu');
-  let targetAnchor: HTMLElement = inputEl;
+  const targetAnchor: HTMLElement = inputEl; // used for non-UCSC insertion
+
+  // ucscSyncPosition is exposed here so checkPanelState can re-sync on show
+  let ucscSyncPosition: (() => void) | null = null;
 
   if (isUCSC) {
     // Use fixed positioning anchored to the input's bounding rect.
-    // This is completely DOM-structure agnostic — works whether UCSC uses
-    // <table>, CSS-grid, flex, or any other layout in the toolbar.
+    // Completely DOM-structure agnostic — works regardless of UCSC layout.
     btnContainer.style.position = 'fixed';
     btnContainer.style.zIndex  = '2147483647';
     btnContainer.style.margin  = '0';
     document.body.appendChild(btnContainer);
 
-    const syncPosition = () => {
+    const computeAndSetPosition = () => {
       const rect = inputEl.getBoundingClientRect();
-      if (rect.width === 0) return; // input not yet visible
+      if (rect.width === 0) return false; // not painted yet
 
-      // If a submit button sits immediately after the input in the same form,
-      // anchor to its right edge so we never overlap it.
+      // Anchor after the submit button if one sits to the right of the input.
       const form = (inputEl as HTMLInputElement).form;
       const submitBtn = form?.querySelector<HTMLElement>(
         'input[type="submit"], button[type="submit"], input[name*="goButton"], input[value="go" i]'
@@ -721,11 +722,22 @@ function injectButton(inputEl: HTMLInputElement, allowedTypes: ('variant' | 'gen
 
       btnContainer.style.top  = `${anchorTop}px`;
       btnContainer.style.left = `${anchorRight + 10}px`;
+      return true;
     };
-    syncPosition();
 
-    // Re-sync when the window is resized (toolbar may reflow)
-    const onResize = () => syncPosition();
+    // Poll via rAF until the toolbar has painted and the rect is non-zero.
+    const rafSync = () => {
+      if (!computeAndSetPosition()) {
+        requestAnimationFrame(rafSync);
+      }
+    };
+    requestAnimationFrame(rafSync);
+
+    // Expose so checkPanelState can re-sync when making button visible.
+    ucscSyncPosition = computeAndSetPosition;
+
+    // Re-sync on resize (toolbar reflows).
+    const onResize = () => computeAndSetPosition();
     window.addEventListener('resize', onResize);
     ucscCleanupFns.push(() => window.removeEventListener('resize', onResize));
 
@@ -764,6 +776,9 @@ function injectButton(inputEl: HTMLInputElement, allowedTypes: ('variant' | 'gen
     try {
       const data = await chrome.storage.local.get(['variantHandlerPanelOpen', 'variantstream_active_input', 'variantstream_active_gene', 'variantstream_active_protein']);
       if (data.variantHandlerPanelOpen && data.variantstream_active_input) {
+        // Re-sync position before making visible (in case first rAF fired
+        // before the toolbar had painted).
+        if (ucscSyncPosition) ucscSyncPosition();
         btnContainer.style.opacity = '1';
         btnContainer.style.pointerEvents = 'auto';
         updatePosition();
