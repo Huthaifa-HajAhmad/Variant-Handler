@@ -925,15 +925,105 @@ function injectAlphaMissenseTableHelper(tableEl: HTMLTableElement) {
 // ── Initialisation ───────────────────────────────────────────────────────────
 
 /**
- * Main initialization — finds and injects into the search input.
- * Returns true if injection succeeded (used to stop the observer).
+ * On the UCSC homepage there is no genomic position input — the page is a
+ * static landing page. When the user has an active variant we inject a
+ * floating button that opens hgTracks directly with the variant position in
+ * the URL (db=hg38 for GRCh38, db=hg19 for GRCh37).
  */
+function injectUcscHomepageButton(): boolean {
+  const ANCHOR_ID = 'vh-ucsc-homepage-btn';
+  if (document.getElementById(ANCHOR_ID)) return true; // already injected
+
+  if (!isContextValid()) return false;
+
+  const floatBtn = document.createElement('button');
+  floatBtn.id = ANCHOR_ID;
+  floatBtn.textContent = '\u2728 Open in Genome Browser';
+  floatBtn.style.cssText = `
+    position: fixed;
+    top: 12px;
+    right: 12px;
+    z-index: 2147483647;
+    padding: 8px 14px;
+    background: linear-gradient(135deg, #4f46e5, #10b981);
+    color: white;
+    border: none;
+    border-radius: 8px;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.25);
+    font-family: system-ui, -apple-system, sans-serif;
+    display: none;
+    transition: opacity 0.3s ease;
+  `;
+
+  floatBtn.addEventListener('click', async () => {
+    if (!isContextValid()) return;
+    try {
+      const data = await chrome.storage.local.get('variantstream_active_input');
+      const rawInput = data.variantstream_active_input;
+      if (!rawInput) { showNotification('No active variant found.', true); return; }
+
+      const parsed = parseVariant(rawInput);
+      // Build coordinate string for UCSC
+      const chrom = parsed.chromosome ? `chr${parsed.chromosome}` : null;
+      const pos   = parsed.position ?? null;
+      const ref   = parsed.ref ?? null;
+      const alt   = parsed.alt ?? null;
+      let ucscPos = '';
+      if (chrom && pos) {
+        const start = parseInt(pos, 10);
+        const span  = ref && alt ? Math.max(ref.length, alt.length) - 1 : 0;
+        ucscPos = `${chrom}:${pos}-${isNaN(start) ? pos : String(start + span)}`;
+      } else {
+        ucscPos = rawInput;
+      }
+      const db = parsed.genomeBuild === 'GRCh37' ? 'hg19' : 'hg38';
+      window.location.href = `https://genome.ucsc.edu/cgi-bin/hgTracks?db=${db}&position=${encodeURIComponent(ucscPos)}`;
+    } catch (err) {
+      console.error('[VariantHandler] UCSC homepage nav failed:', err);
+    }
+  });
+
+  document.body.appendChild(floatBtn);
+
+  // Show/hide based on panel state
+  const syncVisibility = async () => {
+    if (!isContextValid()) return;
+    try {
+      const data = await chrome.storage.local.get(['variantHandlerPanelOpen', 'variantstream_active_input']);
+      floatBtn.style.display = (data.variantHandlerPanelOpen && data.variantstream_active_input) ? 'block' : 'none';
+    } catch { /* context invalidated */ }
+  };
+  syncVisibility();
+
+  if (chrome.storage) {
+    chrome.storage.onChanged.addListener((changes, area) => {
+      if (area === 'local' && (changes.variantHandlerPanelOpen || changes.variantstream_active_input)) {
+        syncVisibility();
+      }
+    });
+  }
+
+  return true;
+}
+
 function init(): boolean {
   const hostname = window.location.hostname;
   const isClinVar = hostname.includes('ncbi.nlm.nih.gov');
   const isAlphaMissense = hostname.includes('alphamissense.hegelab.org');
   
   let injectedAny = false;
+
+  // UCSC homepage special case: the landing page has no position input.
+  // Instead inject a floating "Open in Genome Browser" button that navigates
+  // to hgTracks with the variant position encoded in the URL.
+  const isUCSCHomepage = hostname.includes('genome.ucsc.edu') &&
+    (window.location.pathname === '/' || window.location.pathname === '/index.html' || window.location.pathname === '');
+  if (isUCSCHomepage) {
+    if (injectUcscHomepageButton()) injectedAny = true;
+  }
 
   if (isClinVar) {
     const clinVarInputs = findClinVarInputs();
