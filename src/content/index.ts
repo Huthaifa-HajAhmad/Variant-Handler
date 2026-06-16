@@ -855,9 +855,9 @@ function injectButton(inputEl: HTMLInputElement, allowedTypes: ('variant' | 'gen
 
       const sRect = rightmost?.getBoundingClientRect();
       const anchorRight = (sRect && sRect.right > rect.right) ? sRect.right : rect.right;
-      const anchorTop   = (sRect && sRect.right > rect.right)
-        ? sRect.top + Math.max(0, (sRect.height - 36) / 2)
-        : rect.top + Math.max(0, (rect.height - 36) / 2);
+      // Always vertically align to the input field itself, not the rightmost
+      // element (which may be an <a> link with different height/baseline).
+      const anchorTop = rect.top + Math.max(0, (rect.height - 36) / 2);
 
       btnContainer.style.top  = `${anchorTop}px`;
       btnContainer.style.left = `${anchorRight + 16}px`;
