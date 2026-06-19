@@ -54,4 +54,9 @@
   scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track);
 }
 
+/* Ensure the extension side panel opens with a premium, slightly wider default width */
+html, body {
+  min-width: 400px;
+}
+
 

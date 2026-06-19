@@ -570,6 +570,8 @@ export default function VariantWorkbench({
         </div>
       </div>
 
+
+
       {/* Gene + Note */}
       <div className={`space-y-3 pt-4 border-t ${isLight ? 'border-slate-200' : 'border-slate-800'}`}>
         {/* Note textarea */}

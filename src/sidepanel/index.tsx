@@ -64,6 +64,7 @@ export default function SidepanelView() {
   const [copiedId,       setCopiedId]       = useState<string | null>(null);
   const [alertMsg,       setAlertMsg]       = useState('');
   const alertTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [activeSec3Tab,  setActiveSec3Tab]  = useState<'queue' | 'history'>('queue');
 
   // Sprint 2: genome build — persisted
@@ -86,6 +87,9 @@ export default function SidepanelView() {
   const onToggleLiveEnrichment = useCallback((value: boolean) => {
     setLiveEnrichmentEnabledState(value);
     localStorage.setItem(ENRICHMENT_ENABLED_KEY, String(value));
+    if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local) {
+      chrome.storage.local.set({ variantstream_live_enrichment_enabled: value }).catch(() => {});
+    }
   }, []);
 
   // ── Derived / memoized ──────────────────────────────────────────────────
@@ -133,7 +137,8 @@ useEffect(() => {
           port = null;
           chrome.storage.local.set({ variantHandlerPanelOpen: false }).catch(() => {});
           // If disconnected but panel is still mounted, try to reconnect after 1s
-          setTimeout(() => {
+          if (reconnectTimerRef.current) clearTimeout(reconnectTimerRef.current);
+          reconnectTimerRef.current = setTimeout(() => {
             if (isMounted && chrome.runtime && chrome.runtime.id) {
               connect();
             }
@@ -156,6 +161,13 @@ useEffect(() => {
       chrome.storage.local.set({ variantHandlerPanelOpen: false }).catch(() => {});
     };
   }
+}, []);
+
+useEffect(() => {
+  return () => {
+    if (alertTimerRef.current) clearTimeout(alertTimerRef.current);
+    if (reconnectTimerRef.current) clearTimeout(reconnectTimerRef.current);
+  };
 }, []);
 
 useEffect(() => {
@@ -218,6 +230,40 @@ useEffect(() => {
     }
   }, [enrichment?.proteinChange, parsed.proteinChange, isStorageLoaded]);
 
+  useEffect(() => {
+    if (!isStorageLoaded) return;
+    if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local) {
+      chrome.storage.local.set({ 
+        variantstream_resolved_hgvsg: enrichment?.hgvsg ?? null 
+      }).catch((err) => {
+        console.warn('[VariantHandler] Failed to sync resolved hgvsg to chrome storage:', err);
+      });
+    }
+  }, [enrichment?.hgvsg, isStorageLoaded]);
+
+  useEffect(() => {
+    if (!isStorageLoaded) return;
+    if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local) {
+      chrome.storage.local.set({ 
+        variantstream_live_enrichment_enabled: liveEnrichmentEnabled 
+      }).catch((err) => {
+        console.warn('[VariantHandler] Failed to sync live enrichment setting to chrome storage:', err);
+      });
+    }
+  }, [liveEnrichmentEnabled, isStorageLoaded]);
+
+  useEffect(() => {
+    if (!isStorageLoaded) return;
+    if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local) {
+      chrome.storage.local.set({ 
+        variantstream_resolved_transcript: enrichment?.transcript ?? null,
+        variantstream_resolved_coding_change: enrichment?.codingChange ?? null
+      }).catch((err) => {
+        console.warn('[VariantHandler] Failed to sync resolved transcript to chrome storage:', err);
+      });
+    }
+  }, [enrichment?.transcript, enrichment?.codingChange, isStorageLoaded]);
+
   // ── Keyboard shortcuts ───────────────────────────────────────────────────
   useKeyboardShortcuts({
     onToggleSettings: () => { setIsSettingsOpen((p) => !p); triggerAlert('Settings toggled'); },
@@ -241,6 +287,8 @@ useEffect(() => {
     },
     [activeInput, parsed, upsertItem],
   );
+
+
 
   const handleManualAdd = (e: React.FormEvent) => {
     e.preventDefault();
@@ -345,6 +393,7 @@ useEffect(() => {
           platformUrls={platformUrls}
           handleLaunchPlatform={handleLaunchPlatform}
           activeTheme={activeTheme}
+          genomeBuild={genomeBuild}
         />
 
         <BatchQueuePanel
