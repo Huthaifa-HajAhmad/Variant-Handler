@@ -372,7 +372,7 @@ function findSearchInputs(): HTMLInputElement[] {
 
   // Domain-specific overrides
   if (hostname.includes('gnomad.broadinstitute.org')) {
-    const elements = Array.from(document.querySelectorAll('input[placeholder*="Search by gene"]')) as HTMLInputElement[];
+    const elements = Array.from(document.querySelectorAll('input[placeholder*="Search"]')) as HTMLInputElement[];
     return elements.filter(el => {
       const style = window.getComputedStyle(el);
       return el.offsetParent !== null &&
