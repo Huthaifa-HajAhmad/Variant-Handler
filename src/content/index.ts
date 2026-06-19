@@ -18,7 +18,7 @@
  *    end position for indels (pos + max(ref.length, alt.length) - 1) instead
  *    of always using a point range (pos-pos).
  */
-import { parseVariant, INITIAL_PLATFORMS, ParsedVariant } from '../lib/parser';
+import { parseVariant, INITIAL_PLATFORMS, ParsedVariant, hasRealAllele } from '../lib/parser';
 
 // ── Context validation helpers ────────────────────────────────────────────────
 
@@ -27,7 +27,6 @@ let intervalId: ReturnType<typeof setInterval> | null = null;
 let debounceTimer: ReturnType<typeof setTimeout> | null = null;
 // Cleanup for UCSC fixed-position button listeners (keyed by button container element)
 const ucscCleanupFns: Array<() => void> = [];
-let isClearFiltersPending = false;
 
 function isContextValid(): boolean {
   try {
@@ -135,12 +134,23 @@ function getFormattedVariant(parsed: ParsedVariant, format: string): string {
     .replace(/\s*[\(\[][A-Za-z0-9]+[\)\]]\s*/g, '')
     .trim()
     .replace(/^(?:Chr|CHR)/, 'chr');
-
   switch (format) {
     case 'dash':
-      return chrom && pos && ref && alt ? `${chrom}-${pos}-${ref}-${alt}` : cleanRaw;
+      if (chrom && pos && hasRealAllele(ref) && hasRealAllele(alt)) {
+        return `${chrom}-${pos}-${ref}-${alt}`;
+      }
+      if (parsed.transcript && parsed.codingChange) {
+        return `${parsed.transcript}:${parsed.codingChange}`;
+      }
+      return cleanRaw;
     case 'hgvs_g':
-      return chrom && pos && ref && alt ? `chr${chrom}:g.${pos}${ref}>${alt}` : cleanRaw;
+      if (chrom && pos && hasRealAllele(ref) && hasRealAllele(alt)) {
+        return `chr${chrom}:g.${pos}${ref}>${alt}`;
+      }
+      if (parsed.transcript && parsed.codingChange) {
+        return `${parsed.transcript}:${parsed.codingChange}`;
+      }
+      return cleanRaw;
     case 'hgvs_c':
       return parsed.transcript && parsed.codingChange
         ? `${parsed.transcript}:${parsed.codingChange}`
@@ -251,78 +261,7 @@ function findClinVarInputs(): { variant?: HTMLInputElement, gene?: HTMLInputElem
  * Searches the page for elements indicating applied filters on ClinVar (NCBI) and returns
  * the 'Clear all' button if found.
  */
-function findClinVarClearAllFiltersButton(): HTMLElement | null {
-  const elements = Array.from(
-    document.querySelectorAll('a, button, span, input[type="button"], input[type="submit"], [role="button"]')
-  ) as HTMLElement[];
-  for (const el of elements) {
-    const text = (el instanceof HTMLInputElement ? el.value : el.textContent ?? '').trim();
-    if (
-      /^(Clear all|Clear all filters|Clear applied filters|Clear filters)$/i.test(text) ||
-      (text.toLowerCase().includes('clear all') && text.length < 40)
-    ) {
-      return el;
-    }
-  }
-  // Check for common class names and attributes as a fallback
-  const selectors = [
-    '.filter-clear',
-    '.clear-all',
-    '.c_clear',
-    '.c-clear',
-    '.reset-filters',
-    'button[aria-label*="Clear"]',
-    'a[aria-label*="Clear"]',
-    'button[aria-label*="Reset"]',
-    'a[aria-label*="Reset"]'
-  ];
-  for (const selector of selectors) {
-    const el = document.querySelector(selector) as HTMLElement | null;
-    if (el) return el;
-  }
-  return null;
-}
 
-/**
- * Clears pre-existing ClinVar filters when `vh_clear_filters=true` was in the URL.
- *
- * ClinVar is a server-rendered page with async content — the "Clear all" button
- * may not exist in the DOM at page load. This function uses a dedicated
- * MutationObserver (separate from init()) to keep looking for the button for up
- * to 10 seconds. Once found, it clicks the button, stores a pending autofill in
- * sessionStorage (so the variant is re-injected after ClinVar reloads), and
- * disconnects.
- */
-function handleClinVarClearFiltersUrl() {
-  if (!isClearFiltersPending) return;
-
-  const tryClear = (): boolean => {
-    const clearBtn = findClinVarClearAllFiltersButton();
-    if (clearBtn) {
-      clearBtn.click();
-      isClearFiltersPending = false;
-      return true;
-    }
-    return false;
-  };
-
-  // Try immediately — the button may already be in the DOM.
-  if (tryClear()) return;
-
-  // Not yet in the DOM — observe mutations until it appears (max 10 s).
-  const clearObserver = new MutationObserver(() => {
-    if (tryClear()) {
-      clearObserver.disconnect();
-      clearTimeout(clearTimeout_);
-    }
-  });
-  clearObserver.observe(document.body, { childList: true, subtree: true });
-
-  const clearTimeout_ = setTimeout(() => {
-    clearObserver.disconnect();
-    isClearFiltersPending = false; // give up
-  }, 10_000);
-}
 
 /**
  * Checks for a pending ClinVar autofill action stored in sessionStorage, which is used
@@ -338,7 +277,11 @@ function handlePendingClinVarAutofill() {
         const type = pending.type;
         const value = pending.value;
         const clinVarInputs = findClinVarInputs();
-        const targetInput = type === 'variant' ? clinVarInputs.variant : clinVarInputs.gene;
+        let targetInput = type === 'variant' ? clinVarInputs.variant : clinVarInputs.gene;
+        if (!targetInput) {
+          // Fall back to the main search input (e.g. on the landing page)
+          targetInput = findSearchInput() || undefined;
+        }
         if (targetInput) {
           const nativeSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')?.set;
           if (nativeSetter) {
@@ -348,6 +291,13 @@ function handlePendingClinVarAutofill() {
           }
           targetInput.dispatchEvent(new Event('input', { bubbles: true }));
           targetInput.dispatchEvent(new Event('change', { bubbles: true }));
+
+          // Submit the form!
+          const form = targetInput.form;
+          if (form) {
+            try { (form as any).requestSubmit(); }
+            catch { form.submit(); }
+          }
           showNotification(`Autofilled ${type} (${value}) and cleared filters!`);
         }
       }
@@ -677,31 +627,70 @@ function injectButton(inputEl: HTMLInputElement, allowedTypes: ('variant' | 'gen
     }
 
     try {
-      const data = await chrome.storage.local.get('variantstream_active_input') as any;
+      const data = await chrome.storage.local.get({
+        variantstream_active_input: '',
+        variantstream_resolved_hgvsg: null,
+        variantstream_resolved_transcript: null,
+        variantstream_resolved_coding_change: null,
+        variantstream_live_enrichment_enabled: true
+      }) as any;
       const rawInput = data.variantstream_active_input;
+      const resolvedHgvsg = data.variantstream_resolved_hgvsg;
+      const resolvedTranscript = data.variantstream_resolved_transcript;
+      const resolvedCodingChange = data.variantstream_resolved_coding_change;
+      const liveEnrichmentEnabled = data.variantstream_live_enrichment_enabled !== false && data.variantstream_live_enrichment_enabled !== 'false';
       if (!rawInput) {
         showNotification('No active variant found.', true);
         return;
       }
 
-      const parsed = parseVariant(rawInput);
+      let parsed = parseVariant(rawInput);
+      if (resolvedHgvsg) {
+        const parsedResolved = parseVariant(resolvedHgvsg);
+        if (parsedResolved.isValid && parsedResolved.position) {
+          parsed = {
+            ...parsed,
+            chromosome: parsedResolved.chromosome ?? parsed.chromosome,
+            position: parsedResolved.position,
+            ref: parsedResolved.ref ?? parsed.ref,
+            alt: parsedResolved.alt ?? parsed.alt,
+            endPosition: parsedResolved.endPosition ?? parsed.endPosition,
+          };
+        }
+      }
+      if (resolvedTranscript) {
+        parsed.transcript = resolvedTranscript;
+      }
+      if (resolvedCodingChange) {
+        parsed.codingChange = resolvedCodingChange;
+      }
+
       const adapter = INITIAL_PLATFORMS.find(p => (window.location.hostname + window.location.pathname).includes(p.domain));
+
+      // If the platform requires allele sequences (dash or hgvs_g) but they are missing, warn the user
+      if (adapter && (adapter.requiredFormat === 'dash' || adapter.requiredFormat === 'hgvs_g')) {
+        const hasAlleles = hasRealAllele(parsed.ref) && hasRealAllele(parsed.alt);
+        const hasTranscript = !!(parsed.transcript && parsed.codingChange);
+
+        if (!hasAlleles && !hasTranscript) {
+          if (liveEnrichmentEnabled) {
+            showNotification(`This platform requires reference & alternate alleles or a transcript change. Live Enrichment was unable to resolve them.`, true);
+          } else {
+            showNotification(`This platform requires reference & alternate alleles. Please enable Live Enrichment in settings.`, true);
+          }
+          return;
+        }
+      }
+
       const formatted = adapter ? getFormattedVariant(parsed, adapter.requiredFormat) : rawInput;
 
       const currentInputEl = inputEl;
       if (!currentInputEl) return;
 
       if (window.location.hostname.includes('ncbi.nlm.nih.gov')) {
-        const clearBtn = findClinVarClearAllFiltersButton();
-        if (clearBtn) {
-          sessionStorage.setItem('vh_pending_autofill', JSON.stringify({
-            type: 'variant',
-            value: formatted,
-            timestamp: Date.now()
-          }));
-          clearBtn.click();
-          return;
-        }
+        // Redirect to clean homepage with hash term to reset session filters
+        window.location.href = `https://www.ncbi.nlm.nih.gov/clinvar/?vh_clear_filters=true#term=${encodeURIComponent(formatted)}`;
+        return;
       }
 
       const isUCSC = window.location.hostname.includes('genome.ucsc.edu');
@@ -779,16 +768,9 @@ function injectButton(inputEl: HTMLInputElement, allowedTypes: ('variant' | 'gen
     if (!currentInputEl) return;
 
     if (window.location.hostname.includes('ncbi.nlm.nih.gov')) {
-      const clearBtn = findClinVarClearAllFiltersButton();
-      if (clearBtn) {
-        sessionStorage.setItem('vh_pending_autofill', JSON.stringify({
-          type: 'gene',
-          value: geneSymbol,
-          timestamp: Date.now()
-        }));
-        clearBtn.click();
-        return;
-      }
+      // Redirect to clean homepage with hash term to reset session filters
+      window.location.href = `https://www.ncbi.nlm.nih.gov/clinvar/?vh_clear_filters=true#term=${encodeURIComponent(geneSymbol + '[gene]')}`;
+      return;
     }
 
     const isUCSC = window.location.hostname.includes('genome.ucsc.edu');
@@ -1126,11 +1108,29 @@ function injectUcscHomepageButton(): boolean {
   floatBtn.addEventListener('click', async () => {
     if (!isContextValid()) return;
     try {
-      const data = await chrome.storage.local.get('variantstream_active_input') as any;
+      const data = await chrome.storage.local.get([
+        'variantstream_active_input',
+        'variantstream_resolved_hgvsg'
+      ]) as any;
       const rawInput = data.variantstream_active_input;
+      const resolvedHgvsg = data.variantstream_resolved_hgvsg;
       if (!rawInput) { showNotification('No active variant found.', true); return; }
 
-      const parsed = parseVariant(rawInput);
+      let parsed = parseVariant(rawInput);
+      if (resolvedHgvsg) {
+        const parsedResolved = parseVariant(resolvedHgvsg);
+        if (parsedResolved.isValid && parsedResolved.position) {
+          parsed = {
+            ...parsed,
+            chromosome: parsedResolved.chromosome ?? parsed.chromosome,
+            position: parsedResolved.position,
+            ref: parsedResolved.ref ?? parsed.ref,
+            alt: parsedResolved.alt ?? parsed.alt,
+            endPosition: parsedResolved.endPosition ?? parsed.endPosition,
+          };
+        }
+      }
+
       // Build coordinate string for UCSC
       const chrom = parsed.chromosome ? `chr${parsed.chromosome}` : null;
       const pos   = parsed.position ?? null;
@@ -1259,54 +1259,77 @@ function init(): boolean {
 if (isContextValid()) {
   const initialParams = new URLSearchParams(window.location.search);
   if (initialParams.has('vh_clear_filters')) {
-    isClearFiltersPending = true;
+    // Extract term from hash if present
+    const hash = window.location.hash;
+    if (hash && hash.startsWith('#term=')) {
+      const termVal = decodeURIComponent(hash.substring(6));
+      if (termVal) {
+        sessionStorage.setItem('vh_pending_autofill', JSON.stringify({
+          type: 'variant',
+          value: termVal,
+          timestamp: Date.now()
+        }));
+      }
+    }
+
     initialParams.delete('vh_clear_filters');
     const newSearch = initialParams.toString();
-    const newUrl = window.location.pathname + (newSearch ? '?' + newSearch : '') + window.location.hash;
+    const newUrl = window.location.pathname + (newSearch ? '?' + newSearch : '');
     window.history.replaceState(null, '', newUrl);
-
-    // Start filter-clearing immediately (uses its own observer, independent of init).
-    if (window.location.hostname.includes('ncbi.nlm.nih.gov')) {
-      handleClinVarClearFiltersUrl();
-    }
   }
 
-  init();
+  const injected = init();
 
-  // FIX MEDIUM-6: Debounce the MutationObserver so that rapid DOM mutations
-  // (common in React SPAs like gnomAD) do not trigger findSearchInput() +
-  // getComputedStyle() on every individual change.
-  // The observer also disconnects itself once injection succeeds.
-  observer = new MutationObserver(() => {
-    if (!isContextValid()) {
-      handleInvalidatedContext();
-      return;
-    }
-    if (debounceTimer) clearTimeout(debounceTimer);
-    debounceTimer = setTimeout(() => {
-      if (isContextValid()) {
-        init();
-      } else {
+  // If not injected immediately, register observer and fallback interval.
+  // Both will disconnect/clear themselves as soon as init() succeeds.
+  if (!injected) {
+    observer = new MutationObserver(() => {
+      if (!isContextValid()) {
         handleInvalidatedContext();
+        return;
       }
-    }, 150);
-  });
-  observer.observe(document.body, { childList: true, subtree: true });
+      if (debounceTimer) clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(() => {
+        if (isContextValid()) {
+          if (init()) {
+            if (observer) {
+              observer.disconnect();
+              observer = null;
+            }
+            if (intervalId) {
+              clearInterval(intervalId);
+              intervalId = null;
+            }
+          }
+        } else {
+          handleInvalidatedContext();
+        }
+      }, 150);
+    });
+    observer.observe(document.body, { childList: true, subtree: true });
 
-  // FIX MEDIUM-6: Interval fallback capped at 5 attempts (covers slow-loading
-  // pages that take up to 15 s) instead of running indefinitely.
-  let intervalAttempts = 0;
-  const MAX_INTERVAL_ATTEMPTS = 5;
-  intervalId = setInterval(() => {
-    if (!isContextValid()) {
-      handleInvalidatedContext();
-      return;
-    }
-    intervalAttempts++;
-    init();
-    if (intervalAttempts >= MAX_INTERVAL_ATTEMPTS) {
-      if (intervalId) clearInterval(intervalId);
-      intervalId = null;
-    }
-  }, 3000);
+    let intervalAttempts = 0;
+    const MAX_INTERVAL_ATTEMPTS = 5;
+    intervalId = setInterval(() => {
+      if (!isContextValid()) {
+        handleInvalidatedContext();
+        return;
+      }
+      intervalAttempts++;
+      if (init()) {
+        if (observer) {
+          observer.disconnect();
+          observer = null;
+        }
+        if (intervalId) {
+          clearInterval(intervalId);
+          intervalId = null;
+        }
+      }
+      if (intervalAttempts >= MAX_INTERVAL_ATTEMPTS) {
+        if (intervalId) clearInterval(intervalId);
+        intervalId = null;
+      }
+    }, 3000);
+  }
 }
