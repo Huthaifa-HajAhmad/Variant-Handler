@@ -321,7 +321,7 @@ function handlePendingClinVarAutofill() {
         let targetInput = type === 'variant' ? clinVarInputs.variant : clinVarInputs.gene;
         if (!targetInput) {
           // Fall back to the main search input (e.g. on the landing page)
-          targetInput = findSearchInput() || undefined;
+          targetInput = findSearchInputs()[0] || undefined;
         }
         if (targetInput) {
           const nativeSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')?.set;
@@ -353,13 +353,16 @@ function handlePendingClinVarAutofill() {
 /**
  * Finds the most relevant input field on the page.
  */
-function findSearchInput(): HTMLInputElement | null {
+function findSearchInputs(): HTMLInputElement[] {
   const hostname = window.location.hostname;
 
   // Domain-specific overrides
   if (hostname.includes('gnomad.broadinstitute.org')) {
-    const el = findVisibleInput('input[placeholder*="Search"]');
-    if (el) return el;
+    const elements = Array.from(document.querySelectorAll('input[placeholder*="Search"]')) as HTMLInputElement[];
+    return elements.filter(el => {
+      const style = window.getComputedStyle(el);
+      return style.display !== 'none' && style.visibility !== 'hidden' && el.offsetWidth > 0;
+    });
   }
   if (hostname.includes('genome.ucsc.edu')) {
     // IMPORTANT: return early (even with null) — do NOT fall through to the
@@ -369,16 +372,16 @@ function findSearchInput(): HTMLInputElement | null {
     const el = (document.getElementById('positionInput') as HTMLInputElement | null)
       ?? document.querySelector<HTMLInputElement>('input[name="hgt.positionInput"]')
       ?? document.querySelector<HTMLInputElement>('input[name="position"]');
-    return el ?? null; // null = not a genomic-position page; skip injection
+    return el ? [el] : [];
   }
   if (hostname.includes('spliceailookup.broadinstitute.org')) {
     const el = findVisibleInput('input[id="search-box"]');
-    if (el) return el;
+    return el ? [el] : [];
   }
   if (hostname.includes('alphamissense.hegelab.org')) {
     // Both search input and results page have search_input or identifier
     const el = findVisibleInput('input[id="search_input"]') || findVisibleInput('input[id="identifier"]');
-    if (el) return el;
+    return el ? [el] : [];
   }
   if (hostname.includes('ncbi.nlm.nih.gov')) {
     const selectors = [
@@ -392,16 +395,17 @@ function findSearchInput(): HTMLInputElement | null {
     ];
     for (const selector of selectors) {
       const el = findVisibleInput(selector);
-      if (el) return el;
+      if (el) return [el];
     }
   }
 
   // Generic heuristic
   const inputs = Array.from(document.querySelectorAll('input[type="text"], input[type="search"]')) as HTMLInputElement[];
-  return inputs.find(input => {
+  const visible = inputs.find(input => {
     const style = window.getComputedStyle(input);
     return style.display !== 'none' && style.visibility !== 'hidden' && input.offsetWidth > 0;
-  }) || null;
+  });
+  return visible ? [visible] : [];
 }
 
 /**
@@ -729,15 +733,18 @@ function injectButton(inputEl: HTMLInputElement, allowedTypes: ('variant' | 'gen
       if (!currentInputEl) return;
 
       if (window.location.hostname.includes('ncbi.nlm.nih.gov')) {
-        const clearBtn = findClinVarClearAllFiltersButton();
-        if (clearBtn) {
-          sessionStorage.setItem('vh_pending_autofill', JSON.stringify({
-            type: 'variant',
-            value: formatted,
-            timestamp: Date.now()
-          }));
-          clearBtn.click();
-          return;
+        const hasTerm = new URLSearchParams(window.location.search).has('term');
+        if (hasTerm) {
+          const clearBtn = findClinVarClearAllFiltersButton();
+          if (clearBtn) {
+            sessionStorage.setItem('vh_pending_autofill', JSON.stringify({
+              type: 'variant',
+              value: formatted,
+              timestamp: Date.now()
+            }));
+            clearBtn.click();
+            return;
+          }
         }
       }
 
@@ -792,6 +799,14 @@ function injectButton(inputEl: HTMLInputElement, allowedTypes: ('variant' | 'gen
         }
         currentInputEl.dispatchEvent(new Event('input', { bubbles: true }));
         currentInputEl.dispatchEvent(new Event('change', { bubbles: true }));
+
+        if (window.location.hostname.includes('ncbi.nlm.nih.gov')) {
+          const form = currentInputEl.form;
+          if (form) {
+            try { (form as any).requestSubmit(); }
+            catch { form.submit(); }
+          }
+        }
       }
 
       const originalHtml = btn.innerHTML;
@@ -816,15 +831,18 @@ function injectButton(inputEl: HTMLInputElement, allowedTypes: ('variant' | 'gen
     if (!currentInputEl) return;
 
     if (window.location.hostname.includes('ncbi.nlm.nih.gov')) {
-      const clearBtn = findClinVarClearAllFiltersButton();
-      if (clearBtn) {
-        sessionStorage.setItem('vh_pending_autofill', JSON.stringify({
-          type: 'gene',
-          value: `${geneSymbol}[gene]`,
-          timestamp: Date.now()
-        }));
-        clearBtn.click();
-        return;
+      const hasTerm = new URLSearchParams(window.location.search).has('term');
+      if (hasTerm) {
+        const clearBtn = findClinVarClearAllFiltersButton();
+        if (clearBtn) {
+          sessionStorage.setItem('vh_pending_autofill', JSON.stringify({
+            type: 'gene',
+            value: `${geneSymbol}[gene]`,
+            timestamp: Date.now()
+          }));
+          clearBtn.click();
+          return;
+        }
       }
     }
 
@@ -848,6 +866,14 @@ function injectButton(inputEl: HTMLInputElement, allowedTypes: ('variant' | 'gen
       }
       currentInputEl.dispatchEvent(new Event('input', { bubbles: true }));
       currentInputEl.dispatchEvent(new Event('change', { bubbles: true }));
+
+      if (window.location.hostname.includes('ncbi.nlm.nih.gov')) {
+        const form = currentInputEl.form;
+        if (form) {
+          try { (form as any).requestSubmit(); }
+          catch { form.submit(); }
+        }
+      }
     }
 
     const originalHtml = btnGene.innerHTML;
@@ -1266,9 +1292,11 @@ function init(): boolean {
 
   // Fallback if not ClinVar homepage inputs or if ClinVar inputs were not found
   if (!injectedAny) {
-    const input = findSearchInput();
-    if (input) {
-      injectButton(input);
+    const inputs = findSearchInputs();
+    if (inputs.length > 0) {
+      inputs.forEach(input => {
+        injectButton(input);
+      });
       injectedAny = true;
     }
   }
@@ -1310,36 +1338,22 @@ function init(): boolean {
   return false;
 }
 
-// Run immediately
-if (isContextValid()) {
-  const initialParams = new URLSearchParams(window.location.search);
-  if (initialParams.has('vh_clear_filters')) {
-    // Extract term from query parameters
-    const termVal = initialParams.get('term') || '';
-    if (termVal) {
-      sessionStorage.setItem('vh_pending_autofill', JSON.stringify({
-        type: 'variant',
-        value: termVal,
-        timestamp: Date.now()
-      }));
-    }
-
-    initialParams.delete('vh_clear_filters');
-    const newSearch = initialParams.toString();
-    const newUrl = window.location.pathname + (newSearch ? '?' + newSearch : '');
-    window.history.replaceState(null, '', newUrl);
-
-    // Run filter-clearing helper (independent of init)
-    if (window.location.hostname.includes('ncbi.nlm.nih.gov')) {
-      isClearFiltersPending = true;
-      handleClinVarClearFiltersUrl();
-    }
+function startInjectionMonitoring() {
+  if (observer) {
+    observer.disconnect();
+    observer = null;
+  }
+  if (intervalId) {
+    clearInterval(intervalId);
+    intervalId = null;
+  }
+  if (debounceTimer) {
+    clearTimeout(debounceTimer);
+    debounceTimer = null;
   }
 
   const injected = init();
 
-  // If not injected immediately, register observer and fallback interval.
-  // Both will disconnect/clear themselves as soon as init() succeeds.
   if (!injected) {
     observer = new MutationObserver(() => {
       if (!isContextValid()) {
@@ -1390,4 +1404,43 @@ if (isContextValid()) {
       }
     }, 3000);
   }
+}
+
+// Run immediately
+if (isContextValid()) {
+  const initialParams = new URLSearchParams(window.location.search);
+  if (initialParams.has('vh_clear_filters')) {
+    // Extract term from query parameters
+    const termVal = initialParams.get('term') || '';
+    if (termVal) {
+      sessionStorage.setItem('vh_pending_autofill', JSON.stringify({
+        type: 'variant',
+        value: termVal,
+        timestamp: Date.now()
+      }));
+    }
+
+    initialParams.delete('vh_clear_filters');
+    const newSearch = initialParams.toString();
+    const newUrl = window.location.pathname + (newSearch ? '?' + newSearch : '');
+    window.history.replaceState(null, '', newUrl);
+
+    // Run filter-clearing helper (independent of init)
+    if (window.location.hostname.includes('ncbi.nlm.nih.gov')) {
+      isClearFiltersPending = true;
+      handleClinVarClearFiltersUrl();
+    }
+  }
+
+  startInjectionMonitoring();
+
+  // Watch for SPA URL changes
+  let lastUrl = window.location.href;
+  setInterval(() => {
+    if (!isContextValid()) return;
+    if (window.location.href !== lastUrl) {
+      lastUrl = window.location.href;
+      startInjectionMonitoring();
+    }
+  }, 1000);
 }
