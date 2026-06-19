@@ -654,7 +654,7 @@ function injectButton(inputEl: HTMLInputElement, allowedTypes: ('variant' | 'gen
             position: parsedResolved.position,
             ref: parsedResolved.ref ?? parsed.ref,
             alt: parsedResolved.alt ?? parsed.alt,
-            endPosition: parsedResolved.endPosition ?? parsed.endPosition,
+            endPosition: parsedResolved.endPosition,
           };
         }
       }
@@ -1126,7 +1126,7 @@ function injectUcscHomepageButton(): boolean {
             position: parsedResolved.position,
             ref: parsedResolved.ref ?? parsed.ref,
             alt: parsedResolved.alt ?? parsed.alt,
-            endPosition: parsedResolved.endPosition ?? parsed.endPosition,
+            endPosition: parsedResolved.endPosition,
           };
         }
       }

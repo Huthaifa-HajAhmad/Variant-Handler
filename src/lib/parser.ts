@@ -479,7 +479,7 @@ export function buildPlatformUrl(
       pos   = resolvedGenomic.position;
       ref   = resolvedGenomic.ref ?? ref;
       alt   = resolvedGenomic.alt ?? alt;
-      endPosition = resolvedGenomic.endPosition ?? endPosition;
+      endPosition = resolvedGenomic.endPosition;
     }
   }
 
