@@ -42,7 +42,7 @@ export default function PlatformLaunchpad({
       }`}
     >
       {/* Header Container */}
-      <div className="flex items-center justify-between gap-2 mb-3 pb-2.5 border-b border-slate-100 dark:border-slate-800/80">
+      <div className={`flex items-center justify-between gap-2 mb-3 pb-2.5 border-b ${isLight ? 'border-slate-100' : 'border-slate-800/60'}`}>
         <h2 className={sectionTitleCls}>Clinical Databases</h2>
 
         {activePlatforms.length > 0 && (
@@ -86,7 +86,7 @@ export default function PlatformLaunchpad({
               onClick={() => !disabled && handleLaunchPlatform(platform)}
               style={disabled ? undefined : brandVars}
               title={disabled ? (reason ?? `Missing data for ${platform.name}`) : `Launch ${platform.name} — ${platform.description}`}
-              className={`flex items-center justify-center gap-2.5 px-3 py-3 transition-all duration-300 text-left cursor-pointer relative overflow-hidden group/btn ${
+              className={`flex items-center justify-start gap-3 px-4 py-3 transition-all duration-300 text-left cursor-pointer relative overflow-hidden group/btn ${
                 disabled
                   ? isLight
                     ? 'opacity-45 cursor-not-allowed bg-slate-100/40 text-slate-400'
@@ -122,7 +122,7 @@ export default function PlatformLaunchpad({
                 <span
                   className={`text-[11px] font-bold truncate leading-none transition-colors duration-200 ${
                     disabled
-                      ? 'text-slate-400 dark:text-slate-600'
+                      ? isLight ? 'text-slate-400' : 'text-slate-600'
                       : isLight
                       ? 'text-slate-800'
                       : 'text-slate-200'
