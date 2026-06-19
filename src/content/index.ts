@@ -263,16 +263,28 @@ function findClinVarInputs(): { variant?: HTMLInputElement, gene?: HTMLInputElem
  * the 'Clear all' button if found.
  */
 function findClinVarClearAllFiltersButton(): HTMLElement | null {
-  const btn = document.querySelector<HTMLElement>('a[id="clear-all-filters"]')
-    ?? document.querySelector<HTMLElement>('.clear-all-filters')
-    ?? document.querySelector<HTMLElement>('a.clear-filters-btn')
-    ?? document.querySelector<HTMLElement>('#activated-filters a')
-    ?? document.querySelector<HTMLElement>('.activated-filters a')
-    ?? Array.from(document.querySelectorAll<HTMLElement>('a, button')).find(el => {
-         const txt = el.textContent?.trim().toLowerCase() || '';
-         return txt === 'clear all' || txt === 'clear all filters' || txt === 'clear filters' || txt === 'clear' || txt === 'reset';
-       });
-  return btn ?? null;
+  const container = document.querySelector('#activated-filters, .activated-filters, .filters-activated, .active-filters');
+  if (container) {
+    const clearBtn = Array.from(container.querySelectorAll<HTMLElement>('a, button')).find(el => {
+      const txt = el.textContent?.trim().toLowerCase() || '';
+      return txt.includes('clear') || txt.includes('reset');
+    });
+    if (clearBtn) return clearBtn;
+    
+    const firstBtn = container.querySelector<HTMLElement>('a, button');
+    if (firstBtn) return firstBtn;
+  }
+
+  // Fallback to text matching within the page if the container selector name changed,
+  // but protect it by ensuring we are on a search page and some filter elements exist.
+  const hasFacets = document.querySelector('.facet, .facets, .facet-list, .filter-list, #sidebar') !== null;
+  if (!hasFacets) return null;
+
+  return Array.from(document.querySelectorAll<HTMLElement>('a, button')).find(el => {
+    const txt = el.textContent?.trim().toLowerCase() || '';
+    return (txt === 'clear all' || txt === 'clear all filters' || txt === 'clear filters') && 
+           el.closest('#maincontent, #sidebar, .facet-list, .filter-list') !== null;
+  }) ?? null;
 }
 
 function handleClinVarClearFiltersUrl() {
@@ -360,7 +372,7 @@ function findSearchInputs(): HTMLInputElement[] {
 
   // Domain-specific overrides
   if (hostname.includes('gnomad.broadinstitute.org')) {
-    const elements = Array.from(document.querySelectorAll('input[placeholder*="Search"]')) as HTMLInputElement[];
+    const elements = Array.from(document.querySelectorAll('input[placeholder*="Search by gene"]')) as HTMLInputElement[];
     return elements.filter(el => {
       const style = window.getComputedStyle(el);
       return el.offsetParent !== null &&
