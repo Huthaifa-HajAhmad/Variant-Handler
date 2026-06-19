@@ -554,12 +554,12 @@ export function buildPlatformUrl(
       if (variantTerm === hgvsp && gene) {
         queryTerm = `${gene} ${hgvsp}`;
       }
-      return `https://www.ncbi.nlm.nih.gov/clinvar/?vh_clear_filters=true#term=${encodeURIComponent(queryTerm)}`;
+      return `https://www.ncbi.nlm.nih.gov/clinvar/?term=${encodeURIComponent(queryTerm)}&vh_clear_filters=true`;
     }
     if (gene) {
-      return `https://www.ncbi.nlm.nih.gov/clinvar/?vh_clear_filters=true#term=${encodeURIComponent(gene)}%5Bgene%5D`;
+      return `https://www.ncbi.nlm.nih.gov/clinvar/?term=${encodeURIComponent(gene)}%5Bgene%5D&vh_clear_filters=true`;
     }
-    return `https://www.ncbi.nlm.nih.gov/clinvar/?vh_clear_filters=true#term=${encodeURIComponent(raw)}`;
+    return `https://www.ncbi.nlm.nih.gov/clinvar/?term=${encodeURIComponent(raw)}&vh_clear_filters=true`;
   }
 
   // 6. dbsnp

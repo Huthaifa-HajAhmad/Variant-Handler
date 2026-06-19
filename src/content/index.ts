@@ -25,6 +25,7 @@ import { parseVariant, INITIAL_PLATFORMS, ParsedVariant, hasRealAllele } from '.
 let observer: MutationObserver | null = null;
 let intervalId: ReturnType<typeof setInterval> | null = null;
 let debounceTimer: ReturnType<typeof setTimeout> | null = null;
+let isClearFiltersPending = false;
 // Cleanup for UCSC fixed-position button listeners (keyed by button container element)
 const ucscCleanupFns: Array<() => void> = [];
 
@@ -261,7 +262,47 @@ function findClinVarInputs(): { variant?: HTMLInputElement, gene?: HTMLInputElem
  * Searches the page for elements indicating applied filters on ClinVar (NCBI) and returns
  * the 'Clear all' button if found.
  */
+function findClinVarClearAllFiltersButton(): HTMLElement | null {
+  const btn = document.querySelector<HTMLElement>('a[id="clear-all-filters"]')
+    ?? document.querySelector<HTMLElement>('.clear-all-filters')
+    ?? document.querySelector<HTMLElement>('a.clear-filters-btn')
+    ?? Array.from(document.querySelectorAll<HTMLElement>('a, button')).find(el => {
+         const txt = el.textContent?.trim().toLowerCase() || '';
+         return txt === 'clear all' || txt === 'clear all filters';
+       });
+  return btn ?? null;
+}
 
+function handleClinVarClearFiltersUrl() {
+  if (!isClearFiltersPending) return;
+
+  const tryClear = (): boolean => {
+    const clearBtn = findClinVarClearAllFiltersButton();
+    if (clearBtn) {
+      clearBtn.click();
+      isClearFiltersPending = false;
+      return true;
+    }
+    return false;
+  };
+
+  // Try immediately — the button may already be in the DOM.
+  if (tryClear()) return;
+
+  // Not yet in the DOM — observe mutations until it appears (max 10 s).
+  const clearObserver = new MutationObserver(() => {
+    if (tryClear()) {
+      clearObserver.disconnect();
+      clearTimeout(clearTimeout_);
+    }
+  });
+  clearObserver.observe(document.body, { childList: true, subtree: true });
+
+  const clearTimeout_ = setTimeout(() => {
+    clearObserver.disconnect();
+    isClearFiltersPending = false; // give up
+  }, 10_000);
+}
 
 /**
  * Checks for a pending ClinVar autofill action stored in sessionStorage, which is used
@@ -688,9 +729,16 @@ function injectButton(inputEl: HTMLInputElement, allowedTypes: ('variant' | 'gen
       if (!currentInputEl) return;
 
       if (window.location.hostname.includes('ncbi.nlm.nih.gov')) {
-        // Redirect to clean homepage with hash term to reset session filters
-        window.location.href = `https://www.ncbi.nlm.nih.gov/clinvar/?vh_clear_filters=true#term=${encodeURIComponent(formatted)}`;
-        return;
+        const clearBtn = findClinVarClearAllFiltersButton();
+        if (clearBtn) {
+          sessionStorage.setItem('vh_pending_autofill', JSON.stringify({
+            type: 'variant',
+            value: formatted,
+            timestamp: Date.now()
+          }));
+          clearBtn.click();
+          return;
+        }
       }
 
       const isUCSC = window.location.hostname.includes('genome.ucsc.edu');
@@ -768,9 +816,16 @@ function injectButton(inputEl: HTMLInputElement, allowedTypes: ('variant' | 'gen
     if (!currentInputEl) return;
 
     if (window.location.hostname.includes('ncbi.nlm.nih.gov')) {
-      // Redirect to clean homepage with hash term to reset session filters
-      window.location.href = `https://www.ncbi.nlm.nih.gov/clinvar/?vh_clear_filters=true#term=${encodeURIComponent(geneSymbol + '[gene]')}`;
-      return;
+      const clearBtn = findClinVarClearAllFiltersButton();
+      if (clearBtn) {
+        sessionStorage.setItem('vh_pending_autofill', JSON.stringify({
+          type: 'gene',
+          value: `${geneSymbol}[gene]`,
+          timestamp: Date.now()
+        }));
+        clearBtn.click();
+        return;
+      }
     }
 
     const isUCSC = window.location.hostname.includes('genome.ucsc.edu');
@@ -1259,23 +1314,26 @@ function init(): boolean {
 if (isContextValid()) {
   const initialParams = new URLSearchParams(window.location.search);
   if (initialParams.has('vh_clear_filters')) {
-    // Extract term from hash if present
-    const hash = window.location.hash;
-    if (hash && hash.startsWith('#term=')) {
-      const termVal = decodeURIComponent(hash.substring(6));
-      if (termVal) {
-        sessionStorage.setItem('vh_pending_autofill', JSON.stringify({
-          type: 'variant',
-          value: termVal,
-          timestamp: Date.now()
-        }));
-      }
+    // Extract term from query parameters
+    const termVal = initialParams.get('term') || '';
+    if (termVal) {
+      sessionStorage.setItem('vh_pending_autofill', JSON.stringify({
+        type: 'variant',
+        value: termVal,
+        timestamp: Date.now()
+      }));
     }
 
     initialParams.delete('vh_clear_filters');
     const newSearch = initialParams.toString();
     const newUrl = window.location.pathname + (newSearch ? '?' + newSearch : '');
     window.history.replaceState(null, '', newUrl);
+
+    // Run filter-clearing helper (independent of init)
+    if (window.location.hostname.includes('ncbi.nlm.nih.gov')) {
+      isClearFiltersPending = true;
+      handleClinVarClearFiltersUrl();
+    }
   }
 
   const injected = init();
