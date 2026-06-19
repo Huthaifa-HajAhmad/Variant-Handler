@@ -84,8 +84,8 @@ function loadPersistentCache(): Map<string, EnrichmentData> {
     const obj = JSON.parse(raw) as Record<string, EnrichmentData>;
     const now = Date.now();
     const result = new Map<string, EnrichmentData>();
-    // Invalidate cache entries created before the source badge updates (2026-06-16T18:20:00Z)
-    const invalidationThreshold = Date.parse("2026-06-16T18:20:00Z");
+    // Invalidate cache entries created before the latest indel normalization update (2026-06-19T19:53:00Z)
+    const invalidationThreshold = Date.parse("2026-06-19T19:53:00Z");
     for (const [k, v] of Object.entries(obj)) {
       if (
         v &&
@@ -132,8 +132,22 @@ function savePersistentCache(map: Map<string, EnrichmentData>): void {
  *   3. null — not enough data to query
  */
 function deriveQueryKey(parsed: ParsedVariant): string | null {
-  if (parsed.chromosome && parsed.position && parsed.ref && parsed.alt) {
-    const base = `chr${parsed.chromosome}:g.${parsed.position}${parsed.ref}>${parsed.alt}`;
+  if (parsed.chromosome && parsed.position) {
+    let base = '';
+    if (parsed.ref && parsed.alt) {
+      base = `chr${parsed.chromosome}:g.${parsed.position}${parsed.ref}>${parsed.alt}`;
+    } else {
+      // Indel/Structural coordinate range format
+      const match = parsed.raw.match(/(delins|del|ins|dup|inv)\s*([ACGTN]*)$/i);
+      if (match) {
+        const changeType = match[1].toLowerCase();
+        const seq = match[2] || '';
+        base = `chr${parsed.chromosome}:g.${parsed.position}${parsed.endPosition ? `_${parsed.endPosition}` : ''}${changeType}${seq}`;
+      } else {
+        // Coordinate-only or other genomic format
+        base = `chr${parsed.chromosome}:g.${parsed.position}`;
+      }
+    }
     // Append build to avoid serving a stale GRCh37 cache entry for a GRCh38 input
     return parsed.genomeBuild === 'GRCh38' ? `${base}@GRCh38` : base;
   }
@@ -448,7 +462,7 @@ export function useVariantEnrichment(
       let mappedPos = '';
       // Strip the @GRCh38 build suffix we append to cache keys to prevent cross-build collisions
       const rawQueryKey = queryKey.replace(/@GRCh38$/, '');
-      const genomicMatch = rawQueryKey.match(/^chr(2[0-2]|1[0-9]|[1-9]|X|Y|MT|M):g\.([0-9]+)([ACGTN\-]+)>([ACGTN\-]+)$/i);
+      const genomicMatch = rawQueryKey.match(/^chr(2[0-2]|1[0-9]|[1-9]|X|Y|MT|M):g\.([0-9]+)(?:_([0-9]+))?(?:([ACGTN\-]+)>([ACGTN\-]+)|(delins|del|ins|dup|inv)([ACGTN]*))$/i);
       // Ensure activeQueryKey uses the raw (no-suffix) key for actual API calls
       if (queryKey !== rawQueryKey) activeQueryKey = rawQueryKey;
 
@@ -456,11 +470,14 @@ export function useVariantEnrichment(
       if (genomicMatch && build === 'GRCh38') {
         const chrom = genomicMatch[1];
         const pos = genomicMatch[2];
-        const ref = genomicMatch[3];
-        const alt = genomicMatch[4];
+        const endPos = genomicMatch[3] || pos;
+        const ref = genomicMatch[4] || '';
+        const alt = genomicMatch[5] || '';
+        const changeType = genomicMatch[6]?.toLowerCase();
+        const changeSeq = genomicMatch[7] || '';
         
         try {
-          const mapUrl = `https://rest.ensembl.org/map/human/GRCh38/${chrom}:${pos}..${pos}/GRCh37?content-type=application/json`;
+          const mapUrl = `https://rest.ensembl.org/map/human/GRCh38/${chrom}:${pos}..${endPos}/GRCh37?content-type=application/json`;
           let mapData: any;
           if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.sendMessage) {
             const response = await new Promise<{ success: boolean; data?: any; error?: string }>((resolve) => {
@@ -480,7 +497,15 @@ export function useVariantEnrichment(
             const mappedStart = mapData.mappings[0].mapped?.start;
             if (mappedStart) {
               mappedPos = String(mappedStart);
-              activeQueryKey = `chr${chrom}:g.${mappedStart}${ref}>${alt}`;
+              if (ref && alt) {
+                activeQueryKey = `chr${chrom}:g.${mappedStart}${ref}>${alt}`;
+              } else if (changeType) {
+                const diff = parseInt(endPos, 10) - parseInt(pos, 10);
+                const mappedEnd = isNaN(diff) ? '' : `_${mappedStart + diff}`;
+                activeQueryKey = `chr${chrom}:g.${mappedStart}${mappedEnd}${changeType}${changeSeq}`;
+              } else {
+                activeQueryKey = `chr${chrom}:g.${mappedStart}`;
+              }
               
               // Check mapped cache
               if (!forceFresh) {
@@ -551,8 +576,8 @@ export function useVariantEnrichment(
       if ((!data || data.notfound || data.error) && genomicMatch) {
         const chrom = genomicMatch[1];
         const pos = genomicMatch[2];
-        const ref = genomicMatch[3];
-        const alt = genomicMatch[4];
+        const ref = genomicMatch[4] || '';
+        const alt = genomicMatch[5] || '';
         const q = `chrom:${chrom} AND (pos:${pos} OR clinvar.hg38.start:${pos} OR hg38.start:${pos} OR clinvar.hg19.start:${pos} OR hg19.start:${pos}) AND (ref:"${ref}" OR clinvar.ref:"${ref}") AND (alt:"${alt}" OR clinvar.alt:"${alt}")`;
         const queryUrl = `https://myvariant.info/v1/query?q=${encodeURIComponent(q)}&fields=${FIELDS}&size=1`;
         
@@ -580,12 +605,40 @@ export function useVariantEnrichment(
       if ((!enrichmentData.geneSymbol || !enrichmentData.codingChange) && genomicMatch) {
         const chrom = genomicMatch[1];
         const pos = genomicMatch[2];
-        const alt = genomicMatch[4];
+        const endPos = genomicMatch[3] || pos;
+        const ref = genomicMatch[4] || '';
+        const alt = genomicMatch[5] || '';
+        const changeType = genomicMatch[6]?.toLowerCase();
+        const changeSeq = genomicMatch[7] || '';
+
+        let vepAlt = alt;
+        let vepStart = pos;
+        let vepEnd = endPos;
+
+        if (changeType === 'del') {
+          vepAlt = 'deletion';
+        } else if (changeType === 'ins') {
+          vepAlt = changeSeq || 'N';
+        } else if (changeType === 'dup') {
+          vepAlt = 'duplication';
+        } else if (changeType === 'delins') {
+          vepAlt = changeSeq || 'N';
+        } else if (changeType === 'inv') {
+          vepAlt = 'inversion';
+        }
+
         const serverBase = build === 'GRCh37' ? 'https://grch37.rest.ensembl.org' : 'https://rest.ensembl.org';
-        const vepUrl = `${serverBase}/vep/homo_sapiens/region/${chrom}:${pos}-${pos}:1/${alt}?content-type=application/json&hgvs=1&mane=1`;
+        const vepUrl = `${serverBase}/vep/homo_sapiens/region/${chrom}:${vepStart}-${vepEnd}:1/${vepAlt}?content-type=application/json&hgvs=1&mane=1`;
         try {
           const vepData = await performFetch(vepUrl);
           if (Array.isArray(vepData) && vepData.length > 0) {
+            // Extract resolved normalized genomic HGVSg coordinates from VEP if present
+            const v = vepData[0];
+            const rawHgvsg = v.hgvsg || (Array.isArray(v.colocated_variants) ? v.colocated_variants.find((cv: any) => cv.id?.startsWith('chr'))?.id : undefined);
+            if (rawHgvsg && !enrichmentData.hgvsg) {
+              enrichmentData.hgvsg = Array.isArray(rawHgvsg) ? rawHgvsg[0] : rawHgvsg;
+            }
+
             const consequences = vepData[0].transcript_consequences || [];
             
             const getConsequenceScore = (c: any): number => {
@@ -593,7 +646,7 @@ export function useVariantEnrichment(
               const isMane = !!c.mane_select || (Array.isArray(c.mane) && c.mane.includes('MANE_Select'));
               if (isMane) score += 1000;
               const hasHgvsp = !!c.hgvsp;
-              const hasHgvsc = !!c.hgvsc;
+              const hasHgvsc = !!c.hgvsc || (c.cds_start !== undefined && c.cds_start !== null);
               const isProteinCoding = c.biotype === 'protein_coding';
               if (hasHgvsp && isProteinCoding) {
                 score += 100;
@@ -622,6 +675,133 @@ export function useVariantEnrichment(
                   enrichmentData.codingChange = parts[1];
                 } else if (bestCons.hgvsc.startsWith('c.')) {
                   enrichmentData.codingChange = bestCons.hgvsc;
+                }
+              } else if (!enrichmentData.codingChange && bestCons.cds_start !== undefined && bestCons.cds_start !== null) {
+                const cdsStartVal = parseInt(bestCons.cds_start, 10);
+                const cdsEndVal = bestCons.cds_end !== undefined && bestCons.cds_end !== null ? parseInt(bestCons.cds_end, 10) : cdsStartVal;
+                if (!isNaN(cdsStartVal)) {
+                  let constructedChange = '';
+                  const variantAllele = typeof bestCons.variant_allele === 'string' ? bestCons.variant_allele.toLowerCase() : '';
+                  if (variantAllele === 'deletion' || variantAllele === 'del' || changeType === 'del') {
+                    if (cdsStartVal !== cdsEndVal && !isNaN(cdsEndVal)) {
+                      constructedChange = `c.${cdsStartVal}_${cdsEndVal}del`;
+                    } else {
+                      constructedChange = `c.${cdsStartVal}del`;
+                    }
+                  } else if (variantAllele === 'duplication' || variantAllele === 'dup' || changeType === 'dup') {
+                    if (cdsStartVal !== cdsEndVal && !isNaN(cdsEndVal)) {
+                      constructedChange = `c.${cdsStartVal}_${cdsEndVal}dup`;
+                    } else {
+                      constructedChange = `c.${cdsStartVal}dup`;
+                    }
+                  } else if (variantAllele === 'inversion' || variantAllele === 'inv' || changeType === 'inv') {
+                    if (cdsStartVal !== cdsEndVal && !isNaN(cdsEndVal)) {
+                      constructedChange = `c.${cdsStartVal}_${cdsEndVal}inv`;
+                    } else {
+                      constructedChange = `c.${cdsStartVal}inv`;
+                    }
+                  } else if (variantAllele === 'insertion' || variantAllele === 'ins' || changeType === 'ins') {
+                    if (cdsStartVal !== cdsEndVal && !isNaN(cdsEndVal)) {
+                      constructedChange = `c.${cdsStartVal}_${cdsEndVal}ins`;
+                    } else {
+                      constructedChange = `c.${cdsStartVal}ins`;
+                    }
+                  }
+
+                  if (constructedChange) {
+                    enrichmentData.codingChange = constructedChange;
+                    const resolvedTx = bestCons.mane_select 
+                      ? (typeof bestCons.mane_select === 'string' ? bestCons.mane_select.split(' ')[0] : undefined) 
+                      : bestCons.transcript_id;
+                    if (resolvedTx) {
+                      enrichmentData.transcript = resolvedTx;
+                    }
+
+                    // Perform local sequence left-alignment normalization for VCF compatible format
+                    try {
+                      const startCoord = parseInt(pos, 10);
+                      const endCoord = parseInt(endPos, 10);
+                      const length = endCoord - startCoord + 1;
+                      
+                      if (!isNaN(startCoord) && !isNaN(endCoord)) {
+                        let seqStart = startCoord - 15;
+                        let seqEnd = endCoord + 15;
+                        let shouldShift = true;
+                        
+                        // Large deletions optimization (>1kb): skip shifting, fetch narrow anchor window
+                        if (length > 1000) {
+                          seqStart = startCoord - 5;
+                          seqEnd = startCoord + 5;
+                          shouldShift = false;
+                        }
+                        
+                        const seqUrl = `${serverBase}/sequence/region/human/${chrom}:${seqStart}..${seqEnd}:1?content-type=application/json`;
+                        const seqData = await performFetch(seqUrl);
+                        
+                        if (seqData && typeof seqData.seq === 'string') {
+                          const refSeq = seqData.seq.toUpperCase();
+                          let currStart = startCoord - seqStart;
+                          
+                          if (variantAllele === 'deletion' || variantAllele === 'del' || changeType === 'del') {
+                            if (shouldShift) {
+                              while (currStart > 0 && refSeq[currStart - 1] === refSeq[currStart + length - 1]) {
+                                currStart--;
+                              }
+                            }
+                            const anchorIdx = currStart - 1;
+                            if (anchorIdx >= 0) {
+                              const anchorBase = refSeq[anchorIdx];
+                              const deletedSeq = refSeq.substring(currStart, currStart + length);
+                              const finalPos = seqStart + anchorIdx;
+                              const finalRef = anchorBase + deletedSeq;
+                              const finalAlt = anchorBase;
+                              enrichmentData.hgvsg = `chr${chrom}:${finalPos}${finalRef}>${finalAlt}`;
+                            }
+                          } else if (variantAllele === 'insertion' || variantAllele === 'ins' || changeType === 'ins') {
+                            let insSeq = changeSeq || (bestCons.variant_allele !== 'INSERTION' ? bestCons.variant_allele : 'N');
+                            if (shouldShift) {
+                              while (currStart > 0 && refSeq[currStart - 1] === insSeq[insSeq.length - 1]) {
+                                currStart--;
+                                insSeq = insSeq[insSeq.length - 1] + insSeq.substring(0, insSeq.length - 1);
+                              }
+                            }
+                            const anchorBase = refSeq[currStart - 1];
+                            const finalPos = seqStart + currStart - 1;
+                            const finalRef = anchorBase;
+                            const finalAlt = anchorBase + insSeq;
+                            enrichmentData.hgvsg = `chr${chrom}:${finalPos}${finalRef}>${finalAlt}`;
+                          } else if (variantAllele === 'duplication' || variantAllele === 'dup' || changeType === 'dup') {
+                            let dupSeq = refSeq.substring(currStart, currStart + length);
+                            let insIdx = currStart + length;
+                            if (shouldShift) {
+                              while (insIdx > 0 && refSeq[insIdx - 1] === dupSeq[dupSeq.length - 1]) {
+                                insIdx--;
+                                dupSeq = dupSeq[dupSeq.length - 1] + dupSeq.substring(0, dupSeq.length - 1);
+                              }
+                            }
+                            const anchorBase = refSeq[insIdx - 1];
+                            const finalPos = seqStart + insIdx - 1;
+                            const finalRef = anchorBase;
+                            const finalAlt = anchorBase + dupSeq;
+                            enrichmentData.hgvsg = `chr${chrom}:${finalPos}${finalRef}>${finalAlt}`;
+                          } else if (variantAllele === 'delins' || changeType === 'delins') {
+                            const deletedSeq = refSeq.substring(currStart, currStart + length);
+                            const insertedSeq = changeSeq || 'N';
+                            const anchorIdx = currStart - 1;
+                            if (anchorIdx >= 0) {
+                              const anchorBase = refSeq[anchorIdx];
+                              const finalPos = seqStart + anchorIdx;
+                              const finalRef = anchorBase + deletedSeq;
+                              const finalAlt = anchorBase + insertedSeq;
+                              enrichmentData.hgvsg = `chr${chrom}:${finalPos}${finalRef}>${finalAlt}`;
+                            }
+                          }
+                        }
+                      }
+                    } catch (seqErr) {
+                      console.warn('[VariantHandler] Local sequence normalization failed:', seqErr);
+                    }
+                  }
                 }
               }
               

@@ -19,26 +19,45 @@ function resetPanelState(): void {
 chrome.runtime.onStartup.addListener(resetPanelState);
 chrome.runtime.onInstalled.addListener(resetPanelState);
 
-let activePanels = 0;
+import { isSafeUrl } from '../utils/sanitize';
+
+const ALLOWED_DOMAINS = [
+  'myvariant.info',
+  'rest.ensembl.org',
+  'grch37.rest.ensembl.org'
+];
 
 if (typeof chrome !== 'undefined' && chrome.runtime) {
   chrome.runtime.onConnect.addListener((port) => {
     if (port.name === 'variant-handler-panel') {
-      activePanels++;
-      console.log('[Variant Handler] Side panel connected. Active panels:', activePanels);
-      chrome.storage.local.set({ variantHandlerPanelOpen: activePanels > 0 }).catch(() => {});
-
+      chrome.storage.local.set({ variantHandlerPanelOpen: true }).catch(() => {});
       port.onDisconnect.addListener(() => {
-        activePanels--;
-        console.log('[Variant Handler] Side panel disconnected. Active panels:', activePanels);
-        chrome.storage.local.set({ variantHandlerPanelOpen: activePanels > 0 }).catch(() => {});
+        chrome.storage.local.set({ variantHandlerPanelOpen: false }).catch(() => {});
       });
     }
   });
 
   chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     if (message && message.type === 'FETCH_VARIANT_ENRICHMENT') {
-      fetch(message.url, {
+      const urlStr = message.url;
+      
+      if (!isSafeUrl(urlStr)) {
+        sendResponse({ success: false, error: 'Insecure URL scheme rejected. HTTPS is required.' });
+        return;
+      }
+
+      try {
+        const parsed = new URL(urlStr);
+        if (!ALLOWED_DOMAINS.includes(parsed.hostname)) {
+          sendResponse({ success: false, error: `Unauthorized target domain: ${parsed.hostname}` });
+          return;
+        }
+      } catch (err) {
+        sendResponse({ success: false, error: 'Invalid URL format.' });
+        return;
+      }
+
+      fetch(urlStr, {
         headers: { Accept: 'application/json' },
       })
         .then(async (res) => {

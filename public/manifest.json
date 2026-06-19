@@ -17,7 +17,8 @@
     "*://mutalyzer.nl/*",
     "*://variantvalidator.org/*",
     "*://myvariant.info/*",
-    "*://rest.ensembl.org/*"
+    "*://rest.ensembl.org/*",
+    "*://grch37.rest.ensembl.org/*"
   ],
   "action": {
     "default_title": "Open Variant Handler",
@@ -39,7 +40,7 @@
     "default_path": "index.html"
   },
   "content_security_policy": {
-    "extension_pages": "script-src 'self'; object-src 'none'; connect-src https://myvariant.info https://rest.ensembl.org;"
+    "extension_pages": "script-src 'self'; object-src 'none'; connect-src https://myvariant.info https://rest.ensembl.org https://grch37.rest.ensembl.org;"
   },
   "commands": {
     "_execute_action": {

@@ -45,6 +45,15 @@ export interface ParsedVariant {
 function cleanChrom(chrom: string): string {
   let c = chrom.toUpperCase().trim();
   if (c.startsWith('CHR')) c = c.substring(3);
+  if (c.startsWith('NC_0000')) {
+    const parsedCr = parseInt(c.substring(7, 9), 10);
+    if (!isNaN(parsedCr) && parsedCr >= 1 && parsedCr <= 24) {
+      return parsedCr === 23 ? 'X' : parsedCr === 24 ? 'Y' : String(parsedCr);
+    }
+  }
+  if (c.startsWith('NC_012920')) {
+    return 'MT';
+  }
   return c;
 }
 
@@ -64,15 +73,15 @@ function cleanChrom(chrom: string): string {
  */
 const GENOMIC_REGEXES = [
   // HGVSg:  chr7:g.140753336A>T   or   ChrX(GRCh38):g.77989236C>G
-  /(?:chr)?(2[0-2]|1[0-9]|[1-9]|X|Y|MT|M)(?:\([^)]*\)|\[[^\]]*\])?(?=\s*:)\s*:\s*g\.\s*([0-9]+)\s*([ACGTN]+)\s*>\s*([ACGTN]+)/i,
+  /(?:chr)?(2[0-2]|1[0-9]|[1-9]|X|Y|MT|M|NC_\d+(?:\.\d+)?)(?:\([^)]*\)|\[[^\]]*\])?(?=\s*:)\s*:\s*g\.\s*([0-9]+)\s*([ACGTN]+)\s*>\s*([ACGTN]+)/i,
   // VCF dash/colon:  7-140753336-A-T   or   12:25245350:C:T
-  /(?:chr)?(2[0-2]|1[0-9]|[1-9]|X|Y|MT|M)(?:\([^)]*\)|\[[^\]]*\])?\s*[-:_]\s*([0-9]+)\s*[-:_]\s*([ACGTN]+)\s*[-:_>]\s*([ACGTN]+)/i,
+  /(?:chr)?(2[0-2]|1[0-9]|[1-9]|X|Y|MT|M|NC_\d+(?:\.\d+)?)(?:\([^)]*\)|\[[^\]]*\])?\s*[-:_]\s*([0-9]+)\s*[-:_]\s*([ACGTN]+)\s*[-:_>]\s*([ACGTN]+)/i,
   // Simple coord+change:  chr12:25245350C>T
-  /(?:chr)?(2[0-2]|1[0-9]|[1-9]|X|Y|MT|M)(?:\([^)]*\)|\[[^\]]*\])?\s*:\s*([0-9]+)\s*([ACGTN]+)\s*>\s*([ACGTN]+)/i,
-  // HGVSg indels/ranges: chr9:g.38068458_38068460del | chrX:g.32801509_32801510insA | chr17:g.43044294dup
-  /(?:chr)?(2[0-2]|1[0-9]|[1-9]|X|Y|MT|M)(?:\([^)]*\)|\[[^\]]*\])?\s*:\s*g\.\s*([0-9]+)\s*(?:_\s*([0-9]+))?\s*(del|ins|dup|inv)\s*([ACGTN]*)$/i,
+  /(?:chr)?(2[0-2]|1[0-9]|[1-9]|X|Y|MT|M|NC_\d+(?:\.\d+)?)(?:\([^)]*\)|\[[^\]]*\])?\s*:\s*([0-9]+)\s*([ACGTN]+)\s*>\s*([ACGTN]+)/i,
+  // HGVSg indels/ranges: chr9:g.38068458_38068460del | chrX:g.32801509_32801510insA | chr17:g.43044294dup | chr7:g.140753336_140753337delinsTT
+  /(?:chr)?(2[0-2]|1[0-9]|[1-9]|X|Y|MT|M|NC_\d+(?:\.\d+)?)(?:\([^)]*\)|\[[^\]]*\])?\s*:\s*g\.\s*([0-9]+)\s*(?:_\s*([0-9]+))?\s*(delins|del|ins|dup|inv)\s*([ACGTN]*)$/i,
   // Coordinate-only:  chr17:43044295
-  /(?:chr)?(2[0-2]|1[0-9]|[1-9]|X|Y|MT|M)(?:\([^)]*\)|\[[^\]]*\])?\s*:\s*([0-9]+)$/i,
+  /(?:chr)?(2[0-2]|1[0-9]|[1-9]|X|Y|MT|M|NC_\d+(?:\.\d+)?)(?:\([^)]*\)|\[[^\]]*\])?\s*:\s*([0-9]+)$/i,
 ];
 
 /**
@@ -86,8 +95,8 @@ const CANONICAL_DATABASE: {
 } = {
   'NM_000277:c.1222C>T':         { chr: '12', pos: '102867431', ref: 'G',   alt: 'A',  tx: 'NM_000277.3', c: 'c.1222C>T',          p: 'p.Arg408Trp' },
   'NM_007294:c.5266dup':         { chr: '17', pos: '43044294',  ref: 'T',   alt: 'TC', tx: 'NM_007294.4', c: 'c.5266dup',           p: 'p.Gln1756fs' },
-  'NM_000492:c.1521_1523delCTT': { chr: '7',  pos: '117559590', ref: 'CTT', alt: 'C',  tx: 'NM_000492.4', c: 'c.1521_1523delCTT',   p: 'p.Phe508del' },
-  'delta-F508':                   { chr: '7',  pos: '117559590', ref: 'CTT', alt: 'C',  tx: 'NM_000492.4', c: 'c.1521_1523delCTT',   p: 'p.Phe508del' },
+  'NM_000492:c.1521_1523delCTT': { chr: '7', pos: '117559589', ref: 'GATC', alt: 'G',  tx: 'NM_000492.4', c: 'c.1521_1523delCTT',   p: 'p.Phe508del' },
+  'delta-F508':                   { chr: '7', pos: '117559589', ref: 'GATC', alt: 'G',  tx: 'NM_000492.4', c: 'c.1521_1523delCTT',   p: 'p.Phe508del' },
   'NM_000152:c.1054C>T':         { chr: '17', pos: '80108388',  ref: 'C',   alt: 'T',  tx: 'NM_000152.5', c: 'c.1054C>T',           p: 'p.Gln352Ter' },
   'NM_000154:c.563A>G':          { chr: '9',  pos: '34648170',  ref: 'A',   alt: 'G',  tx: 'NM_000154.4', c: 'c.563A>G',            p: 'p.Gln188Arg' },
   'NM_004006:c.589C>T':          { chr: 'X',  pos: '32801509',  ref: 'G',   alt: 'A',  tx: 'NM_004006.3', c: 'c.589C>T',            p: 'p.Arg197Ter' },
@@ -132,8 +141,8 @@ export function parseVariant(input: string): ParsedVariant {
       chromosome = cleanChrom(match[1]);
       position   = match[2];
 
-      // Structural change regex (del/ins/dup/inv) has the change type in group 4
-      const structural = /^(del|ins|dup|inv)$/i.test(match[4] || '');
+      // Structural change regex (delins/del/ins/dup/inv) has the change type in group 4
+      const structural = /^(delins|del|ins|dup|inv)$/i.test(match[4] || '');
       if (structural) {
         const changeType = match[4].toLowerCase();
         const endPosRaw  = match[3];
@@ -148,6 +157,9 @@ export function parseVariant(input: string): ParsedVariant {
           alt = seq || undefined;
         } else if (changeType === 'dup') {
           if (seq) { ref = seq; alt = seq + seq; }
+        } else if (changeType === 'delins') {
+          ref = undefined;
+          alt = seq || undefined;
         }
         // inv: leave ref/alt undefined
 
@@ -399,7 +411,7 @@ export const INITIAL_PLATFORMS: PlatformAdapter[] = [
   },
 ];
 
-function hasRealAllele(allele?: string): boolean {
+export function hasRealAllele(allele?: string): boolean {
   return !!allele && allele !== '-';
 }
 
@@ -451,11 +463,25 @@ export function buildPlatformUrl(
   const missingReason = getMissingDataReason(parsed, adapter, enrichment);
   if (missingReason) return null;
 
-  const chrom = parsed.chromosome ?? '';
-  const pos   = parsed.position   ?? '';
-  const ref   = parsed.ref        ?? '';
-  const alt   = parsed.alt        ?? '';
+  let chrom = parsed.chromosome ?? '';
+  let pos   = parsed.position   ?? '';
+  let ref   = parsed.ref        ?? '';
+  let alt   = parsed.alt        ?? '';
+  let endPosition = parsed.endPosition;
   const raw   = parsed.raw;
+
+  // Fallback: if we have a resolved genomic coordinates string (hgvsg) from a live lookup,
+  // parse it to retrieve the server-normalized left-aligned VCF coordinates.
+  if (enrichment?.hgvsg) {
+    const resolvedGenomic = parseVariant(enrichment.hgvsg);
+    if (resolvedGenomic.isValid && resolvedGenomic.position) {
+      chrom = resolvedGenomic.chromosome ?? chrom;
+      pos   = resolvedGenomic.position;
+      ref   = resolvedGenomic.ref ?? ref;
+      alt   = resolvedGenomic.alt ?? alt;
+      endPosition = resolvedGenomic.endPosition ?? endPosition;
+    }
+  }
 
   const gene = enrichment?.geneSymbol || parsed.geneSymbol || '';
   const rsId = enrichment?.rsId;
@@ -466,8 +492,8 @@ export function buildPlatformUrl(
   // Sprint 2: normalise alleles before URL construction
   const { pos: nPos, ref: nRef, alt: nAlt } = normaliseAlleles(pos, ref, alt);
 
-  const endPos = parsed.endPosition
-    ? parsed.endPosition
+  const endPos = endPosition
+    ? endPosition
     : nRef && nAlt
     ? computeEndPos(nPos, nRef, nAlt)
     : nPos;
@@ -528,12 +554,12 @@ export function buildPlatformUrl(
       if (variantTerm === hgvsp && gene) {
         queryTerm = `${gene} ${hgvsp}`;
       }
-      return `https://www.ncbi.nlm.nih.gov/clinvar/?term=${encodeURIComponent(queryTerm)}&vh_clear_filters=true`;
+      return `https://www.ncbi.nlm.nih.gov/clinvar/?vh_clear_filters=true#term=${encodeURIComponent(queryTerm)}`;
     }
     if (gene) {
-      return `https://www.ncbi.nlm.nih.gov/clinvar/?term=${encodeURIComponent(gene)}%5Bgene%5D&vh_clear_filters=true`;
+      return `https://www.ncbi.nlm.nih.gov/clinvar/?vh_clear_filters=true#term=${encodeURIComponent(gene)}%5Bgene%5D`;
     }
-    return `https://www.ncbi.nlm.nih.gov/clinvar/?term=${encodeURIComponent(raw)}&vh_clear_filters=true`;
+    return `https://www.ncbi.nlm.nih.gov/clinvar/?vh_clear_filters=true#term=${encodeURIComponent(raw)}`;
   }
 
   // 6. dbsnp

@@ -137,6 +137,16 @@ describe('parseVariant — Genomic Coordinate Formats', () => {
     expect(r.position).toBe('43044294');
   });
 
+  it('parses HGVSg deletion-insertion (delins)', () => {
+    const r = parseVariant('chr7:g.140753336_140753337delinsTT');
+    expect(r.isValid).toBe(true);
+    expect(r.chromosome).toBe('7');
+    expect(r.position).toBe('140753336');
+    expect(r.endPosition).toBe('140753337');
+    expect(r.alt).toBe('TT');
+    expect(r.ref).toBeUndefined();
+  });
+
   it('normalizes uppercase CHR prefix', () => {
     const r = parseVariant('CHR7:g.140753336A>T');
     expect(r.chromosome).toBe('7');
@@ -184,6 +194,14 @@ describe('parseVariant — Genomic Coordinate Formats', () => {
   it('Sprint 2: genomeBuild is undefined when no build token present', () => {
     const r = parseVariant('chr7:g.140753336A>T');
     expect(r.genomeBuild).toBeUndefined();
+  });
+
+  it('Sprint 2: parses RefSeq genomic accessions like NC_000012.12:g.71571538_71571540del', () => {
+    const r = parseVariant('NC_000012.12:g.71571538_71571540del');
+    expect(r.isValid).toBe(true);
+    expect(r.chromosome).toBe('12');
+    expect(r.position).toBe('71571538');
+    expect(r.endPosition).toBe('71571540');
   });
 });
 
@@ -293,9 +311,9 @@ describe('parseVariant — Canonical Hotspot Database', () => {
     const r = parseVariant('delta-F508');
     expect(r.isValid).toBe(true);
     expect(r.chromosome).toBe('7');
-    expect(r.position).toBe('117559590');
-    expect(r.ref).toBe('CTT');
-    expect(r.alt).toBe('C');
+    expect(r.position).toBe('117559589');
+    expect(r.ref).toBe('GATC');
+    expect(r.alt).toBe('G');
   });
 
   it('backfills coordinates for known NM transcript (version-normalised)', () => {
@@ -566,7 +584,7 @@ describe('buildPlatformUrl — URL construction', () => {
     const url = buildPlatformUrl(r, gnomad);
     expect(url).not.toBeNull();
     expect(url).toContain('7');
-    expect(url).toContain('117559590');
+    expect(url).toContain('117559589');
   });
 
   it('returns null for gnomAD when protein-only with no coordinates', () => {
