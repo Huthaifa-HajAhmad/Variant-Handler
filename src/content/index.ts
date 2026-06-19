@@ -266,9 +266,11 @@ function findClinVarClearAllFiltersButton(): HTMLElement | null {
   const btn = document.querySelector<HTMLElement>('a[id="clear-all-filters"]')
     ?? document.querySelector<HTMLElement>('.clear-all-filters')
     ?? document.querySelector<HTMLElement>('a.clear-filters-btn')
+    ?? document.querySelector<HTMLElement>('#activated-filters a')
+    ?? document.querySelector<HTMLElement>('.activated-filters a')
     ?? Array.from(document.querySelectorAll<HTMLElement>('a, button')).find(el => {
          const txt = el.textContent?.trim().toLowerCase() || '';
-         return txt === 'clear all' || txt === 'clear all filters';
+         return txt === 'clear all' || txt === 'clear all filters' || txt === 'clear filters' || txt === 'clear' || txt === 'reset';
        });
   return btn ?? null;
 }
@@ -361,7 +363,12 @@ function findSearchInputs(): HTMLInputElement[] {
     const elements = Array.from(document.querySelectorAll('input[placeholder*="Search"]')) as HTMLInputElement[];
     return elements.filter(el => {
       const style = window.getComputedStyle(el);
-      return style.display !== 'none' && style.visibility !== 'hidden' && el.offsetWidth > 0;
+      return el.offsetParent !== null &&
+             style.display !== 'none' &&
+             style.visibility !== 'hidden' &&
+             style.opacity !== '0' &&
+             style.pointerEvents !== 'none' &&
+             el.offsetWidth > 50;
     });
   }
   if (hostname.includes('genome.ucsc.edu')) {
@@ -403,7 +410,12 @@ function findSearchInputs(): HTMLInputElement[] {
   const inputs = Array.from(document.querySelectorAll('input[type="text"], input[type="search"]')) as HTMLInputElement[];
   const visible = inputs.find(input => {
     const style = window.getComputedStyle(input);
-    return style.display !== 'none' && style.visibility !== 'hidden' && input.offsetWidth > 0;
+    return input.offsetParent !== null &&
+           style.display !== 'none' &&
+           style.visibility !== 'hidden' &&
+           style.opacity !== '0' &&
+           style.pointerEvents !== 'none' &&
+           input.offsetWidth > 50;
   });
   return visible ? [visible] : [];
 }
