@@ -25,7 +25,8 @@
  * `error` — the hook never throws and the extension remains fully functional.
  */
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { ParsedVariant } from '../lib/parser';
+import { ParsedVariant, GenomeBuild } from '../lib/parser';
+import { resolveClinVarDirect } from '../lib/clinvarDirect';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -35,11 +36,12 @@ export interface EnrichmentData {
   gnomadAf?: number;      // allele frequency (0–1)
   clinvarSignificance?: string;
   clinvarReview?: string;
+  rcvAccession?: string;       // RCV accession from ClinVar direct (R2)
   hgvsg?: string;         // HGVSg from API (may backfill coordinates)
   proteinChange?: string; // HGVSp resolved live
-  codingChange?: string;  // HGVSc resolved live
+  codingChange?: string;  // HGVSC resolved live
   transcript?: string;    // HGVSc transcript resolved live
-  source: 'myvariant' | 'ensembl' | 'both' | 'none';
+  source: 'myvariant' | 'ensembl' | 'clinvar' | 'both' | 'none';
   fetchedAt: number;      // Unix ms — used for 24 h TTL
 }
 
@@ -71,52 +73,77 @@ const FIELDS = [
   'evs.gene.accession',
 ].join(',');
 
-// ── In-memory cache ───────────────────────────────────────────────────────────
+// ── In-memory cache (synchronous hot layer) ───────────────────────────────────
 
 const memoryCache = new Map<string, EnrichmentData>();
 
-// ── localStorage cache helpers ────────────────────────────────────────────────
+// ── chrome.storage.session cache helpers (R4) ─────────────────────────────────
+// The enrichment cache (variant strings + annotations) is the most sensitive
+// persisted data, so it is moved from localStorage to chrome.storage.session,
+// which is in-memory and cleared when the browser closes. The synchronous
+// memoryCache remains the hot layer; session storage only seeds/persists it.
+// A cacheReady promise gates the first read so callers don't miss the preload.
 
-function loadPersistentCache(): Map<string, EnrichmentData> {
+const SESSION_CACHE_KEY = 'variantstream_enrichment_cache';
+
+function isSessionStorageAvailable(): boolean {
+  return typeof chrome !== 'undefined' && !!chrome.storage && !!chrome.storage.session;
+}
+
+let cacheReady: Promise<void> = (async () => {
+  if (!isSessionStorageAvailable()) {
+    // Dev / non-chrome fallback: seed from localStorage (kept for the dev path)
+    try {
+      const raw = localStorage.getItem(CACHE_STORAGE_KEY);
+      if (raw) {
+        const obj = JSON.parse(raw) as Record<string, EnrichmentData>;
+        const now = Date.now();
+        const invalidationThreshold = Date.parse("2026-06-19T19:53:00Z");
+        for (const [k, v] of Object.entries(obj)) {
+          if (v && typeof v.fetchedAt === 'number' && now - v.fetchedAt < CACHE_TTL_MS && v.fetchedAt > invalidationThreshold) {
+            memoryCache.set(k, v);
+          }
+        }
+      }
+    } catch { /* ignore */ }
+    return;
+  }
   try {
-    const raw = localStorage.getItem(CACHE_STORAGE_KEY);
-    if (!raw) return new Map();
-    const obj = JSON.parse(raw) as Record<string, EnrichmentData>;
-    const now = Date.now();
-    const result = new Map<string, EnrichmentData>();
-    // Invalidate cache entries created before the latest indel normalization update (2026-06-19T19:53:00Z)
-    const invalidationThreshold = Date.parse("2026-06-19T19:53:00Z");
-    for (const [k, v] of Object.entries(obj)) {
-      if (
-        v &&
-        typeof v.fetchedAt === 'number' &&
-        now - v.fetchedAt < CACHE_TTL_MS &&
-        v.fetchedAt > invalidationThreshold
-      ) {
-        result.set(k, v);
+    const data = await chrome.storage.session.get(SESSION_CACHE_KEY);
+    const raw = data[SESSION_CACHE_KEY] as string | undefined;
+    if (raw) {
+      const obj = JSON.parse(raw) as Record<string, EnrichmentData>;
+      const now = Date.now();
+      const invalidationThreshold = Date.parse("2026-06-19T19:53:00Z");
+      for (const [k, v] of Object.entries(obj)) {
+        if (v && typeof v.fetchedAt === 'number' && now - v.fetchedAt < CACHE_TTL_MS && v.fetchedAt > invalidationThreshold) {
+          memoryCache.set(k, v);
+        }
       }
     }
-    return result;
-  } catch {
-    return new Map();
+  } catch { /* ignore */ }
+})();
+
+/** Clear the session cache (used by Settings → Clear all stored data + clear-on-close). */
+export async function clearEnrichmentCache(): Promise<void> {
+  memoryCache.clear();
+  if (isSessionStorageAvailable()) {
+    try { await chrome.storage.session.remove(SESSION_CACHE_KEY); } catch { /* ignore */ }
   }
+  try { localStorage.removeItem(CACHE_STORAGE_KEY); } catch { /* ignore */ }
 }
 
 function savePersistentCache(map: Map<string, EnrichmentData>): void {
-  try {
-    const obj: Record<string, EnrichmentData> = {};
-    for (const [k, v] of map.entries()) obj[k] = v;
-    localStorage.setItem(CACHE_STORAGE_KEY, JSON.stringify(obj));
-  } catch {
-    // Storage quota exceeded — silently skip persistence
+  const obj: Record<string, EnrichmentData> = {};
+  for (const [k, v] of map.entries()) obj[k] = v;
+  const serialized = JSON.stringify(obj);
+  if (isSessionStorageAvailable()) {
+    // Fire-and-forget; session storage writes are async but non-blocking
+    chrome.storage.session.set({ [SESSION_CACHE_KEY]: serialized }).catch(() => { /* quota — ignore */ });
+  } else {
+    try { localStorage.setItem(CACHE_STORAGE_KEY, serialized); } catch { /* quota */ }
   }
 }
-
-// Seed memory cache from localStorage on module load
-(function initCache() {
-  const persisted = loadPersistentCache();
-  for (const [k, v] of persisted.entries()) memoryCache.set(k, v);
-})();
 
 // ── API query key derivation ──────────────────────────────────────────────────
 
@@ -131,7 +158,7 @@ function savePersistentCache(map: Map<string, EnrichmentData>): void {
  *   2. HGVSc: {transcript}:{codingChange}       (fallback)
  *   3. null — not enough data to query
  */
-function deriveQueryKey(parsed: ParsedVariant): string | null {
+export function deriveQueryKey(parsed: ParsedVariant, build: GenomeBuild): string | null {
   if (parsed.chromosome && parsed.position) {
     let base = '';
     if (parsed.ref && parsed.alt) {
@@ -148,10 +175,14 @@ function deriveQueryKey(parsed: ParsedVariant): string | null {
         base = `chr${parsed.chromosome}:g.${parsed.position}`;
       }
     }
-    // Append build to avoid serving a stale GRCh37 cache entry for a GRCh38 input
-    return parsed.genomeBuild === 'GRCh38' ? `${base}@GRCh38` : base;
+    // Append build to avoid serving a stale GRCh37 cache entry for a GRCh38 input.
+    // Genomic coordinates are build-dependent, so the suffix is required here.
+    return `${base}@${build}`;
   }
   if (parsed.transcript && parsed.codingChange) {
+    // N6: HGVS `c.` notation is build-independent — appending a build suffix
+    // here would cache the identical MyVariant response twice and re-fetch on
+    // every build toggle. Return the bare transcript key.
     return `${parsed.transcript}:${parsed.codingChange}`;
   }
   return null;
@@ -299,8 +330,18 @@ function extractProteinChange(data: any): string | undefined {
   return undefined;
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-function parseApiResponse(data: any, queryKey: string): EnrichmentData {
+function getReviewStars(review?: string): number {
+  if (!review) return 0;
+  const r = review.toLowerCase();
+  if (r.includes('practice guideline'))                        return 4;
+  if (r.includes('expert panel'))                              return 3;
+  if (r.includes('criteria provided') && r.includes('conflicting')) return 1;
+  if (r.includes('criteria provided'))                         return 2;
+  if (r.includes('no assertion') || r.includes('no criteria'))  return 0;
+  return 0;
+}
+
+export function parseApiResponse(data: any, queryKey: string): EnrichmentData {
   // dbSNP rs ID
   const rsId: string | undefined =
     typeof data?.dbsnp?.rsid === 'string'
@@ -315,9 +356,9 @@ function parseApiResponse(data: any, queryKey: string): EnrichmentData {
       ? data.gnomad_genome.af.af
       : undefined;
 
-  // ClinVar (may be array of RCV entries — take the first)
+  // ClinVar (may be array of RCV entries — sort by star status first)
   const rcv = Array.isArray(data?.clinvar?.rcv)
-    ? data.clinvar.rcv[0]
+    ? [...data.clinvar.rcv].sort((a: any, b: any) => getReviewStars(b?.review_status) - getReviewStars(a?.review_status))[0]
     : data?.clinvar?.rcv;
   const clinvarSignificance: string | undefined =
     typeof rcv?.clinical_significance === 'string' ? rcv.clinical_significance : undefined;
@@ -416,9 +457,38 @@ interface UseVariantEnrichmentResult {
   refetch: () => void;
 }
 
+const inFlightRequests = new Map<string, { promise: Promise<any>; abortController: AbortController }>();
+let rateLimitResetTime = 0;
+
+/**
+ * Returns a Promise that resolves after `ms` milliseconds, or rejects with an
+ * AbortError when the supplied AbortController's signal aborts. Used to make the
+ * 429 backoff sleep interruptible (N4): without this, a backoff loop keeps
+ * issuing background fetches whose results are discarded after the user changes
+ * variant or closes the panel.
+ */
+function abortableSleep(ms: number, signal: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (signal.aborted) {
+      reject(new DOMException('Aborted', 'AbortError'));
+      return;
+    }
+    const timer = setTimeout(() => {
+      signal.removeEventListener('abort', onAbort);
+      resolve();
+    }, ms);
+    const onAbort = () => {
+      clearTimeout(timer);
+      reject(new DOMException('Aborted', 'AbortError'));
+    };
+    signal.addEventListener('abort', onAbort, { once: true });
+  });
+}
+
 export function useVariantEnrichment(
   parsed: ParsedVariant,
   enabled: boolean,
+  build: GenomeBuild,
 ): UseVariantEnrichmentResult {
   const [enrichment, setEnrichment] = useState<EnrichmentData | null>(null);
   const [isLoading, setIsLoading]   = useState(false);
@@ -428,6 +498,9 @@ export function useVariantEnrichment(
   const abortRef      = useRef<AbortController | null>(null);
 
   const fetchEnrichment = useCallback(async (queryKey: string, build: string | undefined, forceFresh = false) => {
+    // R4: ensure the session-storage preload has completed before the first
+    // cache read, so entries seeded from chrome.storage.session aren't missed.
+    await cacheReady;
     // Check in-memory cache first (zero network cost)
     if (!forceFresh) {
       const cached = memoryCache.get(queryKey);
@@ -450,395 +523,433 @@ export function useVariantEnrichment(
       savePersistentCache(memoryCache);
     }
 
-    // Cancel any in-flight request
-    if (abortRef.current) abortRef.current.abort();
-    abortRef.current = new AbortController();
+    // N3: use a per-queryKey AbortController stored alongside the in-flight
+    // promise. Aborting one variant's lookup must not abort a different
+    // queryKey's still-running (and deduped) fetch. The shared `abortRef` is
+    // kept only to support the legacy direct-fetch dev path and unmount cleanup.
+    const existing = inFlightRequests.get(queryKey);
+    if (existing) {
+      // If a fresh fetch was requested but an in-flight one exists, abort the
+      // old one for THIS queryKey only and start a new one.
+      if (forceFresh) {
+        existing.abortController.abort();
+        inFlightRequests.delete(queryKey);
+      }
+    }
 
     setIsLoading(true);
     setError(null);
 
-    try {
-      let activeQueryKey = queryKey;
-      let mappedPos = '';
-      // Strip the @GRCh38 build suffix we append to cache keys to prevent cross-build collisions
-      const rawQueryKey = queryKey.replace(/@GRCh38$/, '');
-      const genomicMatch = rawQueryKey.match(/^chr(2[0-2]|1[0-9]|[1-9]|X|Y|MT|M):g\.([0-9]+)(?:_([0-9]+))?(?:([ACGTN\-]+)>([ACGTN\-]+)|(delins|del|ins|dup|inv)([ACGTN]*))$/i);
-      // Ensure activeQueryKey uses the raw (no-suffix) key for actual API calls
-      if (queryKey !== rawQueryKey) activeQueryKey = rawQueryKey;
-
-
-      if (genomicMatch && build === 'GRCh38') {
-        const chrom = genomicMatch[1];
-        const pos = genomicMatch[2];
-        const endPos = genomicMatch[3] || pos;
-        const ref = genomicMatch[4] || '';
-        const alt = genomicMatch[5] || '';
-        const changeType = genomicMatch[6]?.toLowerCase();
-        const changeSeq = genomicMatch[7] || '';
-        
-        try {
-          const mapUrl = `https://rest.ensembl.org/map/human/GRCh38/${chrom}:${pos}..${endPos}/GRCh37?content-type=application/json`;
-          let mapData: any;
-          if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.sendMessage) {
-            const response = await new Promise<{ success: boolean; data?: any; error?: string }>((resolve) => {
-              chrome.runtime.sendMessage({ type: 'FETCH_VARIANT_ENRICHMENT', url: mapUrl }, (res) => {
-                const err = chrome.runtime.lastError;
-                if (err) resolve({ success: false, error: err.message });
-                else resolve(res || { success: false, error: 'No response' });
-              });
-            });
-            if (response.success) mapData = response.data;
-          } else {
-            const res = await fetch(mapUrl, { signal: abortRef.current.signal });
-            if (res.ok) mapData = await res.json();
+    let entry = inFlightRequests.get(queryKey);
+    if (!entry) {
+      const abortController = new AbortController();
+      const promise = (async () => {
+        let attempts = 0;
+        while (attempts < 3) {
+          if (Date.now() < rateLimitResetTime) {
+            const waitMs = rateLimitResetTime - Date.now();
+            // N4: abortable backoff sleep — stops the loop when the queryKey's
+            // controller aborts (variant changed / panel closed).
+            await abortableSleep(waitMs, abortController.signal);
           }
-          
-          if (mapData && Array.isArray(mapData.mappings) && mapData.mappings.length > 0) {
-            const mappedStart = mapData.mappings[0].mapped?.start;
-            if (mappedStart) {
-              mappedPos = String(mappedStart);
-              if (ref && alt) {
-                activeQueryKey = `chr${chrom}:g.${mappedStart}${ref}>${alt}`;
-              } else if (changeType) {
-                const diff = parseInt(endPos, 10) - parseInt(pos, 10);
-                const mappedEnd = isNaN(diff) ? '' : `_${mappedStart + diff}`;
-                activeQueryKey = `chr${chrom}:g.${mappedStart}${mappedEnd}${changeType}${changeSeq}`;
-              } else {
-                activeQueryKey = `chr${chrom}:g.${mappedStart}`;
-              }
+          try {
+            let activeQueryKey = queryKey;
+            let mappedPos = '';
+            // Strip the @build suffix we append to cache keys to prevent cross-build collisions
+            const rawQueryKey = queryKey.replace(/@(GRCh38|GRCh37)$/, '');
+            const genomicMatch = rawQueryKey.match(/^chr(2[0-2]|1[0-9]|[1-9]|X|Y|MT|M):g\.([0-9]+)(?:_([0-9]+))?(?:([ACGTN\-]+)>([ACGTN\-]+)|(delins|del|ins|dup|inv)([ACGTN]*))$/i);
+            // Ensure activeQueryKey uses the raw (no-suffix) key for actual API calls
+            if (queryKey !== rawQueryKey) activeQueryKey = rawQueryKey;
+
+            if (genomicMatch && build === 'GRCh38') {
+              const chrom = genomicMatch[1];
+              const pos = genomicMatch[2];
+              const endPos = genomicMatch[3] || pos;
+              const ref = genomicMatch[4] || '';
+              const alt = genomicMatch[5] || '';
+              const changeType = genomicMatch[6]?.toLowerCase();
+              const changeSeq = genomicMatch[7] || '';
               
-              // Check mapped cache
-              if (!forceFresh) {
-                const cachedMapped = memoryCache.get(activeQueryKey);
-                if (cachedMapped) {
-                  const age = Date.now() - cachedMapped.fetchedAt;
-                  const isGenomic = activeQueryKey.match(/^chr(2[0-2]|1[0-9]|[1-9]|X|Y|MT|M):g\./i);
-                  const isEmpty = !cachedMapped.rsId && (cachedMapped.gnomadAf === undefined || cachedMapped.gnomadAf === null) && !cachedMapped.clinvarSignificance && !cachedMapped.geneSymbol;
-                  if (age < CACHE_TTL_MS && !(isGenomic && isEmpty)) {
-                    setEnrichment(cachedMapped);
-                    setIsLoading(false);
-                    return;
+              try {
+                const mapUrl = `https://rest.ensembl.org/map/human/GRCh38/${chrom}:${pos}..${endPos}/GRCh37?content-type=application/json`;
+                let mapData: any;
+                if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.sendMessage) {
+                  const response = await new Promise<{ success: boolean; data?: any; error?: string; is429?: boolean; retryAfter?: number }>((resolve) => {
+                    chrome.runtime.sendMessage({ type: 'FETCH_VARIANT_ENRICHMENT', url: mapUrl }, (res) => {
+                      const err = chrome.runtime.lastError;
+                      if (err) resolve({ success: false, error: err.message });
+                      else resolve(res || { success: false, error: 'No response' });
+                    });
+                  });
+                  if (!response.success) {
+                    if (response.is429) {
+                      const errObj = new Error('Too many requests') as any;
+                      errObj.is429 = true;
+                      errObj.retryAfter = response.retryAfter;
+                      throw errObj;
+                    }
+                    throw new Error(response.error || 'Failed mapping liftover');
                   }
-                  // Expired or empty genomic — remove and re-fetch
-                  memoryCache.delete(activeQueryKey);
-                  savePersistentCache(memoryCache);
+                  mapData = response.data;
+                } else {
+                  const res = await fetch(mapUrl, { signal: abortController.signal });
+                  if (res.status === 429) {
+                    const retryAfterHeader = res.headers.get('Retry-After');
+                    const retryAfter = retryAfterHeader ? parseInt(retryAfterHeader, 10) : 5;
+                    const errObj = new Error('Too many requests') as any;
+                    errObj.is429 = true;
+                    errObj.retryAfter = isNaN(retryAfter) ? 5 : retryAfter;
+                    throw errObj;
+                  }
+                  if (res.ok) mapData = await res.json();
                 }
+                
+                if (mapData && Array.isArray(mapData.mappings) && mapData.mappings.length > 0) {
+                  const mappedStart = mapData.mappings[0].mapped?.start;
+                  if (mappedStart) {
+                    mappedPos = String(mappedStart);
+                    if (ref && alt) {
+                      activeQueryKey = `chr${chrom}:g.${mappedStart}${ref}>${alt}`;
+                    } else if (changeType) {
+                      const diff = parseInt(endPos, 10) - parseInt(pos, 10);
+                      const mappedEnd = isNaN(diff) ? '' : `_${mappedStart + diff}`;
+                      activeQueryKey = `chr${chrom}:g.${mappedStart}${mappedEnd}${changeType}${changeSeq}`;
+                    } else {
+                      activeQueryKey = `chr${chrom}:g.${mappedStart}`;
+                    }
+                    
+                    // Check mapped cache
+                    if (!forceFresh) {
+                      const cachedMapped = memoryCache.get(activeQueryKey);
+                      if (cachedMapped) {
+                        const age = Date.now() - cachedMapped.fetchedAt;
+                        const isGenomic = activeQueryKey.match(/^chr(2[0-2]|1[0-9]|[1-9]|X|Y|MT|M):g\./i);
+                        const isEmpty = !cachedMapped.rsId && (cachedMapped.gnomadAf === undefined || cachedMapped.gnomadAf === null) && !cachedMapped.clinvarSignificance && !cachedMapped.geneSymbol;
+                        if (age < CACHE_TTL_MS && !(isGenomic && isEmpty)) {
+                          return cachedMapped;
+                        }
+                        // Expired or empty genomic — remove and re-fetch
+                        memoryCache.delete(activeQueryKey);
+                        savePersistentCache(memoryCache);
+                      }
+                    } else {
+                      memoryCache.delete(activeQueryKey);
+                      savePersistentCache(memoryCache);
+                    }
+                  }
+                }
+              } catch (e: any) {
+                if (e.is429) throw e;
+                console.warn('[VariantHandler] Liftover failed:', e);
+              }
+            }
+
+            // First try direct lookup by ID (extremely robust for GRCh37 or successfully mapped GRCh38)
+            const url = `${API_BASE}/${encodeURIComponent(activeQueryKey)}?fields=${FIELDS}`;
+            let data: any;
+
+            const performFetch = async (targetUrl: string) => {
+              if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.sendMessage) {
+                const response = await new Promise<{ success: boolean; data?: any; error?: string; is429?: boolean; retryAfter?: number }>((resolve) => {
+                  chrome.runtime.sendMessage({ type: 'FETCH_VARIANT_ENRICHMENT', url: targetUrl }, (res) => {
+                    const err = chrome.runtime.lastError;
+                    if (err) {
+                      resolve({ success: false, error: err.message });
+                    } else {
+                      resolve(res || { success: false, error: 'No response from background worker' });
+                    }
+                  });
+                });
+                if (!response.success) {
+                  if (response.is429) {
+                    const errObj = new Error('Too many requests') as any;
+                    errObj.is429 = true;
+                    errObj.retryAfter = response.retryAfter;
+                    throw errObj;
+                  }
+                  throw new Error(response.error || 'Failed to fetch variant enrichment');
+                }
+                return response.data;
               } else {
-                memoryCache.delete(activeQueryKey);
-                savePersistentCache(memoryCache);
+                const res = await fetch(targetUrl, {
+                  signal: abortController.signal,
+                  headers: { Accept: 'application/json' },
+                });
+                if (res.status === 429) {
+                  const retryAfterHeader = res.headers.get('Retry-After');
+                  const retryAfter = retryAfterHeader ? parseInt(retryAfterHeader, 10) : 5;
+                  const errObj = new Error('Too many requests') as any;
+                  errObj.is429 = true;
+                  errObj.retryAfter = isNaN(retryAfter) ? 5 : retryAfter;
+                  throw errObj;
+                }
+                if (!res.ok) {
+                  if (res.status === 404) {
+                    return { notfound: true };
+                  } else {
+                    throw new Error(`API error ${res.status}: ${res.statusText}`);
+                  }
+                }
+                return await res.json();
               }
-            }
-          }
-        } catch (e) {
-          console.warn('[VariantHandler] Liftover failed:', e);
-        }
-      }
-
-      // First try direct lookup by ID (extremely robust for GRCh37 or successfully mapped GRCh38)
-      const url = `${API_BASE}/${encodeURIComponent(activeQueryKey)}?fields=${FIELDS}`;
-      let data: any;
-
-      const performFetch = async (targetUrl: string) => {
-        if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.sendMessage) {
-          const response = await new Promise<{ success: boolean; data?: any; error?: string }>((resolve) => {
-            chrome.runtime.sendMessage({ type: 'FETCH_VARIANT_ENRICHMENT', url: targetUrl }, (res) => {
-              const err = chrome.runtime.lastError;
-              if (err) {
-                resolve({ success: false, error: err.message });
-              } else {
-                resolve(res || { success: false, error: 'No response from background worker' });
-              }
-            });
-          });
-          if (!response.success) {
-            throw new Error(response.error || 'Failed to fetch variant enrichment');
-          }
-          return response.data;
-        } else {
-          const res = await fetch(targetUrl, {
-            signal: abortRef.current.signal,
-            headers: { Accept: 'application/json' },
-          });
-          if (!res.ok) {
-            if (res.status === 404) {
-              return { notfound: true };
-            } else {
-              throw new Error(`API error ${res.status}: ${res.statusText}`);
-            }
-          }
-          return await res.json();
-        }
-      };
-
-      data = await performFetch(url);
-
-      // If direct ID lookup returned notfound or error, fall back to genomic search query (if it was a genomic match)
-      if ((!data || data.notfound || data.error) && genomicMatch) {
-        const chrom = genomicMatch[1];
-        const pos = genomicMatch[2];
-        const ref = genomicMatch[4] || '';
-        const alt = genomicMatch[5] || '';
-        const q = `chrom:${chrom} AND (pos:${pos} OR clinvar.hg38.start:${pos} OR hg38.start:${pos} OR clinvar.hg19.start:${pos} OR hg19.start:${pos}) AND (ref:"${ref}" OR clinvar.ref:"${ref}") AND (alt:"${alt}" OR clinvar.alt:"${alt}")`;
-        const queryUrl = `https://myvariant.info/v1/query?q=${encodeURIComponent(q)}&fields=${FIELDS}&size=1`;
-        
-        try {
-          const fallbackData = await performFetch(queryUrl);
-          if (fallbackData && Array.isArray(fallbackData.hits) && fallbackData.hits.length > 0) {
-            data = fallbackData.hits[0];
-          }
-        } catch (err) {
-          console.warn('[VariantHandler] Fallback genomic search query failed:', err);
-        }
-      }
-
-      if (data && Array.isArray(data.hits)) {
-        if (data.hits.length > 0) {
-          data = data.hits[0];
-        } else {
-          data = { notfound: true };
-        }
-      }
-
-      const enrichmentData = parseApiResponse(data, activeQueryKey);
-
-      // Fallback: If no gene symbol or coding sequence was resolved, query Ensembl VEP to find them
-      if ((!enrichmentData.geneSymbol || !enrichmentData.codingChange) && genomicMatch) {
-        const chrom = genomicMatch[1];
-        const pos = genomicMatch[2];
-        const endPos = genomicMatch[3] || pos;
-        const ref = genomicMatch[4] || '';
-        const alt = genomicMatch[5] || '';
-        const changeType = genomicMatch[6]?.toLowerCase();
-        const changeSeq = genomicMatch[7] || '';
-
-        let vepAlt = alt;
-        let vepStart = pos;
-        let vepEnd = endPos;
-
-        if (changeType === 'del') {
-          vepAlt = 'deletion';
-        } else if (changeType === 'ins') {
-          vepAlt = changeSeq || 'N';
-        } else if (changeType === 'dup') {
-          vepAlt = 'duplication';
-        } else if (changeType === 'delins') {
-          vepAlt = changeSeq || 'N';
-        } else if (changeType === 'inv') {
-          vepAlt = 'inversion';
-        }
-
-        const serverBase = build === 'GRCh37' ? 'https://grch37.rest.ensembl.org' : 'https://rest.ensembl.org';
-        const vepUrl = `${serverBase}/vep/homo_sapiens/region/${chrom}:${vepStart}-${vepEnd}:1/${vepAlt}?content-type=application/json&hgvs=1&mane=1`;
-        try {
-          const vepData = await performFetch(vepUrl);
-          if (Array.isArray(vepData) && vepData.length > 0) {
-            // Extract resolved normalized genomic HGVSg coordinates from VEP if present
-            const v = vepData[0];
-            const rawHgvsg = v.hgvsg || (Array.isArray(v.colocated_variants) ? v.colocated_variants.find((cv: any) => cv.id?.startsWith('chr'))?.id : undefined);
-            if (rawHgvsg && !enrichmentData.hgvsg) {
-              enrichmentData.hgvsg = Array.isArray(rawHgvsg) ? rawHgvsg[0] : rawHgvsg;
-            }
-
-            const consequences = vepData[0].transcript_consequences || [];
-            
-            const getConsequenceScore = (c: any): number => {
-              let score = 0;
-              const isMane = !!c.mane_select || (Array.isArray(c.mane) && c.mane.includes('MANE_Select'));
-              if (isMane) score += 1000;
-              const hasHgvsp = !!c.hgvsp;
-              const hasHgvsc = !!c.hgvsc || (c.cds_start !== undefined && c.cds_start !== null);
-              const isProteinCoding = c.biotype === 'protein_coding';
-              if (hasHgvsp && isProteinCoding) {
-                score += 100;
-              } else if (hasHgvsp) {
-                score += 50;
-              } else if (hasHgvsc && isProteinCoding) {
-                score += 30;
-              } else if (hasHgvsc) {
-                score += 10;
-              }
-              return score;
             };
 
-            const sortedCons = [...consequences].sort((a: any, b: any) => getConsequenceScore(b) - getConsequenceScore(a));
-            const bestCons = sortedCons[0];
+            data = await performFetch(url);
+
+            // If direct ID lookup returned notfound or error, fall back to genomic search query (if it was a genomic match)
+            if ((!data || data.notfound || data.error) && genomicMatch) {
+              const chrom = genomicMatch[1];
+              const pos = genomicMatch[2];
+              const ref = genomicMatch[4] || '';
+              const alt = genomicMatch[5] || '';
+              const q = `chrom:${chrom} AND (pos:${pos} OR clinvar.hg38.start:${pos} OR hg38.start:${pos} OR clinvar.hg19.start:${pos} OR hg19.start:${pos}) AND (ref:"${ref}" OR clinvar.ref:"${ref}") AND (alt:"${alt}" OR clinvar.alt:"${alt}")`;
+              const queryUrl = `https://myvariant.info/v1/query?q=${encodeURIComponent(q)}&fields=${FIELDS}&size=1`;
               
-            if (bestCons) {
-              if (bestCons.gene_symbol && !enrichmentData.geneSymbol) {
-                enrichmentData.geneSymbol = bestCons.gene_symbol;
-              }
-              
-              if (bestCons.hgvsc && !enrichmentData.codingChange) {
-                const parts = bestCons.hgvsc.split(':');
-                if (parts.length > 1) {
-                  enrichmentData.transcript = parts[0];
-                  enrichmentData.codingChange = parts[1];
-                } else if (bestCons.hgvsc.startsWith('c.')) {
-                  enrichmentData.codingChange = bestCons.hgvsc;
+              try {
+                const fallbackData = await performFetch(queryUrl);
+                if (fallbackData && Array.isArray(fallbackData.hits) && fallbackData.hits.length > 0) {
+                  data = fallbackData.hits[0];
                 }
-              } else if (!enrichmentData.codingChange && bestCons.cds_start !== undefined && bestCons.cds_start !== null) {
-                const cdsStartVal = parseInt(bestCons.cds_start, 10);
-                const cdsEndVal = bestCons.cds_end !== undefined && bestCons.cds_end !== null ? parseInt(bestCons.cds_end, 10) : cdsStartVal;
-                if (!isNaN(cdsStartVal)) {
-                  let constructedChange = '';
-                  const variantAllele = typeof bestCons.variant_allele === 'string' ? bestCons.variant_allele.toLowerCase() : '';
-                  if (variantAllele === 'deletion' || variantAllele === 'del' || changeType === 'del') {
-                    if (cdsStartVal !== cdsEndVal && !isNaN(cdsEndVal)) {
-                      constructedChange = `c.${cdsStartVal}_${cdsEndVal}del`;
-                    } else {
-                      constructedChange = `c.${cdsStartVal}del`;
-                    }
-                  } else if (variantAllele === 'duplication' || variantAllele === 'dup' || changeType === 'dup') {
-                    if (cdsStartVal !== cdsEndVal && !isNaN(cdsEndVal)) {
-                      constructedChange = `c.${cdsStartVal}_${cdsEndVal}dup`;
-                    } else {
-                      constructedChange = `c.${cdsStartVal}dup`;
-                    }
-                  } else if (variantAllele === 'inversion' || variantAllele === 'inv' || changeType === 'inv') {
-                    if (cdsStartVal !== cdsEndVal && !isNaN(cdsEndVal)) {
-                      constructedChange = `c.${cdsStartVal}_${cdsEndVal}inv`;
-                    } else {
-                      constructedChange = `c.${cdsStartVal}inv`;
-                    }
-                  } else if (variantAllele === 'insertion' || variantAllele === 'ins' || changeType === 'ins') {
-                    if (cdsStartVal !== cdsEndVal && !isNaN(cdsEndVal)) {
-                      constructedChange = `c.${cdsStartVal}_${cdsEndVal}ins`;
-                    } else {
-                      constructedChange = `c.${cdsStartVal}ins`;
-                    }
+              } catch (err: any) {
+                if (err.is429) throw err;
+                console.warn('[VariantHandler] Fallback genomic search query failed:', err);
+              }
+            }
+
+            if (data && Array.isArray(data.hits)) {
+              if (data.hits.length > 0) {
+                data = data.hits[0];
+              } else {
+                data = { notfound: true };
+              }
+            }
+
+            const enrichmentData = parseApiResponse(data, activeQueryKey);
+
+            // R2: ClinVar E-utilities direct layer. Runs when MyVariant did not
+            // supply ClinVar significance/review, the rsID, or build-correct
+            // coordinates. Provides CURRENT ClinVar data (no MyVariant lag) and
+            // coordinates for BOTH builds (ClinVar variation_loc carries both).
+            // Does NOT supply alleles (ClinVar variation_loc ref/alt are empty) —
+            // Ensembl VEP hgvsg remains the allele resolver below.
+            const needsClinVarDirect =
+              !enrichmentData.clinvarSignificance ||
+              !enrichmentData.clinvarReview ||
+              !enrichmentData.rsId;
+            if (needsClinVarDirect) {
+              // Build an HGVSc query string for ClinVar esearch: prefer the
+              // transcript:coding form (most reliable ClinVar term match).
+              const hgvsForClinVar =
+                enrichmentData.transcript && enrichmentData.codingChange
+                  ? `${enrichmentData.transcript}:${enrichmentData.codingChange}`
+                  : (parsed.transcript && parsed.codingChange
+                      ? `${parsed.transcript}:${parsed.codingChange}`
+                      : '');
+              if (hgvsForClinVar) {
+                try {
+                  const clinvarDirect = await resolveClinVarDirect(hgvsForClinVar, (build as GenomeBuild) || 'GRCh38');
+                  if (clinvarDirect.clinvarSignificance) enrichmentData.clinvarSignificance = clinvarDirect.clinvarSignificance;
+                  if (clinvarDirect.clinvarReview) enrichmentData.clinvarReview = clinvarDirect.clinvarReview;
+                  if (clinvarDirect.rcvAccession) enrichmentData.rcvAccession = clinvarDirect.rcvAccession;
+                  if (clinvarDirect.rsId && !enrichmentData.rsId) enrichmentData.rsId = clinvarDirect.rsId;
+                  // Coordinates: ClinVar direct gives build-correct coords. Only
+                  // override when MyVariant didn't resolve a position for this build
+                  // (avoids clobbering a VEP/MyVariant hgvsg that carries alleles).
+                  if (clinvarDirect.chromosome && clinvarDirect.position && !enrichmentData.hgvsg) {
+                    enrichmentData.hgvsg = `chr${clinvarDirect.chromosome}:g.${clinvarDirect.position}`;
+                  }
+                  if (clinvarDirect.clinvarSignificance || clinvarDirect.rsId) {
+                    if (enrichmentData.source === 'none') enrichmentData.source = 'clinvar';
+                    else if (enrichmentData.source === 'myvariant') enrichmentData.source = 'both';
+                  }
+                } catch (e: any) {
+                  if (e.is429) throw e;
+                  console.warn('[VariantHandler] ClinVar direct merge skipped:', e);
+                }
+              }
+            }
+
+            // Fallback: If no gene symbol or coding sequence was resolved, query Ensembl VEP to find them
+            if ((!enrichmentData.geneSymbol || !enrichmentData.codingChange) && genomicMatch) {
+              const chrom = genomicMatch[1];
+              const pos = genomicMatch[2];
+              const endPos = genomicMatch[3] || pos;
+              const ref = genomicMatch[4] || '';
+              const alt = genomicMatch[5] || '';
+              const changeType = genomicMatch[6]?.toLowerCase();
+              const changeSeq = genomicMatch[7] || '';
+
+              let vepAlt = alt;
+              let vepStart = pos;
+              let vepEnd = endPos;
+
+              if (changeType === 'del') {
+                vepAlt = 'deletion';
+              } else if (changeType === 'ins') {
+                vepAlt = changeSeq || 'N';
+              } else if (changeType === 'dup') {
+                vepAlt = 'duplication';
+              } else if (changeType === 'delins') {
+                vepAlt = changeSeq || 'N';
+              } else if (changeType === 'inv') {
+                vepAlt = 'inversion';
+              }
+
+              const serverBase = build === 'GRCh37' ? 'https://grch37.rest.ensembl.org' : 'https://rest.ensembl.org';
+              const vepUrl = `${serverBase}/vep/homo_sapiens/region/${chrom}:${vepStart}-${vepEnd}:1/${vepAlt}?content-type=application/json&hgvs=1&mane=1`;
+              try {
+                const vepData = await performFetch(vepUrl);
+                if (Array.isArray(vepData) && vepData.length > 0) {
+                  // Extract resolved normalized genomic HGVSg coordinates from VEP if present
+                  const v = vepData[0];
+                  const rawHgvsg = v.hgvsg || (Array.isArray(v.colocated_variants) ? v.colocated_variants.find((cv: any) => cv.id?.startsWith('chr'))?.id : undefined);
+                  if (rawHgvsg && !enrichmentData.hgvsg) {
+                    enrichmentData.hgvsg = Array.isArray(rawHgvsg) ? rawHgvsg[0] : rawHgvsg;
                   }
 
-                  if (constructedChange) {
-                    enrichmentData.codingChange = constructedChange;
-                    const resolvedTx = bestCons.mane_select 
-                      ? (typeof bestCons.mane_select === 'string' ? bestCons.mane_select.split(' ')[0] : undefined) 
-                      : bestCons.transcript_id;
-                    if (resolvedTx) {
-                      enrichmentData.transcript = resolvedTx;
+                  const consequences = vepData[0].transcript_consequences || [];
+                  
+                  const getConsequenceScore = (c: any): number => {
+                    let score = 0;
+                    const isMane = !!c.mane_select || (Array.isArray(c.mane) && c.mane.includes('MANE_Select'));
+                    if (isMane) score += 1000;
+                    const hasHgvsp = !!c.hgvsp;
+                    const hasHgvsc = !!c.hgvsc || (c.cds_start !== undefined && c.cds_start !== null);
+                    const isProteinCoding = c.biotype === 'protein_coding';
+                    if (hasHgvsp && isProteinCoding) {
+                      score += 100;
+                    } else if (hasHgvsp) {
+                      score += 50;
+                    } else if (hasHgvsc && isProteinCoding) {
+                      score += 30;
+                    } else if (hasHgvsc) {
+                      score += 10;
                     }
+                    return score;
+                  };
 
-                    // Perform local sequence left-alignment normalization for VCF compatible format
-                    try {
-                      const startCoord = parseInt(pos, 10);
-                      const endCoord = parseInt(endPos, 10);
-                      const length = endCoord - startCoord + 1;
-                      
-                      if (!isNaN(startCoord) && !isNaN(endCoord)) {
-                        let seqStart = startCoord - 15;
-                        let seqEnd = endCoord + 15;
-                        let shouldShift = true;
-                        
-                        // Large deletions optimization (>1kb): skip shifting, fetch narrow anchor window
-                        if (length > 1000) {
-                          seqStart = startCoord - 5;
-                          seqEnd = startCoord + 5;
-                          shouldShift = false;
+                  const sortedCons = [...consequences].sort((a: any, b: any) => getConsequenceScore(b) - getConsequenceScore(a));
+                  const bestCons = sortedCons[0];
+                    
+                  if (bestCons) {
+                    if (bestCons.gene_symbol && !enrichmentData.geneSymbol) {
+                      enrichmentData.geneSymbol = bestCons.gene_symbol;
+                    }
+                    
+                    if (bestCons.hgvsc && !enrichmentData.codingChange) {
+                      const parts = bestCons.hgvsc.split(':');
+                      if (parts.length > 1) {
+                        enrichmentData.transcript = parts[0];
+                        enrichmentData.codingChange = parts[1];
+                      } else if (bestCons.hgvsc.startsWith('c.')) {
+                        enrichmentData.codingChange = bestCons.hgvsc;
+                      }
+                    } else if (!enrichmentData.codingChange && bestCons.cds_start !== undefined && bestCons.cds_start !== null) {
+                      const cdsStartVal = parseInt(bestCons.cds_start, 10);
+                      const cdsEndVal = bestCons.cds_end !== undefined && bestCons.cds_end !== null ? parseInt(bestCons.cds_end, 10) : cdsStartVal;
+                      if (!isNaN(cdsStartVal)) {
+                        let constructedChange = '';
+                        const variantAllele = typeof bestCons.variant_allele === 'string' ? bestCons.variant_allele.toLowerCase() : '';
+                        if (variantAllele === 'deletion' || variantAllele === 'del' || changeType === 'del') {
+                          if (cdsStartVal !== cdsEndVal && !isNaN(cdsEndVal)) {
+                            constructedChange = `c.${cdsStartVal}_${cdsEndVal}del`;
+                          } else {
+                            constructedChange = `c.${cdsStartVal}del`;
+                          }
+                        } else if (variantAllele === 'duplication' || variantAllele === 'dup' || changeType === 'dup') {
+                          if (cdsStartVal !== cdsEndVal && !isNaN(cdsEndVal)) {
+                            constructedChange = `c.${cdsStartVal}_${cdsEndVal}dup`;
+                          } else {
+                            constructedChange = `c.${cdsStartVal}dup`;
+                          }
+                        } else if (variantAllele === 'inversion' || variantAllele === 'inv' || changeType === 'inv') {
+                          if (cdsStartVal !== cdsEndVal && !isNaN(cdsEndVal)) {
+                            constructedChange = `c.${cdsStartVal}_${cdsEndVal}inv`;
+                          } else {
+                            constructedChange = `c.${cdsStartVal}inv`;
+                          }
+                        } else if (variantAllele === 'insertion' || variantAllele === 'ins' || changeType === 'ins') {
+                          if (cdsStartVal !== cdsEndVal && !isNaN(cdsEndVal)) {
+                            constructedChange = `c.${cdsStartVal}_${cdsEndVal}ins`;
+                          } else {
+                            constructedChange = `c.${cdsStartVal}ins`;
+                          }
                         }
-                        
-                        const seqUrl = `${serverBase}/sequence/region/human/${chrom}:${seqStart}..${seqEnd}:1?content-type=application/json`;
-                        const seqData = await performFetch(seqUrl);
-                        
-                        if (seqData && typeof seqData.seq === 'string') {
-                          const refSeq = seqData.seq.toUpperCase();
-                          let currStart = startCoord - seqStart;
-                          
-                          if (variantAllele === 'deletion' || variantAllele === 'del' || changeType === 'del') {
-                            if (shouldShift) {
-                              while (currStart > 0 && refSeq[currStart - 1] === refSeq[currStart + length - 1]) {
-                                currStart--;
-                              }
-                            }
-                            const anchorIdx = currStart - 1;
-                            if (anchorIdx >= 0) {
-                              const anchorBase = refSeq[anchorIdx];
-                              const deletedSeq = refSeq.substring(currStart, currStart + length);
-                              const finalPos = seqStart + anchorIdx;
-                              const finalRef = anchorBase + deletedSeq;
-                              const finalAlt = anchorBase;
-                              enrichmentData.hgvsg = `chr${chrom}:${finalPos}${finalRef}>${finalAlt}`;
-                            }
-                          } else if (variantAllele === 'insertion' || variantAllele === 'ins' || changeType === 'ins') {
-                            let insSeq = changeSeq || (bestCons.variant_allele !== 'INSERTION' ? bestCons.variant_allele : 'N');
-                            if (shouldShift) {
-                              while (currStart > 0 && refSeq[currStart - 1] === insSeq[insSeq.length - 1]) {
-                                currStart--;
-                                insSeq = insSeq[insSeq.length - 1] + insSeq.substring(0, insSeq.length - 1);
-                              }
-                            }
-                            const anchorBase = refSeq[currStart - 1];
-                            const finalPos = seqStart + currStart - 1;
-                            const finalRef = anchorBase;
-                            const finalAlt = anchorBase + insSeq;
-                            enrichmentData.hgvsg = `chr${chrom}:${finalPos}${finalRef}>${finalAlt}`;
-                          } else if (variantAllele === 'duplication' || variantAllele === 'dup' || changeType === 'dup') {
-                            let dupSeq = refSeq.substring(currStart, currStart + length);
-                            let insIdx = currStart + length;
-                            if (shouldShift) {
-                              while (insIdx > 0 && refSeq[insIdx - 1] === dupSeq[dupSeq.length - 1]) {
-                                insIdx--;
-                                dupSeq = dupSeq[dupSeq.length - 1] + dupSeq.substring(0, dupSeq.length - 1);
-                              }
-                            }
-                            const anchorBase = refSeq[insIdx - 1];
-                            const finalPos = seqStart + insIdx - 1;
-                            const finalRef = anchorBase;
-                            const finalAlt = anchorBase + dupSeq;
-                            enrichmentData.hgvsg = `chr${chrom}:${finalPos}${finalRef}>${finalAlt}`;
-                          } else if (variantAllele === 'delins' || changeType === 'delins') {
-                            const deletedSeq = refSeq.substring(currStart, currStart + length);
-                            const insertedSeq = changeSeq || 'N';
-                            const anchorIdx = currStart - 1;
-                            if (anchorIdx >= 0) {
-                              const anchorBase = refSeq[anchorIdx];
-                              const finalPos = seqStart + anchorIdx;
-                              const finalRef = anchorBase + deletedSeq;
-                              const finalAlt = anchorBase + insertedSeq;
-                              enrichmentData.hgvsg = `chr${chrom}:${finalPos}${finalRef}>${finalAlt}`;
-                            }
+
+                        if (constructedChange) {
+                          enrichmentData.codingChange = constructedChange;
+                          const resolvedTx = bestCons.mane_select 
+                            ? (typeof bestCons.mane_select === 'string' ? bestCons.mane_select.split(' ')[0] : undefined) 
+                            : bestCons.transcript_id;
+                          if (resolvedTx) {
+                            enrichmentData.transcript = resolvedTx;
                           }
                         }
                       }
-                    } catch (seqErr) {
-                      console.warn('[VariantHandler] Local sequence normalization failed:', seqErr);
+                    }
+                    
+                    if (bestCons.hgvsp && !enrichmentData.proteinChange) {
+                      const parts = bestCons.hgvsp.split(':');
+                      enrichmentData.proteinChange = parts.length > 1 ? parts[1] : parts[0];
+                    }
+                    
+                    // If we succeeded in resolving any new fields, update source
+                    if (enrichmentData.geneSymbol || enrichmentData.codingChange) {
+                      if (enrichmentData.source === 'none') {
+                        enrichmentData.source = 'ensembl';
+                      } else if (enrichmentData.source === 'myvariant') {
+                        enrichmentData.source = 'both';
+                      }
                     }
                   }
                 }
-              }
-              
-              if (bestCons.hgvsp && !enrichmentData.proteinChange) {
-                const parts = bestCons.hgvsp.split(':');
-                enrichmentData.proteinChange = parts.length > 1 ? parts[1] : parts[0];
-              }
-              
-              // If we succeeded in resolving any new fields, update source
-              if (enrichmentData.geneSymbol || enrichmentData.codingChange) {
-                if (enrichmentData.source === 'none') {
-                  enrichmentData.source = 'ensembl';
-                } else if (enrichmentData.source === 'myvariant') {
-                  enrichmentData.source = 'both';
-                }
+              } catch (e: any) {
+                if (e.is429) throw e;
+                console.warn('[VariantHandler] Ensembl VEP query failed:', e);
               }
             }
+
+            // Store in both cache layers
+            memoryCache.set(queryKey, enrichmentData);
+            if (activeQueryKey !== queryKey) {
+              memoryCache.set(activeQueryKey, enrichmentData);
+            }
+            savePersistentCache(memoryCache);
+            return enrichmentData;
+          } catch (err: any) {
+            if (err.is429) {
+              attempts++;
+              const retrySec = err.retryAfter || 5;
+              rateLimitResetTime = Date.now() + retrySec * 1000;
+              console.warn(`[VariantHandler] Rate limit 429 reset in ${retrySec}s. Attempt ${attempts}/3.`);
+              continue;
+            }
+            // N3/N4: an AbortError from the per-queryKey controller means the
+            // fetch was superseded (variant changed) or force-refreshed. Propagate
+            // it so the outer handler can swallow it; do not retry.
+            throw err;
           }
-        } catch (e) {
-          console.warn('[VariantHandler] Ensembl VEP query failed:', e);
         }
-      }
+        throw new Error('Too many requests. Rate limit backoff exceeded.');
+      })();
+      entry = { promise, abortController };
+      inFlightRequests.set(queryKey, entry);
+    }
 
-      // Store in both cache layers
-      memoryCache.set(queryKey, enrichmentData);
-      if (activeQueryKey !== queryKey) {
-        memoryCache.set(activeQueryKey, enrichmentData);
-      }
-      savePersistentCache(memoryCache);
-
-      setEnrichment(enrichmentData);
+    try {
+      const data = await entry.promise;
+      setEnrichment(data);
     } catch (err: unknown) {
       if (err instanceof Error && err.name === 'AbortError') return; // Cancelled — ignore
       const msg = err instanceof Error ? err.message : String(err);
       console.warn('[VariantHandler] Enrichment fetch failed:', msg);
       setError(msg);
     } finally {
+      // Only clear the in-flight slot if it still refers to our entry (a
+      // force-refresh may have replaced it with a new controller).
+      if (inFlightRequests.get(queryKey) === entry) {
+        inFlightRequests.delete(queryKey);
+      }
       setIsLoading(false);
     }
   }, []);
@@ -849,11 +960,17 @@ export function useVariantEnrichment(
       setEnrichment(null);
       setIsLoading(false);
       setError(null);
+      // N3: abort the in-flight controller for any pending queryKey and clear
+      // the dedup map so a stale promise can't be reused after re-enabling.
       if (abortRef.current) abortRef.current.abort();
+      for (const { abortController } of inFlightRequests.values()) {
+        abortController.abort();
+      }
+      inFlightRequests.clear();
       return;
     }
 
-    const queryKey = deriveQueryKey(parsed);
+    const queryKey = deriveQueryKey(parsed, build);
     if (!queryKey) {
       setEnrichment(null);
       return;
@@ -862,7 +979,7 @@ export function useVariantEnrichment(
     // Debounce: wait for the user to finish typing
     if (debounceTimer.current) clearTimeout(debounceTimer.current);
     debounceTimer.current = setTimeout(() => {
-      fetchEnrichment(queryKey, parsed.genomeBuild);
+      fetchEnrichment(queryKey, build);
     }, DEBOUNCE_MS);
 
     return () => {
@@ -870,21 +987,26 @@ export function useVariantEnrichment(
     };
   }, [parsed.chromosome, parsed.position, parsed.ref, parsed.alt,
       parsed.transcript, parsed.codingChange, parsed.isValid,
-      parsed.genomeBuild, enabled, fetchEnrichment]);
+      build, enabled, fetchEnrichment]);
 
-  // Cleanup on unmount
+  // Cleanup on unmount: abort every in-flight per-queryKey controller (N3/N4)
+  // so background fetches stop when the panel closes, and clear the dedup map.
   useEffect(() => {
     return () => {
       if (abortRef.current) abortRef.current.abort();
+      for (const { abortController } of inFlightRequests.values()) {
+        abortController.abort();
+      }
+      inFlightRequests.clear();
       if (debounceTimer.current) clearTimeout(debounceTimer.current);
     };
   }, []);
 
   const refetch = useCallback(() => {
-    const queryKey = deriveQueryKey(parsed);
+    const queryKey = deriveQueryKey(parsed, build);
     if (!queryKey) return;
-    fetchEnrichment(queryKey, parsed.genomeBuild, true);
-  }, [parsed, fetchEnrichment]);
+    fetchEnrichment(queryKey, build, true);
+  }, [parsed, build, fetchEnrichment]);
 
   return { enrichment, isLoading, error, refetch };
 }

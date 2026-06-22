@@ -24,7 +24,8 @@ import { isSafeUrl } from '../utils/sanitize';
 const ALLOWED_DOMAINS = [
   'myvariant.info',
   'rest.ensembl.org',
-  'grch37.rest.ensembl.org'
+  'grch37.rest.ensembl.org',
+  'eutils.ncbi.nlm.nih.gov'
 ];
 
 if (typeof chrome !== 'undefined' && chrome.runtime) {
@@ -61,6 +62,11 @@ if (typeof chrome !== 'undefined' && chrome.runtime) {
         headers: { Accept: 'application/json' },
       })
         .then(async (res) => {
+          if (res.status === 429) {
+            const retryAfterHeader = res.headers.get('Retry-After');
+            const retryAfterVal = retryAfterHeader ? parseInt(retryAfterHeader, 10) : 60;
+            return { is429: true, retryAfter: isNaN(retryAfterVal) ? 60 : retryAfterVal };
+          }
           if (!res.ok) {
             if (res.status === 404) {
               return { notfound: true };
@@ -70,7 +76,11 @@ if (typeof chrome !== 'undefined' && chrome.runtime) {
           return res.json();
         })
         .then((data) => {
-          sendResponse({ success: true, data });
+          if (data && (data as any).is429) {
+            sendResponse({ success: false, is429: true, retryAfter: (data as any).retryAfter });
+          } else {
+            sendResponse({ success: true, data });
+          }
         })
         .catch((err) => {
           console.warn('[Variant Handler] Background fetch failed:', err);
