@@ -304,49 +304,60 @@ describe('parseVariant — Protein Change Formats (HGVSp)', () => {
   });
 });
 
-// ── parseVariant — Canonical Hotspot Database ─────────────────────────────────
+// ── parseVariant — Notation-Only (R1: canonical DB removed) ──────────────────
 
-describe('parseVariant — Canonical Hotspot Database', () => {
-  it('resolves delta-F508 from exact shorthand match', () => {
+describe('parseVariant — Notation-Only (canonical DB removed)', () => {
+  // R1: "delta-F508" is a colloquial disease alias, not a notation. The parser
+  // no longer resolves it (the canonical hotspot database was deleted).
+  it('does NOT resolve the colloquial shorthand "delta-F508" (R1)', () => {
     const r = parseVariant('delta-F508');
-    expect(r.isValid).toBe(true);
-    expect(r.chromosome).toBe('7');
-    expect(r.position).toBe('117559589');
-    expect(r.ref).toBe('GATC');
-    expect(r.alt).toBe('G');
+    expect(r.isValid).toBe(false);
+    expect(r.chromosome).toBeUndefined();
   });
 
-  it('backfills coordinates for known NM transcript (version-normalised)', () => {
-    const r = parseVariant('NM_000277.3:c.1222C>T');
-    expect(r.chromosome).toBe('12');
-    expect(r.position).toBe('102867431');
-    expect(r.proteinChange).toBe('p.Arg408Trp');
-  });
-
-  it('backfills coordinates for NM_000277.2 (older version) too', () => {
-    const r = parseVariant('NM_000277.2:c.1222C>T');
-    expect(r.chromosome).toBe('12');
-    expect(r.position).toBe('102867431');
-  });
-
-  it('BRCA1 c.5266dup has correct insertion alleles (not substitution)', () => {
-    const r = parseVariant('NM_007294.4:c.5266dup');
-    expect(r.chromosome).toBe('17');
-    expect(r.position).toBe('43044294');
-    expect(r.ref).toBe('T');
-    expect(r.alt).toBe('TC');
-  });
-
-  it('does NOT resolve "NOT-delta-F508" as CFTR (false-positive prevention)', () => {
+  it('does NOT resolve "NOT-delta-F508" (false-positive prevention)', () => {
     const r = parseVariant('NOT-delta-F508');
     expect(r.chromosome).toBeUndefined();
     expect(r.isValid).toBe(false);
   });
 
-  it('does NOT resolve "delta-F508-like" as CFTR (false-positive prevention)', () => {
+  it('does NOT resolve "delta-F508-like" (false-positive prevention)', () => {
     const r = parseVariant('delta-F508-like');
     expect(r.chromosome).toBeUndefined();
     expect(r.isValid).toBe(false);
+  });
+
+  // R1: transcript-keyed inputs now resolve only notation-derived fields.
+  // Genomic coordinates/protein come from the enrichment layer, not the parser.
+  it('NM_ coding input resolves transcript + coding + gene symbol only (no coords)', () => {
+    const r = parseVariant('NM_000277.3:c.1222C>T');
+    expect(r.isValid).toBe(true);
+    expect(r.type).toBe('coding');
+    expect(r.transcript).toBe('NM_000277.3');
+    expect(r.codingChange).toBe('c.1222C>T');
+    expect(r.geneSymbol).toBe('PAH');
+    expect(r.chromosome).toBeUndefined();
+    expect(r.position).toBeUndefined();
+    expect(r.proteinChange).toBeUndefined();
+  });
+
+  it('older NM_ version resolves the same notation fields (no version-gated backfill)', () => {
+    const r = parseVariant('NM_000277.2:c.1222C>T');
+    expect(r.isValid).toBe(true);
+    expect(r.transcript).toBe('NM_000277.2');
+    expect(r.codingChange).toBe('c.1222C>T');
+    expect(r.geneSymbol).toBe('PAH');
+    expect(r.chromosome).toBeUndefined();
+  });
+
+  it('BRCA1 c.5266dup resolves notation fields; coords via enrichment', () => {
+    const r = parseVariant('NM_007294.4:c.5266dup');
+    expect(r.isValid).toBe(true);
+    expect(r.transcript).toBe('NM_007294.4');
+    expect(r.codingChange).toBe('c.5266dup');
+    expect(r.geneSymbol).toBe('BRCA1');
+    expect(r.chromosome).toBeUndefined();
+    expect(r.position).toBeUndefined();
   });
 
   it('infers MT chromosome from NC_012920 (mitochondrial, not chr12)', () => {
@@ -354,6 +365,34 @@ describe('parseVariant — Canonical Hotspot Database', () => {
     expect(r.isValid).toBe(true);
     expect(r.chromosome).toBe('MT');
     expect(r.chromosome).not.toBe('12');
+  });
+
+  // T3: NC_ genomic accessions use `g.` and must be classified as genomic,
+  // not coding. The coding regex must not emit `c.` for an NC_ accession.
+  it('parses NC_ genomic accession with g. notation as genomic (T3)', () => {
+    const r = parseVariant('NC_000007.14:g.117559590A>G');
+    expect(r.isValid).toBe(true);
+    expect(r.type).toBe('genomic');
+    expect(r.transcript).toBe('NC_000007.14');
+    expect(r.chromosome).toBe('7');
+    expect(r.codingChange).toMatch(/^g\./);
+    expect(r.codingChange).not.toMatch(/^c\./);
+    expect(r.position).toBe('117559590');
+    expect(r.ref).toBe('A');
+    expect(r.alt).toBe('G');
+  });
+
+  // N5: a non-NC_ transcript accession with an invalid `g.` change must NOT be
+  // silently coerced to `c.`. It should not match the coding battery at all.
+  it('does not coerce invalid NM_:g. input to c. (N5)', () => {
+    const r = parseVariant('NM_000492.4:g.1521del');
+    expect(r.isValid).toBe(false);
+  });
+
+  // An explicit build token in the raw input is honoured (notation-based).
+  it('honours an explicit build token in the input', () => {
+    const r = parseVariant('chr7[hg19]:g.117480028ATCT>A');
+    expect(r.genomeBuild).toBe('GRCh37');
   });
 });
 
@@ -579,12 +618,12 @@ describe('buildPlatformUrl — URL construction', () => {
     expect(url).toContain('140753336');
   });
 
-  it('resolves delta-F508 via canonical DB and builds gnomAD URL', () => {
+  // R1: delta-F508 no longer resolves (canonical DB removed). gnomAD now
+  // returns null for the bare shorthand — enrichment resolves it at runtime.
+  it('returns null for gnomAD for the delta-F508 shorthand (R1: no canonical backfill)', () => {
     const r = parseVariant('delta-F508');
-    const url = buildPlatformUrl(r, gnomad);
-    expect(url).not.toBeNull();
-    expect(url).toContain('7');
-    expect(url).toContain('117559589');
+    expect(r.isValid).toBe(false);
+    expect(buildPlatformUrl(r, gnomad)).toBeNull();
   });
 
   it('returns null for gnomAD when protein-only with no coordinates', () => {
@@ -598,11 +637,19 @@ describe('buildPlatformUrl — URL construction', () => {
     expect(buildPlatformUrl(r, gnomad)).toBeNull();
   });
 
-  it('builds UCSC URL with extended range for CFTR indel (MEDIUM-2)', () => {
-    const r = parseVariant('NM_000492.4:c.1521_1523delCTT');
+  // R1: the CFTR transcript-only input no longer backfills genomic coords from
+  // the canonical DB, so UCSC (which needs coords) returns null — enrichment
+  // resolves coords at runtime. Use a genomic input to exercise the indel range.
+  it('builds UCSC URL with extended range for a genomic indel', () => {
+    const r = parseVariant('chr7:g.117559590_117559592delCTT');
     const url = buildPlatformUrl(r, ucsc);
     expect(url).not.toBeNull();
     expect(url).toContain('117559592');
+  });
+
+  it('returns null for UCSC when only transcript given (no coords, R1)', () => {
+    const r = parseVariant('NM_000492.4:c.1521_1523delCTT');
+    expect(buildPlatformUrl(r, ucsc)).toBeNull();
   });
 
   it('returns null for VariantValidator with only genomic coords', () => {
@@ -641,32 +688,35 @@ describe('Sprint 3: genomic deletion parsing and gene symbol extraction', () => 
     expect(r.geneSymbol).toBe('PAH');
   });
 
-  it('parses gene-prefixed coding variant and backfills canonical details', () => {
+  // R1: gene-prefixed inputs backfill the default transcript via
+  // GENE_TO_DEFAULT_TRANSCRIPT (notation-based), but no longer backfill
+  // genomic coordinates (canonical DB removed). Coords come from enrichment.
+  it('parses gene-prefixed coding variant and backfills the default transcript', () => {
     const r = parseVariant('PAH:c.1222C>T');
     expect(r.isValid).toBe(true);
     expect(r.geneSymbol).toBe('PAH');
-    expect(r.transcript).toBe('NM_000277.3'); // Backfilled and matched from canonical database
+    expect(r.transcript).toBe('NM_000277'); // from GENE_TO_DEFAULT_TRANSCRIPT (unversioned)
     expect(r.codingChange).toBe('c.1222C>T');
-    expect(r.chromosome).toBe('12');
-    expect(r.position).toBe('102867431');
+    expect(r.chromosome).toBeUndefined();
+    expect(r.position).toBeUndefined();
   });
 
   it('parses gene-prefixed coding variant with space separator', () => {
     const r = parseVariant('PAH c.1222C>T');
     expect(r.isValid).toBe(true);
     expect(r.geneSymbol).toBe('PAH');
-    expect(r.transcript).toBe('NM_000277.3');
+    expect(r.transcript).toBe('NM_000277');
     expect(r.codingChange).toBe('c.1222C>T');
   });
 
-  it('parses gene-prefixed protein variant and backfills canonical details', () => {
+  it('parses gene-prefixed protein variant and backfills the default transcript', () => {
     const r = parseVariant('PAH p.Arg408Trp');
     expect(r.isValid).toBe(true);
     expect(r.geneSymbol).toBe('PAH');
-    expect(r.transcript).toBe('NM_000277.3'); // Backfilled and matched from canonical database
+    expect(r.transcript).toBe('NM_000277');
     expect(r.proteinChange).toBe('p.Arg408Trp');
-    expect(r.chromosome).toBe('12');
-    expect(r.position).toBe('102867431');
+    expect(r.chromosome).toBeUndefined();
+    expect(r.position).toBeUndefined();
   });
 });
 
@@ -702,6 +752,32 @@ describe('ClinVar URL generation and filter-clearing parameter', () => {
     };
     const url = buildPlatformUrl(r, clinvar, 'GRCh38', enrichment);
     expect(url).toContain(encodeURIComponent('PAH p.Arg408Trp'));
+  });
+
+  describe('Sprint 4: NC_ genomic accession parsing', () => {
+    it('parses NC_ genomic accessions with g. notation', () => {
+      const r = parseVariant('NC_000007.14:g.117559590A>G');
+      expect(r.isValid).toBe(true);
+      expect(r.type).toBe('genomic');
+      expect(r.chromosome).toBe('7');
+      expect(r.position).toBe('117559590');
+      expect(r.ref).toBe('A');
+      expect(r.alt).toBe('G');
+      expect(r.transcript).toBe('NC_000007.14');
+      expect(r.codingChange).toBe('g.117559590A>G');
+    });
+
+    it('parses NC_ genomic accessions with legacy c. notation', () => {
+      const r = parseVariant('NC_000007.14:c.117559590A>G');
+      expect(r.isValid).toBe(true);
+      expect(r.type).toBe('genomic');
+      expect(r.chromosome).toBe('7');
+      expect(r.position).toBe('117559590');
+      expect(r.ref).toBe('A');
+      expect(r.alt).toBe('G');
+      expect(r.transcript).toBe('NC_000007.14');
+      expect(r.codingChange).toBe('g.117559590A>G');
+    });
   });
 });
 

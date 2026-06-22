@@ -9,7 +9,7 @@
  */
 import React, { useState, useEffect } from 'react';
 import { Edit3, Check, Copy, Cpu, ClipboardPaste, Dna, Plus, Minus, Loader2, Globe, AlertCircle, RotateCw } from 'lucide-react';
-import { ParsedVariant } from '../lib/parser';
+import { ParsedVariant, parseGenomicHgvs } from '../lib/parser';
 import { GenomeBuild } from '../utils/genomeBuild';
 import { ColorTheme } from '../lib/themes';
 import HighlightedCoordinate from './HighlightedCoordinate';
@@ -99,20 +99,6 @@ export default function VariantWorkbench({
   // Auto-detected build from the raw input (set in parser)
   const autoDetectedBuild = parsed.genomeBuild;
 
-  // Helper to parse HGVSg genomic coordinate string e.g. "chr4:g.110667561T>G"
-  const parseGenomicString = (str: string) => {
-    const match = str.match(/^(?:chr)?([0-9XxYyMmTt]+):g\.([0-9]+)([A-Za-z\-]+)>([A-Za-z\-]+)$/i);
-    if (match) {
-      return {
-        chromosome: match[1],
-        position: match[2],
-        ref: match[3],
-        alt: match[4]
-      };
-    }
-    return null;
-  };
-
   let chromosome = parsed.chromosome;
   let position = parsed.position;
   let ref = parsed.ref;
@@ -120,7 +106,7 @@ export default function VariantWorkbench({
   let isGenomicLiveResolved = false;
 
   if (enrichment?.hgvsg) {
-    const resolvedGenomic = parseGenomicString(enrichment.hgvsg);
+    const resolvedGenomic = parseGenomicHgvs(enrichment.hgvsg);
     if (resolvedGenomic) {
       chromosome = resolvedGenomic.chromosome;
       position = resolvedGenomic.position;
@@ -169,6 +155,10 @@ export default function VariantWorkbench({
                   ? isLight
                     ? 'text-teal-600 border-teal-200 bg-teal-50'
                     : 'text-teal-400 border-teal-900 bg-teal-950/40'
+                  : enrichment.source === 'clinvar'
+                  ? isLight
+                    ? 'text-sky-600 border-sky-200 bg-sky-50'
+                    : 'text-sky-400 border-sky-900 bg-sky-950/40'
                   : enrichment.source === 'both'
                   ? isLight
                     ? 'text-purple-600 border-purple-200 bg-purple-50'
@@ -179,7 +169,8 @@ export default function VariantWorkbench({
               }`}>
                 {enrichment.source === 'myvariant' && 'myvariant.info'}
                 {enrichment.source === 'ensembl' && 'Ensembl'}
-                {enrichment.source === 'both' && 'MyVariant & Ensembl'}
+                {enrichment.source === 'clinvar' && 'ClinVar direct'}
+                {enrichment.source === 'both' && 'MyVariant + ClinVar'}
                 {enrichment.source === 'none' && 'No annotations found'}
               </span>
             )}

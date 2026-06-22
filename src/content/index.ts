@@ -18,7 +18,7 @@
  *    end position for indels (pos + max(ref.length, alt.length) - 1) instead
  *    of always using a point range (pos-pos).
  */
-import { parseVariant, INITIAL_PLATFORMS, ParsedVariant, hasRealAllele } from '../lib/parser';
+import { parseVariant, INITIAL_PLATFORMS, ParsedVariant, hasRealAllele, parseGenomicHgvs } from '../lib/parser';
 
 // ── Context validation helpers ────────────────────────────────────────────────
 
@@ -715,8 +715,8 @@ function injectButton(inputEl: HTMLInputElement, allowedTypes: ('variant' | 'gen
 
       let parsed = parseVariant(rawInput);
       if (resolvedHgvsg) {
-        const parsedResolved = parseVariant(resolvedHgvsg);
-        if (parsedResolved.isValid && parsedResolved.position) {
+        const parsedResolved = parseGenomicHgvs(resolvedHgvsg);
+        if (parsedResolved) {
           parsed = {
             ...parsed,
             chromosome: parsedResolved.chromosome ?? parsed.chromosome,
@@ -739,14 +739,9 @@ function injectButton(inputEl: HTMLInputElement, allowedTypes: ('variant' | 'gen
       // If the platform requires allele sequences (dash or hgvs_g) but they are missing, warn the user
       if (adapter && (adapter.requiredFormat === 'dash' || adapter.requiredFormat === 'hgvs_g')) {
         const hasAlleles = hasRealAllele(parsed.ref) && hasRealAllele(parsed.alt);
-        const hasTranscript = !!(parsed.transcript && parsed.codingChange);
 
-        if (!hasAlleles && !hasTranscript) {
-          if (liveEnrichmentEnabled) {
-            showNotification(`This platform requires reference & alternate alleles or a transcript change. Live Enrichment was unable to resolve them.`, true);
-          } else {
-            showNotification(`This platform requires reference & alternate alleles. Please enable Live Enrichment in settings.`, true);
-          }
+        if (!hasAlleles) {
+          showNotification(`This platform requires reference & alternate alleles. Structural variants without sequence cannot be autofilled.`, true);
           return;
         }
       }
@@ -1215,16 +1210,18 @@ function injectUcscHomepageButton(): boolean {
     try {
       const data = await chrome.storage.local.get([
         'variantstream_active_input',
-        'variantstream_resolved_hgvsg'
+        'variantstream_resolved_hgvsg',
+        'variantstream_genome_build'
       ]) as any;
       const rawInput = data.variantstream_active_input;
       const resolvedHgvsg = data.variantstream_resolved_hgvsg;
+      const storedBuild = data.variantstream_genome_build;
       if (!rawInput) { showNotification('No active variant found.', true); return; }
 
       let parsed = parseVariant(rawInput);
       if (resolvedHgvsg) {
-        const parsedResolved = parseVariant(resolvedHgvsg);
-        if (parsedResolved.isValid && parsedResolved.position) {
+        const parsedResolved = parseGenomicHgvs(resolvedHgvsg);
+        if (parsedResolved) {
           parsed = {
             ...parsed,
             chromosome: parsedResolved.chromosome ?? parsed.chromosome,
@@ -1255,7 +1252,8 @@ function injectUcscHomepageButton(): boolean {
       } else {
         ucscPos = rawInput;
       }
-      const db = parsed.genomeBuild === 'GRCh37' ? 'hg19' : 'hg38';
+      const activeBuild = parsed.genomeBuild || storedBuild || 'GRCh38';
+      const db = activeBuild === 'GRCh37' ? 'hg19' : 'hg38';
       window.location.href = `https://genome.ucsc.edu/cgi-bin/hgTracks?db=${db}&position=${encodeURIComponent(ucscPos)}`;
     } catch (err) {
       console.error('[VariantHandler] UCSC homepage nav failed:', err);
