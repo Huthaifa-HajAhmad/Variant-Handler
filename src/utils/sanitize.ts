@@ -51,20 +51,4 @@ export function downloadBlob(blob: Blob, filename: string): void {
   URL.revokeObjectURL(url);
 }
 
-/**
- * Runtime guard for BatchItem significance values.
- *
- * FIX HIGH-3: TypeScript union types are erased at runtime, so a tampered
- * localStorage entry can bypass the 'Pathogenic' | 'VUS' | 'Benign' |
- * 'Unclassified' constraint.  This guard is used before significance values
- * are embedded in CSS class names to prevent class-name injection.
- */
-const VALID_SIGNIFICANCE = new Set(['Pathogenic', 'VUS', 'Benign', 'Unclassified'] as const);
-type Significance = 'Pathogenic' | 'VUS' | 'Benign' | 'Unclassified';
 
-export function sanitiseSignificance(value: unknown): Significance {
-  if (typeof value === 'string' && VALID_SIGNIFICANCE.has(value as Significance)) {
-    return value as Significance;
-  }
-  return 'Unclassified';
-}

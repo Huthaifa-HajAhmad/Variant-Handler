@@ -9,3 +9,4 @@ coverage/
 doc/LIMITATIONS.md
 .playwright-mcp/
 *.zip
+.kilo/

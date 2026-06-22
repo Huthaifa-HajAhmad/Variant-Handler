@@ -1,15 +1,17 @@
 # Feature Reference & Integration Guide
 
-> **Status:** Current as of `v1.0.1` — reflects all post-audit fixes.
+> **Status:** Current as of `v1.1.1` — reflects all post-audit fixes (N1–N9) and the scope/variant-class documentation pass.
 >
 > For architecture internals, see [`ARCHITECTURE.md`](./ARCHITECTURE.md).
 > For setup instructions, see the main [`README.md`](../README.md).
+
+> **Scope:** Rare-disease (germline) genomics. The parser handles **SNVs** and **small indels** (`del`/`ins`/`dup`/`delins`/`inv` with explicit positions/sequence). It does **not** support CNVs, translocations, RNA-level notation, or somatic/oncology workflows. Oncology genes in the bundled symbol table support hereditary cancer-predisposition (germline) panels only.
 
 ---
 
 ## 1. Genomic Variant Parser
 
-The parser (`src/lib/parser.ts`) is entirely client-side. It accepts a raw string in any of the formats below and returns a `ParsedVariant` object. No network requests are made.
+The parser (`src/lib/parser.ts`) is entirely client-side. It accepts a raw string in any of the formats below and returns a `ParsedVariant` object. Parsing itself makes no network requests; the optional Live Enrichment layer (see §3) is a separate, toggleable feature.
 
 ### 1.1 Input Format Support
 
@@ -71,25 +73,17 @@ The protein regex is intentionally permissive; downstream validators (Mutalyzer,
 
 ---
 
-### 1.2 Canonical Hotspot Database
+### 1.2 Live Coordinate Resolution (R1/R2 — no static hotspot table)
 
-Eight common pathogenic variants are embedded as a local database. When a matching transcript+coding input or clinical shorthand is parsed, coordinates and protein changes are backfilled instantly — no API call needed.
+The parser is strictly notation-based. A static canonical hotspot database (formerly 8 entries) was removed because it was inconsistent with the parsing mission, couldn't be version-verified against gnomAD, and caused a coordinate bug. Genomic coordinates for transcript-only inputs are now resolved at runtime by a **layered enrichment backend**:
 
-| Key | Gene | Disease | GRCh38 Coords |
-|-----|------|---------|---------------|
-| `NM_000277:c.1222C>T` | PAH | Phenylketonuria | chr12:102867431 G>A |
-| `NM_007294:c.5266dup` | BRCA1 | Hereditary Breast Cancer | chr17:43044294 T>TC |
-| `NM_000492:c.1521_1523delCTT` | CFTR | Cystic Fibrosis (ΔF508) | chr7:117559590 CTT>C |
-| `delta-F508` *(shorthand)* | CFTR | Cystic Fibrosis (ΔF508) | chr7:117559590 CTT>C |
-| `NM_000152:c.1054C>T` | GAA | Pompe Disease | chr17:80108388 C>T |
-| `NM_000154:c.563A>G` | GALT | Galactosemia | chr9:34648170 A>G |
-| `NM_004006:c.589C>T` | DMD | Duchenne Muscular Dystrophy | chrX:32801509 G>A |
-| `NM_014855:c.1102A>G` | MDC1 | — | chr6:47102000 A>G |
+| Layer | Source | Provides |
+|-------|--------|----------|
+| 1 (fast path) | MyVariant.info | rsID, gnomAD genome AF, ClinVar snapshot, gene/HGVSc |
+| 2 (authoritative) | NCBI ClinVar E-utilities | current ClinVar significance/review (no lag), dbSNP rsID, build-correct coords (GRCh38 + GRCh37) |
+| 3 (alleles + liftover) | Ensembl VEP | gene/HGVSg with true left-aligned alleles; GRCh38→GRCh37 liftover |
 
-**Lookup rules:**
-- **Display shorthands** (e.g. `delta-F508`): matched by **exact whole-string equality** only — `'NOT-delta-F508'` or `'delta-F508-like'` do not match.
-- **Transcript keys**: version suffix is stripped before comparison — `NM_000277.2`, `NM_000277.3`, and `NM_000277.5` all resolve the same entry.
-- **Backfill direction**: canonical data fills only fields that were not already populated by regex. It does not overwrite data extracted from the raw input.
+Gene-prefixed inputs (`PAH:c.1222C>T`) still backfill a default transcript via `GENE_TO_DEFAULT_TRANSCRIPT` (notation-based). Disable Live Lookup in Settings for sensitive variants — parsing and URL-building work fully offline (coordinates for transcript-only inputs will be absent until enrichment runs).
 
 ---
 
@@ -179,17 +173,16 @@ All user-derived placeholder values are percent-encoded via `encodeURIComponent`
 
 ```typescript
 interface BatchItem {
-  id:           string;                                         // Unique timestamp-based ID
-  input:        string;                                         // Raw variant input string
-  gene:         string;                                         // Inferred gene symbol or transcript
-  significance: 'Pathogenic' | 'VUS' | 'Benign' | 'Unclassified'; // Triage classification
-  note:         string;                                         // Free-text clinical annotation
+  id:           string;   // Unique timestamp-based ID
+  input:        string;   // Raw variant input string
+  gene:         string;   // Inferred gene symbol or transcript
+  note:         string;   // Free-text clinical annotation
 }
 ```
 
 ### 3.2 Persistence
 
-Queue is serialised to `localStorage` under the key `variantstream_sidepanel_queue` on every write. On load, each parsed item is validated by `parseBatchItem()` — malformed entries are silently dropped; invalid significance values are coerced to `'Unclassified'`.
+Queue is serialised to `localStorage` under the key `variantstream_sidepanel_queue` on every write. On load, each parsed item is validated by `parseBatchItem()` — malformed entries are silently dropped. A "Clear data on close" toggle (Settings) and a "Clear all stored data" action control retention.
 
 ### 3.3 Gene Label Resolution
 
@@ -216,20 +209,20 @@ Security: all values are tab-separated plain text — no HTML injection surface.
 ### 4.2 XLS (Styled Excel Workbook)
 
 Generates an HTML-based `.xls` file (opens in Excel/LibreOffice). Features:
-- Color-coded significance badges per the `sigClass()` lookup
 - Formatted coordinate cells with alignment markers
-- Full diagnostic output table as a second sheet
+- Parsed-field columns (gene/transcript, variant notation, chromosome, position, alleles, transcript, coding/protein change)
+- Full search-history table as a second section
 
-Security: all user strings are passed through `escapeHtml()` before embedding. Significance values are validated by `sanitiseSignificance()` before use in CSS class names.
+Security: all user strings are passed through `escapeHtml()` before embedding.
 
 ### 4.3 PPT (Clinical Slide Deck)
 
 Generates a dark-theme HTML file (`print-ready.html`) with one slide per batch item. Features:
-- Per-slide variant summary with gene name, significance badge, coordinates, and notes
-- Cover slide with queue statistics (total, pathogenic, VUS, benign counts)
+- Per-slide variant summary with gene name, variant notation, coordinates, and notes
+- Cover slide with queue and history statistics
 - Print stylesheet for direct PDF export from the browser's print dialog
 
-Security: same as XLS — all values escaped; significance gated by runtime validator.
+Security: same as XLS — all values escaped via `escapeHtml()`.
 
 ---
 
@@ -269,10 +262,7 @@ A non-blocking toast banner is used instead of `alert()` for all user messages. 
 |----------|--------|---------|
 | `Alt + S` | Open / close Settings modal | Panel has focus |
 | `Alt + N` | Focus the analysis notes textarea | Panel has focus |
-| `Alt + 1` | Set significance → Pathogenic | Panel has focus |
-| `Alt + 2` | Set significance → VUS | Panel has focus |
-| `Alt + 3` | Set significance → Benign | Panel has focus |
-| `Ctrl + Shift + V` | Open the extension side panel | Global (Chrome command) |
+| `Alt + V` | Open the extension side panel | Global (Chrome command) |
 
 Shortcuts are disabled when any `<input>`, `<textarea>`, or `contenteditable` element has focus. Implementation uses the `useRef`-based handler pattern to avoid re-registering the event listener on every render.
 

@@ -40,7 +40,7 @@
     "default_path": "index.html"
   },
   "content_security_policy": {
-    "extension_pages": "script-src 'self'; object-src 'none'; connect-src https://myvariant.info https://rest.ensembl.org https://grch37.rest.ensembl.org;"
+    "extension_pages": "script-src 'self'; object-src 'none'; connect-src https://myvariant.info https://rest.ensembl.org https://grch37.rest.ensembl.org https://eutils.ncbi.nlm.nih.gov;"
   },
   "commands": {
     "_execute_action": {

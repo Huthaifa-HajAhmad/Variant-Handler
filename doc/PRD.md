@@ -1,6 +1,8 @@
 # Product Requirements Document — Variant Handler Extension
 
-**Version:** 1.0.1 | **Status:** Active Development
+**Version:** 1.1.1 | **Status:** Active Development
+
+> **Scope:** Rare-disease (germline) genomics. Handles SNVs and small sequence-level indels; does **not** support CNVs, translocations, or somatic/oncology workflows (no VAF, no COSMIC/OncoKB). See the top-level README "Scope & Intended Use" and [`LIMITATIONS.md`](./LIMITATIONS.md).
 
 ---
 
@@ -14,7 +16,7 @@ Variant Handler acts as a persistent, format-aware clipboard that:
 3. Presents launch buttons to 8 clinical databases, each pre-formatted for that platform's expected input
 4. Autofills the reformatted variant directly into the target site's search field
 
-It also provides a multi-variant worklist with triage classification, clinical notes, search history, and three export formats (TSV, styled Excel, clinical slide deck).
+It also provides a multi-variant worklist with clinical notes, search history, and three export formats (TSV, styled Excel, clinical slide deck).
 
 ---
 
@@ -22,11 +24,11 @@ It also provides a multi-variant worklist with triage classification, clinical n
 
 | Objective | How It Is Met |
 |-----------|--------------|
-| Standardise input parsing | Local regex engine covering HGVSg, VCF, HGVSc, HGVSp, NC_ accessions, mitochondrial MT, and clinical shorthand (e.g. `delta-F508`) |
+| Standardise input parsing | Local regex engine covering HGVSg, VCF, HGVSc, HGVSp, NC_ accessions, and mitochondrial MT |
 | Cross-portal interoperability | Content script injects an autofill button into 7 supported clinical databases; format translation is automatic |
 | Diagnostic workflow continuity | Batch queue with `localStorage` persistence survives browser restart; history debounced to avoid noise |
 | Cohort export | TSV for downstream analysis; styled XLS for lab records; HTML slide deck for MDT case discussions |
-| Security | All user-derived strings sanitised before HTML export; `https:`-only URL validation; runtime significance guard; no network requests from the extension |
+| Security | All user-derived strings sanitised before HTML export; `https:`-only URL validation; optional live lookup (MyVariant.info / Ensembl) can be disabled in Settings for sensitive variants; no third-party favicon/analytics requests |
 
 ---
 
@@ -61,15 +63,14 @@ It also provides a multi-variant worklist with triage classification, clinical n
 - Coding: `NM_000492.4:c.1521_1523delCTT`, ENST, NR_, intronic (`c.+1`), UTR (`c.*3`)
 - Hybrid: `NM_000277.3:c.1222C>T(p.Arg408Trp)`
 - Protein: `p.Arg408Trp`, `p.Phe508del`, `p.Arg54*`, `p.(Phe508del)`, `p.Gln1756fs`
-- Clinical shorthand: `delta-F508` (CFTR), resolved via canonical DB
 - NC_ genomic accessions with chromosome inference
 - Mitochondrial: `chrM`, `chrMT`, `NC_012920`
 
 **Accuracy requirements:**
 - Two-digit chromosomes must never be parsed as single-digit (chr12 ≠ chr1)
-- Canonical DB must not produce false-positive matches (substring matching forbidden for shorthand keys)
-- Transcript version differences (NM_000277.2 vs .5) must resolve the same canonical entry
-- Alleles in canonical DB must be clinically correct (e.g. BRCA1 c.5266dup is an insertion, not a substitution)
+- Genomic regexes are anchored at `^` so a transcript accession can't partial-match a genomic token (N5)
+- Transcript version differences (NM_000277.2 vs .5) resolve the same notation fields; genomic coordinates come from the enrichment layer (ClinVar direct + Ensembl VEP), not a static table
+- NC_ genomic accessions use `g.` notation and are classified as genomic, not coding (T3)
 
 ### 4.2 Platform Launchpad
 
@@ -91,7 +92,7 @@ It also provides a multi-variant worklist with triage classification, clinical n
 
 **Storage:** `localStorage` key `variantstream_sidepanel_queue`
 
-**Item schema:** `{ id, input, gene, significance, note }`
+**Item schema:** `{ id, input, gene, note }`
 
 **Behaviour:**
 - Items persist across browser restart
@@ -119,10 +120,10 @@ It also provides a multi-variant worklist with triage classification, clinical n
 | Format | Filename | Contents |
 |--------|----------|----------|
 | TSV | `variant_report.tsv` | All queue items + history with all parsed fields |
-| XLS | `variant_report.xls` | Styled HTML workbook with colour-coded significance |
+| XLS | `variant_report.xls` | Styled HTML workbook with parsed-field columns |
 | PPT | `print-ready.html` | Dark-theme slide deck, one slide per item, print-to-PDF |
 
-**Security:** All user strings escaped via `escapeHtml()` before HTML embedding. Significance values validated via `sanitiseSignificance()` before use as CSS class names.
+**Security:** All user strings escaped via `escapeHtml()` before HTML embedding.
 
 ### 4.6 Content Script Autofill
 
@@ -167,8 +168,8 @@ Preference persisted. Toggle remembers last dark theme when returning from light
 
 ## 6. Non-Goals (Out of Scope)
 
-- **Live variant annotation API** — the extension does not call gnomAD/ClinVar APIs to retrieve allele frequencies or pathogenicity scores
-- **GRCh37 support** — all coordinates and canonical entries assume GRCh38
+- **Live variant annotation API** — implemented (R2): layered enrichment via MyVariant.info + ClinVar E-utilities direct + Ensembl VEP. No gnomAD direct API (unofficial/unstable).
+- **GRCh37 support** — implemented: build selector, Ensembl liftover during enrichment, ClinVar direct supplies both-build coords, bounds validator catches mismatches
 - **Multi-user / team sync** — no server backend; data is entirely local
 - **FHIR / HL7 integration** — not a clinical data exchange tool
 - **Firefox / Safari support** — Side Panel API is Chrome/Edge only
@@ -183,9 +184,7 @@ Preference persisted. Toggle remembers last dark theme when returning from light
 | High | Exporter unit tests | JSDOM setup required for HTML assertion |
 | High | GDPR sanitised export mode | Option to strip diagnostics trace (raw input) from exported files |
 | Medium | Settings presets UI | Wire `CLINICAL_PRESETS` (PanelApp, DECIPHER, Franklin) into Settings toggles |
-| Medium | GRCh37/38 assembly selector | UI toggle; affects all canonical DB entries and UCSC URLs |
-| Medium | MyVariant.info lookup | Optional live backfill for variants not in canonical DB |
 | Medium | ClinVar accession input | Accept `VCV000036974` / `RCV` accession numbers as input format |
 | Low | HGVS left-normalisation | Normalise indels before URL construction |
-| Low | History search/filter | Filter history panel by gene or significance |
+| Low | History search/filter | Filter history panel by gene or coordinate substring |
 | Low | Batch import | Accept a VCF file or pasted list of variants to populate the queue |

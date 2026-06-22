@@ -7,7 +7,7 @@
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.8-3178c6?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
 [![React](https://img.shields.io/badge/React-19-61dafb?logo=react&logoColor=black)](https://react.dev/)
 [![Manifest V3](https://img.shields.io/badge/Chrome_Extension-MV3-4285F4?logo=googlechrome&logoColor=white)](https://developer.chrome.com/docs/extensions/mv3/intro/)
-[![Tests](https://img.shields.io/badge/Tests-53%20passing-10b981)](./src/__tests__/parser.test.ts)
+[![Tests](https://img.shields.io/badge/Tests-105%20passing-10b981)](./src/__tests__/parser.test.ts)
 
 </div>
 
@@ -17,14 +17,41 @@
 
 Variant Handler is a Chrome extension that lives in the browser's side panel. It solves a real workflow problem in clinical genomics: scientists cross-reference patient variants across multiple web databases (gnomAD, ClinVar, UCSC, SpliceAI, VariantValidator, and others), each of which demands a different coordinate format — VCF dash notation, HGVSg, HGVSc, or raw coordinates. Copying and reformatting between tabs is error-prone and time-consuming.
 
-Variant Handler acts as a **persistent, format-aware clipboard** that travels across all those tabs. Paste a variant once in any format; the extension parses it, resolves coordinates, classifies it, and autofills the correct format into whichever database you open next.
+Variant Handler acts as a **persistent, format-aware clipboard** that travels across all those tabs. Paste a variant once in any format; the extension parses it, resolves coordinates, and autofills the correct format into whichever database you open next.
+
+---
+
+## Scope & Intended Use
+
+**Variant Handler is designed for rare-disease (germline) genomics workflows.** The parser and enrichment layer are oriented toward constitutional variants reported in HGVS nomenclature.
+
+### Variant classes supported
+
+| Class | Supported? | Notes |
+|-------|-----------|-------|
+| **SNVs** (single nucleotide) | ✅ Full | Primary use case — HGVSg, VCF dash, simple `chr:posREF>ALT`, HGVSc, HGVSp all parse and launch to every platform. |
+| **Small indels** (≤ a few kb del/ins/dup/delins/inv at sequence level) | ✅ Partial | HGVS `del`/`ins`/`dup`/`delins`/`inv` with explicit sequence or coordinate ranges parse; alleles are VCF-trimmed but not left-aligned without the reference genome (Live Enrichment resolves normalised HGVSg via Ensembl VEP). |
+| **CNVs / copy-number** (cytogenetic `del(17)(p13.1)`, MLPA "del exon 7–10", large-scale gains/losses) | ❌ Not supported | No parser, no platform integration (no gnomAD CNV, ClinGen dosage, or DECIPHER CNV viewer). See [`doc/LIMITATIONS.md`](./doc/LIMITATIONS.md) §1.1. |
+| **Translocations / fusions** (`t(9;22)(q34;q11)`, fusion transcripts) | ❌ Not supported | |
+| **RNA-level** (`r.76a>u`) | ❌ Not supported | |
+| **Multi-allelic / complex** (`[c.123A>T;c.456G>C]`, uncertain positions `c.(100_200)A>T`) | ❌ Not supported | |
+
+### Oncology / somatic data — important caveat
+
+The extension is **not built for somatic (oncology) workflows**. Specifically:
+
+- **No germline/somatic distinction.** The parser treats every input as a constitutional variant. There is no tumour/normal pairing, no variant allele frequency (VAF) handling, and no somatic-specific notation parsing.
+- **Enrichment has poor somatic coverage.** The Live Lookup source (MyVariant.info) is curated primarily for **germline** variants. Well-characterised somatic variants (e.g., `BRAF c.1799T>A` / V600E, `EGFR` exon 19 deletions) may return empty or partial annotation, and no COSMIC / OncoKB /cIViC integration exists.
+- **Why oncology genes appear at all.** The bundled gene-symbol table (`src/lib/geneSymbols.ts`) includes `BRCA1/2`, `TP53`, `BRAF`, `KRAS`, `EGFR`, `PTEN`, and the Lynch genes (`MSH2/6`, `MLH1`, `PMS2`). These overlap hereditary cancer-predisposition (germline, in scope) with somatic oncology markers (out of scope). Their presence enables gene-symbol backfill for hereditary cancer panels, **not** somatic analysis.
+
+**Recommendation:** For pure oncology/somatic reporting (VAF, COSMIC, OncoKB, tumour-board workflows), use a somatic-focused tool. Variant Handler can *parse and navigate* the notation for an oncology variant you paste, but it will not surface somatic-relevant annotation and should not be relied on for somatic clinical interpretation.
 
 ---
 
 ## Feature Overview
 
 ### 🔬 Real-Time Genomic Parser
-Accepts any variant notation and extracts structured fields (chromosome, position, ref, alt, transcript, coding change, protein change) entirely client-side — no external API calls.
+Accepts any variant notation and extracts structured fields (chromosome, position, ref, alt, transcript, coding change, protein change) client-side. Optional live lookups backfill missing annotations from public APIs.
 
 **Supported input formats:**
 
@@ -38,12 +65,16 @@ Accepts any variant notation and extracts structured fields (chromosome, positio
 | ENST coding | `ENST00000288602:c.1799T>A` |
 | Hybrid (coding + protein) | `NM_000277.3:c.1222C>T(p.Arg408Trp)` |
 | HGVSp protein | `p.Arg408Trp`, `p.Phe508del`, `p.Gln1756fs`, `p.Arg54*`, `p.(Phe508del)` |
-| Clinical shorthand | `delta-F508` |
 | NC_ genomic accession | `NC_000007.14:c.117559590A>G` → infers chr7 |
 | Mitochondrial | `NC_012920.1:c.1555A>G` → infers chrMT |
 
-### 🗄️ Canonical Hotspot Database
-Eight clinically-significant variant entries are embedded locally for instant backfill of coordinates when transcript-only or shorthand input is given — no network round-trip required. Covered genes: CFTR, PAH, BRCA1, GAA, GALT, DMD, MDC1, GBA.
+### 🌐 Live Coordinate Resolution (Layered Enrichment)
+Genomic coordinates for transcript-only inputs (e.g. `NM_000492.4:c.1521_1523delCTT`) are resolved at runtime via a layered enrichment backend — no static coordinate table:
+1. **MyVariant.info** — rsID, gnomAD AF, ClinVar snapshot, gene/HGVSc (fast cached path)
+2. **ClinVar E-utilities direct** — current ClinVar significance/review (no lag), dbSNP rsID, build-correct coordinates for both GRCh38 + GRCh37
+3. **Ensembl VEP** — gene/HGVSg with true left-aligned alleles; GRCh38→GRCh37 liftover
+
+Disable Live Lookup in Settings for sensitive/unpublished variants — parsing and URL-building work fully offline.
 
 ### 🚀 Platform Launchpad
 One-click launch to 8 partner databases with automatic format translation:
@@ -63,9 +94,8 @@ Buttons are disabled with a descriptive tooltip when the active variant is missi
 
 ### 📋 Batch Worklist Queue
 - Persistent queue stored in `localStorage`; survives browser restart
-- Per-variant triage classification: **Pathogenic / VUS / Benign / Unclassified**
 - Free-text clinical annotation notes with auto-save
-- Keyboard shortcuts for rapid triage (see [Keyboard Shortcuts](#keyboard-shortcuts))
+- Keyboard shortcuts for panel navigation (see [Keyboard Shortcuts](#keyboard-shortcuts))
 - Click any queued variant to load it instantly into the workbench
 
 ### 📜 Search History
@@ -164,16 +194,16 @@ variant-handler/
 │   │   └── useTheme.ts         # Theme selection + light/dark toggle
 │   ├── lib/
 │   │   ├── parser.ts           # 🧠 Core genomic parser + platform URL builder
-│   │   ├── constants.ts        # Test variant catalogue + simulated site content
 │   │   ├── portals.ts          # Optional CLINICAL_PRESETS platform adapters
 │   │   ├── themes.ts           # Color theme definitions
 │   │   └── types.ts            # Shared domain types (BatchItem)
 │   ├── utils/
 │   │   ├── exporters.ts        # TSV / XLS / PPT export generators
-│   │   ├── sanitize.ts         # escapeHtml, isSafeUrl, downloadBlob, sanitiseSignificance
-│   │   └── variantUtils.ts     # SIG_COLORS, inferGeneLabel (with transcript lookup)
+│   │   ├── sanitize.ts         # escapeHtml, isSafeUrl, downloadBlob
+│   │   └── variantUtils.ts     # inferGeneLabel (with transcript lookup)
 │   └── __tests__/
-│       └── parser.test.ts      # 53 unit tests (parser, URL builder, edge cases)
+│       ├── parser.test.ts      # parser, URL builder, edge cases
+│       └── enrichment.test.ts  # deriveQueryKey + parseApiResponse (RCV ranking)
 ├── doc/
 │   ├── PRD.md                  # Product requirements document
 │   ├── features.md             # Integration reference
@@ -206,10 +236,11 @@ Stage 2: HGVSc regex (transcript:c.change)
 Stage 3: HGVSp regex (protein-only or transcript:protein)
       │ ─── if match ──► extract proteinChange [+ transcript]
       │
-Stage 4: Canonical hotspot DB lookup
-          ─── on match ──► backfill any still-missing fields
-          ─── exact key match for shorthands (delta-F508)
-          ─── version-normalised match for transcripts (NM_000277.x)
+Stage 4: Gene-symbol backfill (GENE_TO_DEFAULT_TRANSCRIPT)
+          ─── gene-prefixed inputs (PAH:c.1222C>T) get a default transcript
+          ─── genomic coordinates for transcript-only inputs are resolved
+              at runtime by the enrichment layer (ClinVar direct + Ensembl VEP),
+              not by a static table (R1: canonical hotspot DB removed)
 ```
 
 The result is a `ParsedVariant` object with full diagnostics log.
@@ -251,16 +282,13 @@ Host Page Input Field
 
 ## Keyboard Shortcuts
 
-All shortcuts use `Alt` + key and are disabled when a text field has focus.
+All panel shortcuts use `Alt` + key and are disabled when a text field has focus.
 
 | Shortcut | Action |
 |----------|--------|
 | `Alt + S` | Toggle Settings modal |
 | `Alt + N` | Focus the analysis notes textarea |
-| `Alt + 1` | Mark active variant as **Pathogenic** |
-| `Alt + 2` | Mark active variant as **VUS** |
-| `Alt + 3` | Mark active variant as **Benign** |
-| `Ctrl+Shift+V` | Open the Variant Handler side panel (global Chrome shortcut) |
+| `Alt + V` | Open the Variant Handler side panel (global Chrome command) |
 
 ---
 
@@ -269,12 +297,14 @@ All shortcuts use `Alt` + key and are disabled when a text field has focus.
 | Concern | Mitigation |
 |---------|-----------|
 | XSS in HTML exports | All user strings pass through `escapeHtml()` before embedding in XLS/PPT |
-| CSS class injection | `sanitiseSignificance()` gates significance values to the known enum at runtime |
 | URL injection | `isSafeUrl()` enforces `https:` only; all URL params are `encodeURIComponent`-encoded |
 | `javascript:` URIs | `isSafeUrl()` rejects non-https schemes; `window.open` uses `noopener,noreferrer` |
 | Phishing via alert() | Content script uses non-blocking toast notifications instead of `alert()` |
-| Malformed localStorage | `parseBatchItem()` validates each item shape on read; unknown significance values are coerced to `'Unclassified'` |
-| CSP | Manifest v1.0.1 declares `script-src 'self'; object-src 'none'` |
+| Malformed localStorage | `parseBatchItem()` validates each item shape on read |
+| Third-party favicon/telemetry leak | Platform buttons use local first-letter colored circles — no external favicon or analytics requests |
+| Cross-build coordinate mismatch | Chromosome-length bounds validator warns when a position exceeds the selected build's max; ClinVar direct supplies build-correct coords; Ensembl liftover runs during enrichment |
+| Sensitive genomic data at rest | Enrichment cache in `chrome.storage.session` (cleared on browser close); queue/history behind "Clear data on close" toggle + "Clear all stored data" action |
+| CSP | Manifest `script-src 'self'; object-src 'none'; connect-src` limited to MyVariant, Ensembl, and NCBI E-utilities |
 
 ---
 
@@ -285,10 +315,11 @@ The extension requests the minimum required permissions:
 | Permission | Reason |
 |------------|--------|
 | `sidePanel` | Open the side panel via toolbar click |
-| `storage` | Persist queue, history, and theme preference in `chrome.storage.local` |
+| `storage` | Persist queue, history, theme, and genome-build preference in `chrome.storage.local` |
+| `clipboardRead` | Paste-from-clipboard buttons (single-variant paste + batch paste-and-merge) |
 | Host permissions (7 domains) | Inject content script to autofill search inputs on supported clinical databases |
 
-No network requests are made by the extension itself. All parsing is local.
+All coordinate parsing is performed locally. The extension optionally queries public clinical APIs (MyVariant.info and Ensembl) over HTTPS to fetch annotation enrichments if live lookup is enabled in Settings.
 
 ---
 
@@ -315,9 +346,9 @@ Theme preference is saved to `localStorage` and restored on next open.
 3. Add the domain to `host_permissions` and `content_scripts.matches` in [`public/manifest.json`](./public/manifest.json)
 4. Add a domain-specific input selector to `findSearchInput()` in [`src/content/index.ts`](./src/content/index.ts) if the generic heuristic doesn't find the right field
 
-### Adding a Canonical Hotspot
+### Coordinate Resolution (no static hotspot table)
 
-Add an entry to `CANONICAL_DATABASE` in [`src/lib/parser.ts`](./src/lib/parser.ts). Use the **version-stripped transcript** as the key (e.g., `'NM_004333:c.1799T>A'`), not the versioned form. The lookup engine strips version suffixes before matching.
+The canonical hotspot database was removed (R1) — the parser is strictly notation-based. Genomic coordinates for transcript-only inputs are resolved at runtime by the enrichment layer (`src/hooks/useVariantEnrichment.ts`), which queries ClinVar E-utilities (`src/lib/clinvarDirect.ts`) and Ensembl VEP for build-correct, left-aligned coordinates. To add a new enrichment source, add a function to `clinvarDirect.ts` (or a new `src/lib/<source>Direct.ts`) and merge its result in `fetchEnrichment`.
 
 ### Adding a Gene Symbol
 

@@ -1,8 +1,10 @@
 # Architecture & Design Reference
 
-> **Status:** Current as of `v1.0.1`. Last updated after full security and correctness audit.
+> **Status:** Current as of `v1.1.1`. Last updated after the N1–N9 audit remediation and the R1–R7 scope/limitations remediation (canonical DB removed; layered ClinVar-direct + Ensembl enrichment; session-scoped cache; bounds validator).
 
 This document explains the system design of Variant Handler — why things are structured the way they are, and the key patterns used to keep the codebase safe and maintainable.
+
+> **Scope:** Variant Handler targets **rare-disease (germline) genomics**. It handles **SNVs** and **small indels** (sequence-level `del`/`ins`/`dup`/`delins`/`inv` with explicit positions). It does **not** support **CNVs/copy-number**, translocations, RNA-level notation, or **somatic/oncology** workflows (no VAF, no COSMIC/OncoKB integration). Oncology genes in the bundled symbol table (BRCA1/2, TP53, BRAF, KRAS, EGFR, PTEN, Lynch genes) exist to support **hereditary cancer-predisposition** (germline) panels, not somatic analysis. See the top-level README's "Scope & Intended Use" and [`LIMITATIONS.md`](./LIMITATIONS.md) for the full matrix.
 
 ---
 
@@ -82,7 +84,7 @@ sidepanel/index.tsx
 | `parseVariant(activeInput)` | O(regexes × input length) | `useMemo([activeInput])` — only recalculates on input change, not on every render |
 | `buildPlatformUrl` × 8 | O(8 × template string ops) | `useMemo([parsed])` — only recalculates when parse result changes |
 | `parsedHistoryItems` (map over history) | O(n × parseVariant cost), n ≤ 20 | `useMemo([history])` — acceptable at small n |
-| `parseVariant` itself | 4 regexes + canonical DB scan | Canonical DB and regex array are **module-level constants** — compiled once per module load |
+| `parseVariant` itself | 5 anchored regexes + gene-symbol backfill | Regex arrays are **module-level constants** — compiled once per module load; no static DB scan (canonical DB removed R1) |
 
 ---
 
@@ -110,11 +112,11 @@ parseVariant(input: string): ParsedVariant
 │   → Permissive: /p\.\s*(\(?[A-Za-z0-9_*?]+...)/i
 │   → Populates: proteinChange [, transcript if qualified]
 │
-└── Stage 4: Canonical hotspot DB lookup (always runs)
-    → For transcript keys: version-strip both sides before comparing
-    → For shorthand keys: exact whole-string equality only
-    → Backfills any still-missing fields
-    → Sets isValid=true if shorthand resolved
+└── Stage 4: Gene-symbol backfill (GENE_TO_DEFAULT_TRANSCRIPT)
+    → Gene-prefixed inputs (PAH:c.1222C>T) get a default transcript
+    → R1: the static canonical hotspot DB was removed; genomic coordinates for
+       transcript-only inputs are resolved at runtime by the enrichment layer
+       (ClinVar E-utilities direct + Ensembl VEP), not by a lookup table
 ```
 
 ### 3.2 Chromosome Regex Design
@@ -140,7 +142,7 @@ function stripVersion(accession: string): string {
 }
 ```
 
-This ensures the canonical DB remains useful regardless of which version of a transcript a user pastes.
+This version-stripping pattern was originally used to match canonical-DB transcript keys. The canonical DB has been removed (R1); `stripVersion` is no longer used for that purpose. The concept remains relevant for the enrichment layer, which queries ClinVar/Ensembl with the accession as-pasted (ClinVar esearch handles version-stripped accessions because it phrase-matches the quoted form).
 
 ### 3.4 URL Construction
 
@@ -172,29 +174,26 @@ HTML Blob (XLS / PPT export)
 
 React's JSX handles all UI rendering — it escapes by default. `escapeHtml` is only needed for the explicitly generated HTML blobs in `exporters.ts`.
 
-### 4.2 CSS Class Injection Prevention
+### 4.2 Malformed-Storage Guard
 
-TypeScript union types are erased at runtime. A tampered `localStorage` entry could supply an arbitrary `significance` value, which would previously flow into a CSS class name:
+A tampered or corrupted `localStorage` entry could supply an unexpected object shape. The `parseBatchItem()` guard validates each item on read and drops irrecoverably malformed entries:
 
-```html
-<!-- Before fix: -->
-<span class="sig-badge sig-INJECTED_VALUE_HERE">
-
-<!-- After fix: -->
-<!-- sanitiseSignificance() validates against the known Set before class use -->
-<span class="sig-badge sig-significance-pathogenic">
-```
-
-`sanitiseSignificance()` uses a `Set<string>` guard:
 ```typescript
-const VALID_SIGNIFICANCE = new Set(['Pathogenic', 'VUS', 'Benign', 'Unclassified']);
-export function sanitiseSignificance(value: unknown): Significance {
-  if (typeof value === 'string' && VALID_SIGNIFICANCE.has(value)) return value as Significance;
-  return 'Unclassified';
+function parseBatchItem(value: unknown): BatchItem | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const obj = value as Record<string, unknown>;
+  if (typeof obj.id !== 'string' || !obj.id) return null;
+  if (typeof obj.input !== 'string' || !obj.input) return null;
+  return {
+    id:    obj.id,
+    input: obj.input,
+    gene:  typeof obj.gene === 'string' ? obj.gene : 'GENE',
+    note:  typeof obj.note === 'string' ? obj.note : '',
+  };
 }
 ```
 
-Applied at: localStorage read (`parseBatchItem`), queue write (`upsertItem`), CSS class generation (`sigClass`, `sigBorderColor`).
+> **Note:** A previous `sanitiseSignificance()` runtime guard and its `Pathogenic/VUS/Benign/Unclassified` triage feature were removed (the `BatchItem` type no longer carries a `significance` field). React's JSX escapes all rendered strings, so no CSS-class-injection surface remains for queued items.
 
 ### 4.3 URL Safety
 
@@ -224,8 +223,7 @@ Array.isArray() guard
     │
     ▼
 parseBatchItem() per element  ← validates: id (string), input (string),
-    │                             coerces: gene, note (string defaults),
-    │                             sanitises: significance (via sanitiseSignificance)
+    │                             coerces: gene, note (string defaults)
     ▼
 React state
 ```
@@ -266,13 +264,12 @@ useEffect(() => {
 useEffect(() => {
   const match = batchQueue.find(item => item.input.trim() === activeInput.trim());
   setMicroNote(match?.note ?? '');
-  setClassification(match?.significance ?? 'Unclassified');
 }, [activeInput]); // batchQueue intentionally omitted
 ```
 
-This effect is a **one-way sync**: when the user selects a different variant, we load its saved state. If we included `batchQueue`, the note/classification fields would reset every time the user types in the note textarea — creating an infinite feedback loop.
+This effect is a **one-way sync**: when the user selects a different variant, we load its saved note. If we included `batchQueue`, the note field would reset every time the user types in the note textarea — creating an infinite feedback loop.
 
-The trade-off: if the queue is updated programmatically while `activeInput` stays the same, the fields won't auto-refresh. This is the intended UX — in-flight edits are not clobbered.
+The trade-off: if the queue is updated programmatically while `activeInput` stays the same, the note won't auto-refresh. This is the intended UX — in-flight edits are not clobbered.
 
 ### 5.3 useBatchQueue — Upsert Pattern
 
@@ -327,7 +324,7 @@ All tests live in `src/__tests__/parser.test.ts` and run with Vitest.
 | Genomic coordinate formats | 12 | HGVSg, VCF, coordinate-only, chr X/Y/M/MT, two-digit ordering |
 | Coding transcript formats | 8 | NM_, ENST, NR_, intronic, UTR, hybrid, pipe-character regression |
 | Protein change formats | 6 | Standard, stop-gain, frameshift, predicted, single-letter |
-| Canonical database | 8 | Backfill, version normalisation, BRCA1 correct alleles, false-positive prevention, MT inference |
+| Canonical DB (removed R1) | — | Deleted; coverage moved to notation-only parsing + ClinVar-direct/enrichment tests |
 | Edge cases | 3 | Empty input, random text, whitespace trimming |
 | `computeEndPos` | 4 | SNV, deletion, insertion, invalid input |
 | `getMissingDataReason` | 4 | hgvs_c rejection of genomic input, gnomAD missing alleles, UCSC coord-only acceptance |
@@ -348,10 +345,10 @@ npm run lint          # Type-check (must produce 0 errors)
 
 | Item | Notes |
 |------|-------|
-| GRCh37 support | Parser assumes GRCh38 throughout. No assembly selector in UI. |
-| HGVS normalisation | Indels are not left-aligned before URL construction. A variant like `NM_000492.4:c.1523_1525delCTT` (right-shifted) would produce a different UCSC range than the canonical `c.1521_1523delCTT`. |
-| Exporter unit tests | `exporters.ts` has zero test coverage. Requires JSDOM setup for HTML assertion. |
-| Live variant lookup | The canonical DB is static. Integration with MyVariant.info or Ensembl REST API would allow dynamic coordinate resolution for any variant. |
+| GRCh37 support | Implemented: build selector + Ensembl liftover during enrichment + ClinVar direct both-build coords + bounds validator (R5). |
+| HGVS normalisation | Left-alignment when Live Enrichment ON (Ensembl VEP `hgvsg`); trim-only when OFF. See LIMITATIONS §2.1. |
+| Exporter unit tests | `exporters.ts` HTML blob generation still lacks JSDOM-based coverage. |
+| Live variant lookup | Implemented (R2): layered MyVariant → ClinVar E-utilities direct → Ensembl VEP. The static canonical DB was removed (R1). |
 | Icon assets | `manifest.json` references `assets/icon{16,32,48,128}.png` — these need to be created and added to `public/assets/`. |
 | GDPR / export mode | The `diagnostics` array in `ParsedVariant` includes the raw input verbatim. Exported files therefore contain a full audit trail of the user's input. For sensitive clinical data, a "sanitised export mode" that strips diagnostics should be added. |
 | Exporter unit tests | HTML blob generation in `exporters.ts` is not unit tested (MEDIUM-13 in audit). |
