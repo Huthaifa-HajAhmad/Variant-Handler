@@ -17,7 +17,7 @@ import { BatchItem } from '../lib/types';
 
 const STORAGE_KEY = 'variantstream_sidepanel_queue';
 
-type UpsertFields = Partial<Pick<BatchItem, 'note' | 'gene'>>;
+type UpsertFields = Partial<Pick<BatchItem, 'note' | 'gene' | 'enrichmentSnapshot'>>;
 
 /**
  * Validates that a value matches the BatchItem shape, coercing where safe.
@@ -29,11 +29,27 @@ function parseBatchItem(value: unknown): BatchItem | null {
   // id and input are required strings
   if (typeof obj.id !== 'string' || !obj.id) return null;
   if (typeof obj.input !== 'string' || !obj.input) return null;
+  // R3: validate the optional enrichment snapshot shape
+  let enrichmentSnapshot: BatchItem['enrichmentSnapshot'];
+  if (obj.enrichmentSnapshot && typeof obj.enrichmentSnapshot === 'object' && !Array.isArray(obj.enrichmentSnapshot)) {
+    const snap = obj.enrichmentSnapshot as Record<string, unknown>;
+    if (typeof snap.snapshotAt === 'number') {
+      enrichmentSnapshot = {
+        snapshotAt: snap.snapshotAt,
+        rsId: typeof snap.rsId === 'string' ? snap.rsId : undefined,
+        geneSymbol: typeof snap.geneSymbol === 'string' ? snap.geneSymbol : undefined,
+        gnomadAf: typeof snap.gnomadAf === 'number' ? snap.gnomadAf : undefined,
+        clinvarSignificance: typeof snap.clinvarSignificance === 'string' ? snap.clinvarSignificance : undefined,
+        clinvarReview: typeof snap.clinvarReview === 'string' ? snap.clinvarReview : undefined,
+      };
+    }
+  }
   return {
     id:    obj.id,
     input: obj.input,
     gene:  typeof obj.gene === 'string' ? obj.gene : 'GENE',
     note:  typeof obj.note === 'string' ? obj.note : '',
+    enrichmentSnapshot,
   };
 }
 
@@ -60,6 +76,15 @@ export function useBatchQueue(defaultItems: BatchItem[]) {
   const addItem = useCallback((item: BatchItem) => {
     setBatchQueue((prev) => {
       const updated = [item, ...prev];
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
+      return updated;
+    });
+  }, []);
+
+  /** Add multiple items to the front of the queue. */
+  const addItems = useCallback((items: BatchItem[]) => {
+    setBatchQueue((prev) => {
+      const updated = [...items, ...prev];
       localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
       return updated;
     });
@@ -106,6 +131,6 @@ export function useBatchQueue(defaultItems: BatchItem[]) {
     localStorage.removeItem(STORAGE_KEY);
   }, []);
 
-  return { batchQueue, addItem, removeItem, upsertItem, clearQueue };
+  return { batchQueue, addItem, addItems, removeItem, upsertItem, clearQueue };
 }
 

@@ -32,10 +32,12 @@ export function exportTSV(
   const parsedHistory = history.map((input) => ({ input, parsed: parseVariant(input) }));
 
   let content = '--- CLINICAL VARIANT BATCH QUEUE ---\r\n';
+  content += '# Enrichment columns (rsID, gnomAD AF, ClinVar Sig, ClinVar Review, Snapshot At) are a point-in-time snapshot captured when the variant was active. May lag the upstream source — verify against the source for clinical use.\r\n';
   content +=
-    'ID\tGene/Transcript\tVariant Notation\tClinical Notes & Observations\tNomenclature Type\tChromosome\tPosition\tRef Allele\tAlt Allele\tTranscript Ref\tCoding Change\tProtein Change\r\n';
+    'ID\tGene/Transcript\tVariant Notation\tClinical Notes & Observations\tNomenclature Type\tChromosome\tPosition\tRef Allele\tAlt Allele\tTranscript Ref\tCoding Change\tProtein Change\tdbSNP rsID\tgnomAD AF\tClinVar Significance\tClinVar Review\tEnrichment Snapshot At\r\n';
 
   parsedQueue.forEach(({ item, parsed }, idx) => {
+    const snap = item.enrichmentSnapshot;
     content +=
       `${idx + 1}\t` +
       `${item.gene}\t` +
@@ -48,7 +50,12 @@ export function exportTSV(
       `${parsed.alt || 'N/A'}\t` +
       `${parsed.transcript || 'N/A'}\t` +
       `${parsed.codingChange || 'N/A'}\t` +
-      `${parsed.proteinChange || 'N/A'}\r\n`;
+      `${parsed.proteinChange || 'N/A'}\t` +
+      `${snap?.rsId || 'N/A'}\t` +
+      `${snap?.gnomadAf !== undefined ? snap.gnomadAf : 'N/A'}\t` +
+      `${snap?.clinvarSignificance || 'N/A'}\t` +
+      `${snap?.clinvarReview || 'N/A'}\t` +
+      `${snap ? new Date(snap.snapshotAt).toISOString() : 'N/A'}\r\n`;
   });
 
   if (parsedHistory.length > 0) {
@@ -116,6 +123,7 @@ export function exportExcel(
   html += `<body>`;
   html += `<h2 style="color:#0f172a; margin-bottom:5px;">Comprehensive Variant Examination Matrix</h2>`;
   html += `<p style="font-size: 11px; color: #64748b; margin-top:0; margin-bottom: 25px;">Exported via Variant Handler Diagnostic Suite on: ${escapeHtml(new Date().toLocaleString())}</p>`;
+  html += `<p style="font-size: 10px; color: #94a3b8; margin-top:0; margin-bottom: 18px;">Enrichment columns (rsID, gnomAD AF, ClinVar) are a point-in-time snapshot captured when each variant was active. May lag the upstream source — verify against the source for clinical use.</p>`;
 
   // Section 1: Batch queue
   html += `<div class="section-title">1. Active Diagnostic Batch Queue (${batchQueue.length})</div>`;
@@ -143,6 +151,29 @@ export function exportExcel(
     });
 
     html += `</tbody></table>`;
+
+    // R3: enrichment snapshot sub-table (only when at least one item has a snapshot)
+    const anySnapshot = parsedQueue.some(({ item }) => item.enrichmentSnapshot);
+    if (anySnapshot) {
+      html += `<div class="section-title" style="margin-top:18px;">1b. Enrichment Snapshot (captured when each variant was active)</div>`;
+      html += `<table><thead><tr>`;
+      html += `<th style="width:4%;">ID</th><th style="width:24%;">Variant</th><th style="width:12%;">dbSNP rsID</th>`;
+      html += `<th style="width:12%;">gnomAD AF</th><th style="width:22%;">ClinVar Significance</th><th style="width:18%;">ClinVar Review</th><th style="width:12%;">Snapshot At</th>`;
+      html += `</tr></thead><tbody>`;
+      parsedQueue.forEach(({ item }, idx) => {
+        const snap = item.enrichmentSnapshot;
+        html += `<tr>`;
+        html += `<td style="text-align:center;font-weight:bold;">${idx + 1}</td>`;
+        html += `<td><span class="coordinate">${escapeHtml(item.input)}</span></td>`;
+        html += `<td style="font-family:monospace;">${escapeHtml(snap?.rsId || '—')}</td>`;
+        html += `<td style="font-family:monospace;">${snap?.gnomadAf !== undefined ? escapeHtml(String(snap.gnomadAf)) : '—'}</td>`;
+        html += `<td>${escapeHtml(snap?.clinvarSignificance || '—')}</td>`;
+        html += `<td style="font-size:10px;color:#64748b;">${escapeHtml(snap?.clinvarReview || '—')}</td>`;
+        html += `<td style="font-family:monospace;font-size:10px;">${snap ? escapeHtml(new Date(snap.snapshotAt).toLocaleString()) : '—'}</td>`;
+        html += `</tr>`;
+      });
+      html += `</tbody></table>`;
+    }
   }
 
   // Section 2: History

@@ -21,9 +21,9 @@ import { GenomeBuild, DEFAULT_BUILD } from '../utils/genomeBuild';
 import { BatchItem } from '../lib/types';
 import { useTheme } from '../hooks/useTheme';
 import { useBatchQueue } from '../hooks/useBatchQueue';
-import { useHistory } from '../hooks/useHistory';
+import { useHistory, HistoryCap } from '../hooks/useHistory';
 import { useKeyboardShortcuts } from '../hooks/useKeyboardShortcuts';
-import { useVariantEnrichment } from '../hooks/useVariantEnrichment';
+import { useVariantEnrichment, clearEnrichmentCache } from '../hooks/useVariantEnrichment';
 import { exportTSV, exportExcel, exportPPT } from '../utils/exporters';
 import { isSafeUrl } from '../utils/sanitize';
 import { inferGeneLabel } from '../utils/variantUtils';
@@ -53,8 +53,8 @@ const DEFAULT_BATCH: BatchItem[] = [
 export default function SidepanelView() {
   // ── Hooks ───────────────────────────────────────────────────────────────
   const { themeId, activeTheme, selectTheme, toggleTheme } = useTheme();
-  const { batchQueue, addItem, removeItem, upsertItem, clearQueue }    = useBatchQueue(DEFAULT_BATCH);
-  const { history, addToHistory, removeFromHistory, clearHistory }       = useHistory(DEFAULT_BATCH.map((b) => b.input));
+  const { batchQueue, addItem, addItems, removeItem, upsertItem, clearQueue }    = useBatchQueue(DEFAULT_BATCH);
+  const { history, addToHistory, removeFromHistory, clearHistory, cap, setHistoryCap } = useHistory(DEFAULT_BATCH.map((b) => b.input));
 
   // ── Local state ─────────────────────────────────────────────────────────
   const [activeInput,    setActiveInput]    = useState('NM_000492.4:c.1521_1523delCTT');
@@ -64,6 +64,11 @@ export default function SidepanelView() {
   const [copiedId,       setCopiedId]       = useState<string | null>(null);
   const [alertMsg,       setAlertMsg]       = useState('');
   const alertTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const triggerAlert = useCallback((msg: string) => {
+    setAlertMsg(msg);
+    if (alertTimerRef.current) clearTimeout(alertTimerRef.current);
+    alertTimerRef.current = setTimeout(() => setAlertMsg(''), 3000);
+  }, []);
   const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [activeSec3Tab,  setActiveSec3Tab]  = useState<'queue' | 'history'>('queue');
 
@@ -79,6 +84,11 @@ export default function SidepanelView() {
     return saved === null ? true : saved === 'true';
   });
 
+  // T6: clear on close toggle — persisted, default OFF
+  const [clearOnCloseEnabled, setClearOnCloseEnabledState] = useState<boolean>(() => {
+    return localStorage.getItem('variantstream_clear_on_close') === 'true';
+  });
+
   const onGenomeBuildChange = useCallback((build: GenomeBuild) => {
     setGenomeBuildState(build);
     localStorage.setItem(GENOME_BUILD_KEY, build);
@@ -87,10 +97,20 @@ export default function SidepanelView() {
   const onToggleLiveEnrichment = useCallback((value: boolean) => {
     setLiveEnrichmentEnabledState(value);
     localStorage.setItem(ENRICHMENT_ENABLED_KEY, String(value));
-    if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local) {
-      chrome.storage.local.set({ variantstream_live_enrichment_enabled: value }).catch(() => {});
-    }
   }, []);
+
+  const onToggleClearOnClose = useCallback((value: boolean) => {
+    setClearOnCloseEnabledState(value);
+    localStorage.setItem('variantstream_clear_on_close', String(value));
+  }, []);
+
+  const onClearAllData = useCallback(() => {
+    clearQueue();
+    clearHistory();
+    // R4: enrichment cache now lives in chrome.storage.session (cleared async)
+    void clearEnrichmentCache();
+    triggerAlert('All stored data cleared.');
+  }, [clearQueue, clearHistory, triggerAlert]);
 
   // ── Derived / memoized ──────────────────────────────────────────────────
   const parsed = useMemo(() => parseVariant(activeInput), [activeInput]);
@@ -104,7 +124,7 @@ export default function SidepanelView() {
 
   // Sprint 2: live enrichment hook
   const { enrichment, isLoading: enrichmentLoading, error: enrichmentError, refetch: refetchEnrichment } =
-    useVariantEnrichment(parsed, liveEnrichmentEnabled);
+    useVariantEnrichment(parsed, liveEnrichmentEnabled, genomeBuild);
 
   // Sprint 2: build-aware URL generation
   const platformUrls = useMemo(
@@ -179,6 +199,36 @@ useEffect(() => {
     setMicroNote(match?.note ?? '');
   }, [activeInput]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // R3: when enrichment settles for the active variant, snapshot its annotation
+  // fields onto the matching queue item so exports include rsID / gnomAD AF /
+  // ClinVar significance without re-running enrichment at export time.
+  useEffect(() => {
+    if (!enrichment || !activeInput.trim()) return;
+    const match = batchQueue.find((item) => item.input.trim() === activeInput.trim());
+    if (!match) return;
+    // Only upsert when the snapshot is actually new/changed (avoid write churn).
+    const existing = match.enrichmentSnapshot;
+    if (
+      existing &&
+      existing.snapshotAt === enrichment.fetchedAt &&
+      existing.rsId === enrichment.rsId &&
+      existing.gnomadAf === enrichment.gnomadAf &&
+      existing.clinvarSignificance === enrichment.clinvarSignificance
+    ) {
+      return;
+    }
+    upsertItem(activeInput, {
+      enrichmentSnapshot: {
+        rsId: enrichment.rsId,
+        geneSymbol: enrichment.geneSymbol,
+        gnomadAf: enrichment.gnomadAf,
+        clinvarSignificance: enrichment.clinvarSignificance,
+        clinvarReview: enrichment.clinvarReview,
+        snapshotAt: enrichment.fetchedAt,
+      },
+    });
+  }, [enrichment, activeInput]); // eslint-disable-line react-hooks/exhaustive-deps
+
   useEffect(() => {
     addToHistory(activeInput, parsed.isValid);
   }, [activeInput, parsed.isValid, addToHistory]);
@@ -199,84 +249,55 @@ useEffect(() => {
     }
   }, []);
 
+  // T6: Clear data on unmount cleanup if toggle is enabled
   useEffect(() => {
-    if (!isStorageLoaded) return;
-    if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local) {
-      chrome.storage.local.set({ variantstream_active_input: activeInput }).catch((err) => {
-        console.warn('[VariantHandler] Failed to sync active variant to chrome storage:', err);
-      });
-    }
-  }, [activeInput, isStorageLoaded]);
+    return () => {
+      const clearOnClose = localStorage.getItem('variantstream_clear_on_close') === 'true';
+      if (clearOnClose) {
+        localStorage.removeItem('variantstream_sidepanel_queue');
+        localStorage.removeItem('variantstream_sidepanel_history');
+        // R4: enrichment cache lives in chrome.storage.session (async clear)
+        void clearEnrichmentCache();
+      }
+    };
+  }, []);
 
+  // T10: Consolidated state sync to chrome.storage.local (also handles T9 genome build propagation)
   useEffect(() => {
     if (!isStorageLoaded) return;
     if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local) {
-      chrome.storage.local.set({ 
-        variantstream_active_gene: enrichment?.geneSymbol ?? parsed.geneSymbol ?? null 
-      }).catch((err) => {
-        console.warn('[VariantHandler] Failed to sync active gene to chrome storage:', err);
-      });
-    }
-  }, [enrichment?.geneSymbol, parsed.geneSymbol, isStorageLoaded]);
-
-  useEffect(() => {
-    if (!isStorageLoaded) return;
-    if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local) {
-      chrome.storage.local.set({ 
-        variantstream_active_protein: enrichment?.proteinChange ?? parsed.proteinChange ?? null 
-      }).catch((err) => {
-        console.warn('[VariantHandler] Failed to sync active protein to chrome storage:', err);
-      });
-    }
-  }, [enrichment?.proteinChange, parsed.proteinChange, isStorageLoaded]);
-
-  useEffect(() => {
-    if (!isStorageLoaded) return;
-    if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local) {
-      chrome.storage.local.set({ 
-        variantstream_resolved_hgvsg: enrichment?.hgvsg ?? null 
-      }).catch((err) => {
-        console.warn('[VariantHandler] Failed to sync resolved hgvsg to chrome storage:', err);
-      });
-    }
-  }, [enrichment?.hgvsg, isStorageLoaded]);
-
-  useEffect(() => {
-    if (!isStorageLoaded) return;
-    if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local) {
-      chrome.storage.local.set({ 
-        variantstream_live_enrichment_enabled: liveEnrichmentEnabled 
-      }).catch((err) => {
-        console.warn('[VariantHandler] Failed to sync live enrichment setting to chrome storage:', err);
-      });
-    }
-  }, [liveEnrichmentEnabled, isStorageLoaded]);
-
-  useEffect(() => {
-    if (!isStorageLoaded) return;
-    if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local) {
-      chrome.storage.local.set({ 
+      chrome.storage.local.set({
+        variantstream_active_input: activeInput,
+        variantstream_active_gene: enrichment?.geneSymbol ?? parsed.geneSymbol ?? null,
+        variantstream_active_protein: enrichment?.proteinChange ?? parsed.proteinChange ?? null,
+        variantstream_resolved_hgvsg: enrichment?.hgvsg ?? null,
         variantstream_resolved_transcript: enrichment?.transcript ?? null,
-        variantstream_resolved_coding_change: enrichment?.codingChange ?? null
+        variantstream_resolved_coding_change: enrichment?.codingChange ?? null,
+        variantstream_live_enrichment_enabled: liveEnrichmentEnabled,
+        variantstream_genome_build: genomeBuild
       }).catch((err) => {
-        console.warn('[VariantHandler] Failed to sync resolved transcript to chrome storage:', err);
+        console.warn('[VariantHandler] Failed to sync state to chrome storage:', err);
       });
     }
-  }, [enrichment?.transcript, enrichment?.codingChange, isStorageLoaded]);
+  }, [
+    activeInput,
+    enrichment?.geneSymbol,
+    parsed.geneSymbol,
+    enrichment?.proteinChange,
+    parsed.proteinChange,
+    enrichment?.hgvsg,
+    enrichment?.transcript,
+    enrichment?.codingChange,
+    liveEnrichmentEnabled,
+    genomeBuild,
+    isStorageLoaded
+  ]);
 
   // ── Keyboard shortcuts ───────────────────────────────────────────────────
   useKeyboardShortcuts({
     onToggleSettings: () => { setIsSettingsOpen((p) => !p); triggerAlert('Settings toggled'); },
     onFocusNote:      () => { document.getElementById('add-note-textarea')?.focus(); triggerAlert('Focused note field'); },
   });
-
-  // ── Helpers ──────────────────────────────────────────────────────────────
-
-  const triggerAlert = useCallback((msg: string) => {
-    setAlertMsg(msg);
-    if (alertTimerRef.current) clearTimeout(alertTimerRef.current);
-    alertTimerRef.current = setTimeout(() => setAlertMsg(''), 3000);
-  }, []);
 
   // ── Handlers ─────────────────────────────────────────────────────────────
 
@@ -315,7 +336,11 @@ useEffect(() => {
       triggerAlert('URL is not safe to open (must be https).');
       return;
     }
-    window.open(url, '_blank', 'noopener,noreferrer');
+    if (typeof chrome !== 'undefined' && chrome.tabs && chrome.tabs.create) {
+      chrome.tabs.create({ url, active: false });
+    } else {
+      window.open(url, '_blank', 'noopener,noreferrer');
+    }
     triggerAlert(`Opened ${platform.name}`);
   };
 
@@ -393,6 +418,7 @@ useEffect(() => {
           platformUrls={platformUrls}
           handleLaunchPlatform={handleLaunchPlatform}
           activeTheme={activeTheme}
+          parsed={parsed}
           genomeBuild={genomeBuild}
         />
 
@@ -412,6 +438,7 @@ useEffect(() => {
           onExportPPT={() => exportPPT(batchQueue, history, triggerAlert)}
           triggerAlert={triggerAlert}
           addItem={addItem}
+          addItems={addItems}
           clearQueue={clearQueue}
           clearHistory={clearHistory}
         />
@@ -426,6 +453,11 @@ useEffect(() => {
           onClose={() => setIsSettingsOpen(false)}
           liveEnrichmentEnabled={liveEnrichmentEnabled}
           onToggleLiveEnrichment={onToggleLiveEnrichment}
+          clearOnCloseEnabled={clearOnCloseEnabled}
+          onToggleClearOnClose={onToggleClearOnClose}
+          onClearAllData={onClearAllData}
+          historyCap={cap as HistoryCap}
+          onSetHistoryCap={setHistoryCap}
         />
       )}
     </div>

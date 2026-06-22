@@ -31,7 +31,8 @@ export function useTheme() {
       selectTheme(prevDark);
     } else {
       localStorage.setItem(LAST_DARK_KEY, themeId);
-      selectTheme('light-clean');
+      const lightTheme = THEMES.find((t) => t.isLight)?.id ?? 'light-clean';
+      selectTheme(lightTheme);
     }
   };
 

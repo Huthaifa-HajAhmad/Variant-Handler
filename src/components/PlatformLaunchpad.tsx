@@ -1,21 +1,28 @@
 import React from 'react';
 import { AlertTriangle, Play } from 'lucide-react';
-import { PlatformAdapter } from '../lib/parser';
+import { PlatformAdapter, ParsedVariant, GenomeBuild } from '../lib/parser';
 import { ColorTheme } from '../lib/themes';
+import { boundsWarning } from '../utils/buildBounds';
 
 interface PlatformLaunchpadProps {
   platformUrls: { platform: PlatformAdapter; url: string | null; reason: string | null }[];
   handleLaunchPlatform: (platform: PlatformAdapter) => void;
   activeTheme: ColorTheme;
-  genomeBuild: string;
+  parsed: ParsedVariant;
+  genomeBuild: GenomeBuild;
 }
 
 export default function PlatformLaunchpad({
   platformUrls,
   handleLaunchPlatform,
   activeTheme,
+  parsed,
+  genomeBuild,
 }: PlatformLaunchpadProps) {
   const isLight = activeTheme.isLight;
+  // R5: warn when the parsed position exceeds the selected build's chromosome
+  // maximum (a likely build mismatch — e.g. GRCh38 coords with GRCh37 selected).
+  const buildWarning = boundsWarning(parsed.chromosome, parsed.position, genomeBuild);
 
   const sectionTitleCls = `text-xs font-extrabold uppercase tracking-wider ${
     isLight ? 'text-slate-650' : 'text-slate-350'
@@ -24,13 +31,20 @@ export default function PlatformLaunchpad({
   // Active (non-disabled) platforms
   const activePlatforms = platformUrls.filter((item) => item.url !== null);
 
-  // Launch all active platforms with a micro-delay to prevent popup blocking
+  // Launch all active platforms. If in extension context, open them synchronously
+  // to avoid popup blocking. In web context, fallback to a timed delay.
   const handleLaunchAll = () => {
-    activePlatforms.forEach((item, index) => {
-      setTimeout(() => {
+    if (typeof chrome !== 'undefined' && chrome.tabs && chrome.tabs.create) {
+      activePlatforms.forEach((item) => {
         handleLaunchPlatform(item.platform);
-      }, index * 250);
-    });
+      });
+    } else {
+      activePlatforms.forEach((item, index) => {
+        setTimeout(() => {
+          handleLaunchPlatform(item.platform);
+        }, index * 250);
+      });
+    }
   };
 
   return (
@@ -61,6 +75,16 @@ export default function PlatformLaunchpad({
           </button>
         )}
       </div>
+
+      {/* R5: build-mismatch warning */}
+      {buildWarning && (
+        <div className={`flex items-start gap-1.5 mb-2.5 px-2.5 py-1.5 rounded-lg text-[10px] font-medium ${
+          isLight ? 'bg-amber-50 border border-amber-200 text-amber-800' : 'bg-amber-500/10 border border-amber-500/30 text-amber-300'
+        }`}>
+          <AlertTriangle className="w-3 h-3 mt-px shrink-0" />
+          <span>{buildWarning}</span>
+        </div>
+      )}
 
       {/* Grid of Segmented Buttons */}
       <div className={`grid grid-cols-2 rounded-xl overflow-hidden border divide-x divide-y ${
@@ -98,23 +122,12 @@ export default function PlatformLaunchpad({
             >
               {/* Logo container */}
               <div className="relative flex items-center justify-center shrink-0">
-                <img 
-                  src={`https://www.google.com/s2/favicons?domain=${platform.domain}&sz=64`} 
-                  alt={`${platform.name} logo`} 
-                  className={`w-5 h-5 rounded shadow-sm bg-white transition-transform duration-300 group-hover/btn:scale-110 ${isLight ? '' : 'p-0.5'}`} 
-                  onError={(e) => {
-                    // Fallback to a colored initials circle if favicon fails to load
-                    (e.target as HTMLImageElement).style.display = 'none';
-                    const parent = (e.target as HTMLImageElement).parentElement;
-                    if (parent) {
-                      const fallback = document.createElement('div');
-                      fallback.className = 'w-5 h-5 rounded flex items-center justify-center text-[8px] font-black text-white';
-                      fallback.style.backgroundColor = platform.color;
-                      fallback.textContent = platform.name.substring(0, 2).toUpperCase();
-                      parent.appendChild(fallback);
-                    }
-                  }}
-                />
+                <div 
+                  className="w-5 h-5 rounded flex items-center justify-center text-[9px] font-black text-white shadow-sm transition-transform duration-300 group-hover/btn:scale-110"
+                  style={{ backgroundColor: platform.color }}
+                >
+                  {platform.name.substring(0, 2).toUpperCase()}
+                </div>
               </div>
 
               {/* Text details */}

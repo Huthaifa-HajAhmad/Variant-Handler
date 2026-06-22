@@ -10,6 +10,7 @@
 import React from 'react';
 import { Settings, X, Check, Globe, AlertCircle } from 'lucide-react';
 import { ColorTheme, THEMES } from '../lib/themes';
+import { HISTORY_CAP_OPTIONS, HistoryCap } from '../hooks/useHistory';
 
 interface SettingsModalProps {
   activeTheme: ColorTheme;
@@ -19,6 +20,12 @@ interface SettingsModalProps {
   /** Whether the MyVariant.info live lookup is enabled. */
   liveEnrichmentEnabled: boolean;
   onToggleLiveEnrichment: (value: boolean) => void;
+  clearOnCloseEnabled: boolean;
+  onToggleClearOnClose: (value: boolean) => void;
+  onClearAllData: () => void;
+  /** Current history capacity (R6). */
+  historyCap: HistoryCap;
+  onSetHistoryCap: (cap: HistoryCap) => void;
 }
 
 const KEYBOARD_SHORTCUTS = [
@@ -33,6 +40,11 @@ export default function SettingsModal({
   onClose,
   liveEnrichmentEnabled,
   onToggleLiveEnrichment,
+  clearOnCloseEnabled,
+  onToggleClearOnClose,
+  onClearAllData,
+  historyCap,
+  onSetHistoryCap,
 }: SettingsModalProps) {
   const isLight = activeTheme.isLight;
 
@@ -140,13 +152,82 @@ export default function SettingsModal({
           <p className={`${subCls} mt-1 opacity-70`}>
             Results are cached locally for 24 hours. No API key required.
           </p>
-          <p className={`${subCls} mt-1 flex items-center gap-1.5 ${isLight ? 'text-amber-700' : 'text-amber-400'}`}>
-            <AlertCircle className="w-3 h-3 shrink-0" />
-            Live lookup unavailable — extension works normally without it.
-          </p>
+          {!liveEnrichmentEnabled && (
+            <p className={`${subCls} mt-1 flex items-center gap-1.5 ${isLight ? 'text-amber-700' : 'text-amber-400'}`}>
+              <AlertCircle className="w-3 h-3 shrink-0" />
+              Live lookup unavailable — extension works normally without it.
+            </p>
+          )}
         </div>
 
-        {/* ── Section 3: Keyboard Shortcuts ─────────────────────────── */}
+        {/* ── Section 3: Data Retention & Privacy ─────────────────────────── */}
+        <div className={cardCls}>
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <AlertCircle className={`w-3.5 h-3.5 ${isLight ? 'text-indigo-500' : 'text-indigo-400'}`} />
+              <span className={headingCls}>Data Retention & Privacy</span>
+            </div>
+            {/* Toggle */}
+            <button
+              id="toggle-clear-on-close"
+              type="button"
+              role="switch"
+              aria-checked={clearOnCloseEnabled}
+              onClick={() => onToggleClearOnClose(!clearOnCloseEnabled)}
+              className={`relative inline-flex h-5 w-9 items-center rounded-full border transition-colors cursor-pointer ${
+                clearOnCloseEnabled
+                  ? isLight ? 'bg-indigo-600 border-indigo-700' : 'bg-indigo-500 border-indigo-600'
+                  : isLight ? 'bg-slate-200 border-slate-300' : 'bg-slate-700 border-slate-600'
+              }`}
+            >
+              <span
+                className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white shadow transition-transform ${
+                  clearOnCloseEnabled ? 'translate-x-4' : 'translate-x-0.5'
+                }`}
+              />
+            </button>
+          </div>
+          <p className={subCls}>
+            Clear queue, history, and cache from this workstation when the panel closes.
+          </p>
+
+          {/* R6: history capacity selector */}
+          <div className="pt-2 flex items-center justify-between gap-2">
+            <label htmlFor="history-cap-select" className={subCls}>History capacity (recent searches kept)</label>
+            <select
+              id="history-cap-select"
+              value={historyCap}
+              onChange={(e) => onSetHistoryCap(parseInt(e.target.value, 10) as HistoryCap)}
+              className={`text-[11px] font-mono px-2 py-1 rounded border cursor-pointer ${
+                isLight ? 'bg-white border-slate-300 text-slate-700' : 'bg-slate-800 border-slate-700 text-slate-200'
+              }`}
+            >
+              {HISTORY_CAP_OPTIONS.map((n) => (
+                <option key={n} value={n}>{n}</option>
+              ))}
+            </select>
+          </div>
+
+          <div className="pt-2 flex flex-col gap-2">
+            <button
+              id="clear-all-data-btn"
+              type="button"
+              onClick={onClearAllData}
+              className={`w-full py-1.5 rounded-lg border text-xs font-semibold cursor-pointer transition-all ${
+                isLight 
+                  ? 'border-red-200 bg-red-50 text-red-700 hover:bg-red-100 hover:border-red-300' 
+                  : 'border-red-900/30 bg-red-950/20 text-red-400 hover:bg-red-950/40 hover:border-red-900/50'
+              }`}
+            >
+              Clear All Stored Data
+            </button>
+            <p className="text-[9px] opacity-60 text-center">
+              Notice: All parsed data remains local to your browser unless live lookup is enabled.
+            </p>
+          </div>
+        </div>
+
+        {/* ── Section 4: Keyboard Shortcuts ─────────────────────────── */}
         <div className={cardCls}>
           <div className="flex justify-between items-center pb-2 mb-2 border-b border-transparent">
             <span className={headingCls}>Keyboard Shortcuts</span>

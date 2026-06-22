@@ -44,6 +44,7 @@ interface BatchQueuePanelProps {
   onExportPPT: () => void;
   triggerAlert: (msg: string) => void;
   addItem: (item: BatchItem) => void;
+  addItems: (items: BatchItem[]) => void;
   clearQueue: () => void;
   clearHistory: () => void;
 }
@@ -64,6 +65,7 @@ export default function BatchQueuePanel({
   onExportPPT,
   triggerAlert,
   addItem,
+  addItems,
   clearQueue,
   clearHistory,
 }: BatchQueuePanelProps) {
@@ -119,6 +121,7 @@ export default function BatchQueuePanel({
       let added = 0;
       let skipped = 0;
       const seen = new Set(batchQueue.map((item) => item.input.trim()));
+      const itemsToAdd: BatchItem[] = [];
 
       lines.forEach((line) => {
         const parsed = parseVariant(line);
@@ -131,7 +134,7 @@ export default function BatchQueuePanel({
           return;
         }
         seen.add(line);
-        addItem({
+        itemsToAdd.push({
           id: `item_${Date.now()}_${added}`,
           input: line,
           gene: inferGeneLabel(line, parsed),
@@ -139,6 +142,10 @@ export default function BatchQueuePanel({
         });
         added++;
       });
+
+      if (itemsToAdd.length > 0) {
+        addItems(itemsToAdd);
+      }
 
       if (added > 0) {
         triggerAlert(`Pasted & merged: ${added} added to queue${skipped > 0 ? `, ${skipped} skipped` : ''}.`);
@@ -402,18 +409,25 @@ export default function BatchQueuePanel({
             { label: 'TSV',          icon: FileText,        color: 'amber',   fn: onExportTSV,   id: 'btn-export-tsv' },
             { label: 'Excel',        icon: FileSpreadsheet, color: 'emerald', fn: onExportExcel, id: 'btn-export-excel' },
             { label: 'Presentation', icon: Presentation,    color: 'indigo',  fn: onExportPPT,   id: 'btn-export-ppt' },
-          ].map(({ label, icon: Icon, color, fn, id }) => (
-            <button
-              key={id}
-              id={id}
-              type="button"
-              onClick={fn}
-              className={`flex items-center justify-center gap-2 p-2 rounded-lg transition-all cursor-pointer group border shadow-sm ${isLight ? 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50 hover:border-slate-300' : 'bg-slate-900 border-slate-700 text-slate-300 hover:text-white hover:bg-slate-800 hover:border-slate-500'}`}
-            >
-              <Icon className={`w-4 h-4 text-slate-400 group-hover:text-${color}-500 transition-colors`} />
-              <span className="text-xs font-semibold tracking-tight">{label}</span>
-            </button>
-          ))}
+          ].map(({ label, icon: Icon, color, fn, id }) => {
+            const hoverColorMap: Record<string, string> = {
+              amber: 'group-hover:text-amber-500',
+              emerald: 'group-hover:text-emerald-500',
+              indigo: 'group-hover:text-indigo-500',
+            };
+            return (
+              <button
+                key={id}
+                id={id}
+                type="button"
+                onClick={fn}
+                className={`flex items-center justify-center gap-2 p-2 rounded-lg transition-all cursor-pointer group border shadow-sm ${isLight ? 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50 hover:border-slate-300' : 'bg-slate-900 border-slate-700 text-slate-300 hover:text-white hover:bg-slate-800 hover:border-slate-500'}`}
+              >
+                <Icon className={`w-4 h-4 text-slate-400 ${hoverColorMap[color] || 'group-hover:text-slate-500'} transition-colors`} />
+                <span className="text-xs font-semibold tracking-tight">{label}</span>
+              </button>
+            );
+          })}
         </div>
       </div>
     </div>
