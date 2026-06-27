@@ -9,7 +9,7 @@
  *     an array rather than blindly taking rcv[0].
  */
 import { describe, it, expect } from 'vitest';
-import { parseApiResponse, deriveQueryKey } from '../hooks/useVariantEnrichment';
+import { parseApiResponse, deriveQueryKey, resolveUcscSequence, validateRefAllele } from '../hooks/useVariantEnrichment';
 import { parseVariant } from '../lib/parser';
 
 describe('deriveQueryKey — build suffix (T12)', () => {
@@ -67,5 +67,148 @@ describe('parseApiResponse — ClinVar RCV ranking (T14)', () => {
     const result = parseApiResponse({ notfound: true }, 'chr7:g.1A>T');
     expect(result.source).toBe('none');
     expect(result.clinvarSignificance).toBeUndefined();
+  });
+});
+
+describe('resolveUcscSequence', () => {
+  it('correctly resolves a deletion (del)', async () => {
+    const parsed = parseVariant('chr9:g.38068458_38068460del');
+    let fetchedUrl = '';
+    const mockFetch = async (url: string) => {
+      fetchedUrl = url;
+      return { dna: 'ATCG' };
+    };
+
+    const res = await resolveUcscSequence(parsed, 'GRCh38', mockFetch);
+    expect(res).not.toBeNull();
+    expect(fetchedUrl).toContain('start=38068456');
+    expect(fetchedUrl).toContain('end=38068460');
+    expect(res?.resolvedPos).toBe(38068457);
+    expect(res?.resolvedRef).toBe('ATCG');
+    expect(res?.resolvedAlt).toBe('A');
+    expect(res?.resolvedHgvsg).toBe('chr9:g.38068457ATCG>A');
+  });
+
+  it('correctly resolves a duplication (dup)', async () => {
+    const parsed = parseVariant('chr7:g.100_102dup');
+    let fetchedUrl = '';
+    const mockFetch = async (url: string) => {
+      fetchedUrl = url;
+      return { dna: 'ACGT' };
+    };
+
+    const res = await resolveUcscSequence(parsed, 'GRCh38', mockFetch);
+    expect(res).not.toBeNull();
+    expect(fetchedUrl).toContain('start=98');
+    expect(fetchedUrl).toContain('end=102');
+    expect(res?.resolvedPos).toBe(99);
+    expect(res?.resolvedRef).toBe('A');
+    expect(res?.resolvedAlt).toBe('ACGT');
+    expect(res?.resolvedHgvsg).toBe('chr7:g.99A>ACGT');
+  });
+
+  it('correctly resolves an insertion (ins)', async () => {
+    const parsed = parseVariant('chrX:g.100_101insA');
+    let fetchedUrl = '';
+    const mockFetch = async (url: string) => {
+      fetchedUrl = url;
+      return { dna: 'C' };
+    };
+
+    const res = await resolveUcscSequence(parsed, 'GRCh38', mockFetch);
+    expect(res).not.toBeNull();
+    expect(fetchedUrl).toContain('start=99');
+    expect(fetchedUrl).toContain('end=100');
+    expect(res?.resolvedPos).toBe(100);
+    expect(res?.resolvedRef).toBe('C');
+    expect(res?.resolvedAlt).toBe('CA');
+    expect(res?.resolvedHgvsg).toBe('chrX:g.100C>CA');
+  });
+
+  it('correctly resolves an inversion (inv)', async () => {
+    const parsed = parseVariant('chr2:g.100_103inv');
+    let fetchedUrl = '';
+    const mockFetch = async (url: string) => {
+      fetchedUrl = url;
+      return { dna: 'ATCG' };
+    };
+
+    const res = await resolveUcscSequence(parsed, 'GRCh38', mockFetch);
+    expect(res).not.toBeNull();
+    expect(fetchedUrl).toContain('start=99');
+    expect(fetchedUrl).toContain('end=103');
+    expect(res?.resolvedPos).toBe(100);
+    expect(res?.resolvedRef).toBe('ATCG');
+    expect(res?.resolvedAlt).toBe('CGAT');
+    expect(res?.resolvedHgvsg).toBe('chr2:g.100ATCG>CGAT');
+  });
+
+  it('correctly resolves a delins', async () => {
+    const parsed = parseVariant('chr1:g.100_102delinsTTT');
+    let fetchedUrl = '';
+    const mockFetch = async (url: string) => {
+      fetchedUrl = url;
+      return { dna: 'ACGT' };
+    };
+
+    const res = await resolveUcscSequence(parsed, 'GRCh38', mockFetch);
+    expect(res).not.toBeNull();
+    expect(fetchedUrl).toContain('start=98');
+    expect(fetchedUrl).toContain('end=102');
+    expect(res?.resolvedPos).toBe(99);
+    expect(res?.resolvedRef).toBe('ACGT');
+    expect(res?.resolvedAlt).toBe('ATTT');
+    expect(res?.resolvedHgvsg).toBe('chr1:g.99ACGT>ATTT');
+  });
+});
+
+describe('validateRefAllele', () => {
+  it('returns null when reference allele matches genome sequence', async () => {
+    const parsed = parseVariant('chr7:g.140753336T>A');
+    let fetchedUrl = '';
+    const mockFetch = async (url: string) => {
+      fetchedUrl = url;
+      return { dna: 'T' };
+    };
+
+    const res = await validateRefAllele(parsed, 'GRCh38', mockFetch);
+    expect(res).toBeNull();
+    expect(fetchedUrl).toContain('start=140753335');
+    expect(fetchedUrl).toContain('end=140753336');
+  });
+
+  it('returns warning string when reference allele mismatches genome sequence', async () => {
+    const parsed = parseVariant('chr7:g.140753336A>T');
+    let fetchedUrl = '';
+    const mockFetch = async (url: string) => {
+      fetchedUrl = url;
+      return { dna: 'T' };
+    };
+
+    const res = await validateRefAllele(parsed, 'GRCh38', mockFetch);
+    expect(res).not.toBeNull();
+    expect(res).toContain('reference at chr7:140753336 is "T"');
+    expect(res).toContain('specified "A"');
+  });
+
+  it('returns specific warning string suggesting build switch when ref matches alternative build', async () => {
+    const parsed = parseVariant('chr7:g.140453136A>T');
+    const mockFetch = async (url: string) => {
+      // If querying hg38 (selected GRCh38), return mismatched base (C)
+      if (url.includes('genome=hg38')) {
+        return { dna: 'C' };
+      }
+      // If querying hg19 (alternative GRCh37), return matching base (A)
+      if (url.includes('genome=hg19')) {
+        return { dna: 'A' };
+      }
+      return { dna: '' };
+    };
+
+    const res = await validateRefAllele(parsed, 'GRCh38', mockFetch);
+    expect(res).not.toBeNull();
+    expect(res).toContain('Reference allele mismatch on GRCh38');
+    expect(res).toContain('reference matches "A" at this position on GRCh37');
+    expect(res).toContain('wrong genome build');
   });
 });

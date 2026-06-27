@@ -8,7 +8,7 @@
  *  - EnrichmentPanel slot below coordinate breakdown
  */
 import React, { useState, useEffect } from 'react';
-import { Edit3, Check, Copy, Cpu, ClipboardPaste, Dna, Plus, Minus, Loader2, Globe, AlertCircle, RotateCw } from 'lucide-react';
+import { Edit3, Check, Copy, Cpu, ClipboardPaste, Dna, Plus, Minus, Loader2, Globe, AlertCircle, AlertTriangle, RotateCw } from 'lucide-react';
 import { ParsedVariant, parseGenomicHgvs } from '../lib/parser';
 import { GenomeBuild } from '../utils/genomeBuild';
 import { ColorTheme } from '../lib/themes';
@@ -538,6 +538,14 @@ export default function VariantWorkbench({
                 </div>
 
                 {/* Banners */}
+                {enrichment.refMismatch && (
+                  <div className={`col-span-2 p-2 rounded-lg border text-[10px] font-semibold flex items-center gap-1.5 ${
+                    isLight ? 'bg-amber-50/70 border-amber-200 text-amber-800' : 'bg-amber-950/30 border-amber-900/50 text-amber-300'
+                  }`}>
+                    <AlertTriangle className="w-3.5 h-3.5 shrink-0 text-amber-500" />
+                    <span>{enrichment.refMismatch}</span>
+                  </div>
+                )}
                 {enrichment.source === 'ensembl' && (
                   <div className={`col-span-2 p-2 rounded-lg border text-[10px] font-semibold flex items-center gap-1.5 ${
                     isLight ? 'bg-teal-50 border-teal-200 text-teal-700' : 'bg-teal-950/30 border-teal-900/50 text-teal-300'

@@ -560,6 +560,15 @@ describe('getMissingDataReason — platform validation', () => {
     const r = parseVariant('chr17:43044295');
     expect(getMissingDataReason(r, ucsc)).toBeNull();
   });
+
+  it('returns null for gnomAD when structural variant has resolved hgvsg from enrichment', () => {
+    const r = parseVariant('chr9:g.38068458_38068460del');
+    // Without enrichment, should return a missing alleles message
+    expect(getMissingDataReason(r, gnomad)).not.toBeNull();
+    // With resolved hgvsg in enrichment, should return null (enabled)
+    const enrichment = { hgvsg: 'chr9:g.38068457ATCG>A' };
+    expect(getMissingDataReason(r, gnomad, enrichment)).toBeNull();
+  });
 });
 
 // ── Sprint 2: buildPlatformUrl — build-aware URLs ─────────────────────────────

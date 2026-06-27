@@ -25,8 +25,166 @@
  * `error` — the hook never throws and the extension remains fully functional.
  */
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { ParsedVariant, GenomeBuild } from '../lib/parser';
+import { ParsedVariant, GenomeBuild, hasRealAllele } from '../lib/parser';
 import { resolveClinVarDirect } from '../lib/clinvarDirect';
+
+const sequenceCache = new Map<string, string>();
+
+function reverseComplement(seq: string): string {
+  const complement: Record<string, string> = {
+    A: 'T', T: 'A', C: 'G', G: 'C',
+    a: 't', t: 'a', c: 'g', g: 'c',
+    N: 'N', n: 'n'
+  };
+  return seq.split('').reverse().map(base => complement[base] || base).join('');
+}
+
+export async function resolveUcscSequence(
+  parsed: ParsedVariant,
+  build: GenomeBuild,
+  performFetch: (url: string) => Promise<any>
+): Promise<{ resolvedPos: number; resolvedRef: string; resolvedAlt: string; resolvedHgvsg: string } | null> {
+  if (!parsed.chromosome || !parsed.position) return null;
+
+  const structMatch = parsed.raw.match(/(delins|del|ins|dup|inv)\s*([ACGTN]*)$/i);
+  if (!structMatch) return null;
+
+  const changeType = structMatch[1].toLowerCase();
+  const seq = (structMatch[2] || '').toUpperCase();
+
+  const pos = parseInt(parsed.position, 10);
+  const endPos = parsed.endPosition ? parseInt(parsed.endPosition, 10) : undefined;
+  if (isNaN(pos)) return null;
+
+  const db = build === 'GRCh37' ? 'hg19' : 'hg38';
+  const endPosComputed = endPos ?? (pos + (changeType === 'del' && seq ? seq.length - 1 : 0));
+
+  let startParam = 0;
+  let endParam = 0;
+
+  if (changeType === 'del' || changeType === 'dup' || changeType === 'delins') {
+    if (pos <= 1) return null;
+    startParam = pos - 2;
+    endParam = endPosComputed;
+  } else if (changeType === 'ins') {
+    startParam = pos - 1;
+    endParam = pos;
+  } else if (changeType === 'inv') {
+    startParam = pos - 1;
+    endParam = endPosComputed;
+  } else {
+    return null;
+  }
+
+  const cacheKey = `${db}:${parsed.chromosome}:${startParam}:${endParam}`;
+  let dna = sequenceCache.get(cacheKey);
+
+  if (!dna) {
+    const ucscUrl = `https://api.genome.ucsc.edu/getData/sequence?genome=${db};chrom=chr${parsed.chromosome};start=${startParam};end=${endParam}`;
+    try {
+      const response = await performFetch(ucscUrl);
+      if (response && typeof response.dna === 'string') {
+        dna = response.dna.toUpperCase();
+        sequenceCache.set(cacheKey, dna);
+      }
+    } catch (err) {
+      console.warn('[VariantHandler] UCSC Sequence fetch failed:', err);
+      return null;
+    }
+  }
+
+  if (!dna) return null;
+
+  let resolvedPos = pos;
+  let resolvedRef = '';
+  let resolvedAlt = '';
+
+  if (changeType === 'del') {
+    resolvedPos = pos - 1;
+    resolvedRef = dna;
+    resolvedAlt = dna[0];
+  } else if (changeType === 'dup') {
+    resolvedPos = pos - 1;
+    resolvedRef = dna[0];
+    resolvedAlt = dna[0] + dna.substring(1);
+  } else if (changeType === 'delins') {
+    resolvedPos = pos - 1;
+    resolvedRef = dna;
+    resolvedAlt = dna[0] + seq;
+  } else if (changeType === 'ins') {
+    resolvedPos = pos;
+    resolvedRef = dna;
+    resolvedAlt = dna + seq;
+  } else if (changeType === 'inv') {
+    resolvedPos = pos;
+    resolvedRef = dna;
+    resolvedAlt = reverseComplement(dna);
+  }
+
+  const resolvedHgvsg = `chr${parsed.chromosome}:g.${resolvedPos}${resolvedRef}>${resolvedAlt}`;
+  return { resolvedPos, resolvedRef, resolvedAlt, resolvedHgvsg };
+}
+
+export async function validateRefAllele(
+  parsed: ParsedVariant,
+  build: GenomeBuild,
+  performFetch: (url: string) => Promise<any>
+): Promise<string | null> {
+  if (!parsed.chromosome || !parsed.position || !parsed.ref) return null;
+  const pos = parseInt(parsed.position, 10);
+  if (isNaN(pos)) return null;
+
+  const db = build === 'GRCh37' ? 'hg19' : 'hg38';
+  const refSeq = parsed.ref.toUpperCase();
+  if (refSeq === '-' || !hasRealAllele(refSeq)) return null;
+
+  const startParam = pos - 1;
+  const endParam = startParam + refSeq.length;
+
+  const cacheKey = `${db}:${parsed.chromosome}:${startParam}:${endParam}`;
+  let dna = sequenceCache.get(cacheKey);
+
+  if (!dna) {
+    try {
+      const url = `https://api.genome.ucsc.edu/getData/sequence?genome=${db}&chrom=chr${parsed.chromosome}&start=${startParam}&end=${endParam}`;
+      const res = await performFetch(url);
+      if (res && res.dna) {
+        dna = res.dna.toUpperCase();
+        sequenceCache.set(cacheKey, dna);
+      }
+    } catch (err) {
+      console.warn('[VariantHandler] UCSC sequence validation query failed:', err);
+      return null;
+    }
+  }
+
+  if (dna && dna !== refSeq) {
+    const otherBuild = build === 'GRCh37' ? 'GRCh38' : 'GRCh37';
+    const otherDb = otherBuild === 'GRCh37' ? 'hg19' : 'hg38';
+    const otherCacheKey = `${otherDb}:${parsed.chromosome}:${startParam}:${endParam}`;
+    let otherDna = sequenceCache.get(otherCacheKey);
+
+    if (!otherDna) {
+      try {
+        const otherUrl = `https://api.genome.ucsc.edu/getData/sequence?genome=${otherDb}&chrom=chr${parsed.chromosome}&start=${startParam}&end=${endParam}`;
+        const otherRes = await performFetch(otherUrl);
+        if (otherRes && otherRes.dna) {
+          otherDna = otherRes.dna.toUpperCase();
+          sequenceCache.set(otherCacheKey, otherDna);
+        }
+      } catch (e) {
+        // Ignore alternative build validation fetch failures
+      }
+    }
+
+    if (otherDna === refSeq) {
+      return `Reference allele mismatch on ${build}: assembly reference is "${dna}", but input specified "${refSeq}". Note: reference matches "${refSeq}" at this position on ${otherBuild}. Did you select the wrong genome build?`;
+    }
+
+    return `Reference allele mismatch: genome reference at chr${parsed.chromosome}:${pos} is "${dna}", but input specified "${refSeq}".`;
+  }
+  return null;
+}
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -41,6 +199,7 @@ export interface EnrichmentData {
   proteinChange?: string; // HGVSp resolved live
   codingChange?: string;  // HGVSC resolved live
   transcript?: string;    // HGVSc transcript resolved live
+  refMismatch?: string;   // Warning message if reference allele mismatches reference genome
   source: 'myvariant' | 'ensembl' | 'clinvar' | 'both' | 'none';
   fetchedAt: number;      // Unix ms — used for 24 h TTL
 }
@@ -553,101 +712,6 @@ export function useVariantEnrichment(
             await abortableSleep(waitMs, abortController.signal);
           }
           try {
-            let activeQueryKey = queryKey;
-            let mappedPos = '';
-            // Strip the @build suffix we append to cache keys to prevent cross-build collisions
-            const rawQueryKey = queryKey.replace(/@(GRCh38|GRCh37)$/, '');
-            const genomicMatch = rawQueryKey.match(/^chr(2[0-2]|1[0-9]|[1-9]|X|Y|MT|M):g\.([0-9]+)(?:_([0-9]+))?(?:([ACGTN\-]+)>([ACGTN\-]+)|(delins|del|ins|dup|inv)([ACGTN]*))$/i);
-            // Ensure activeQueryKey uses the raw (no-suffix) key for actual API calls
-            if (queryKey !== rawQueryKey) activeQueryKey = rawQueryKey;
-
-            if (genomicMatch && build === 'GRCh38') {
-              const chrom = genomicMatch[1];
-              const pos = genomicMatch[2];
-              const endPos = genomicMatch[3] || pos;
-              const ref = genomicMatch[4] || '';
-              const alt = genomicMatch[5] || '';
-              const changeType = genomicMatch[6]?.toLowerCase();
-              const changeSeq = genomicMatch[7] || '';
-              
-              try {
-                const mapUrl = `https://rest.ensembl.org/map/human/GRCh38/${chrom}:${pos}..${endPos}/GRCh37?content-type=application/json`;
-                let mapData: any;
-                if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.sendMessage) {
-                  const response = await new Promise<{ success: boolean; data?: any; error?: string; is429?: boolean; retryAfter?: number }>((resolve) => {
-                    chrome.runtime.sendMessage({ type: 'FETCH_VARIANT_ENRICHMENT', url: mapUrl }, (res) => {
-                      const err = chrome.runtime.lastError;
-                      if (err) resolve({ success: false, error: err.message });
-                      else resolve(res || { success: false, error: 'No response' });
-                    });
-                  });
-                  if (!response.success) {
-                    if (response.is429) {
-                      const errObj = new Error('Too many requests') as any;
-                      errObj.is429 = true;
-                      errObj.retryAfter = response.retryAfter;
-                      throw errObj;
-                    }
-                    throw new Error(response.error || 'Failed mapping liftover');
-                  }
-                  mapData = response.data;
-                } else {
-                  const res = await fetch(mapUrl, { signal: abortController.signal });
-                  if (res.status === 429) {
-                    const retryAfterHeader = res.headers.get('Retry-After');
-                    const retryAfter = retryAfterHeader ? parseInt(retryAfterHeader, 10) : 5;
-                    const errObj = new Error('Too many requests') as any;
-                    errObj.is429 = true;
-                    errObj.retryAfter = isNaN(retryAfter) ? 5 : retryAfter;
-                    throw errObj;
-                  }
-                  if (res.ok) mapData = await res.json();
-                }
-                
-                if (mapData && Array.isArray(mapData.mappings) && mapData.mappings.length > 0) {
-                  const mappedStart = mapData.mappings[0].mapped?.start;
-                  if (mappedStart) {
-                    mappedPos = String(mappedStart);
-                    if (ref && alt) {
-                      activeQueryKey = `chr${chrom}:g.${mappedStart}${ref}>${alt}`;
-                    } else if (changeType) {
-                      const diff = parseInt(endPos, 10) - parseInt(pos, 10);
-                      const mappedEnd = isNaN(diff) ? '' : `_${mappedStart + diff}`;
-                      activeQueryKey = `chr${chrom}:g.${mappedStart}${mappedEnd}${changeType}${changeSeq}`;
-                    } else {
-                      activeQueryKey = `chr${chrom}:g.${mappedStart}`;
-                    }
-                    
-                    // Check mapped cache
-                    if (!forceFresh) {
-                      const cachedMapped = memoryCache.get(activeQueryKey);
-                      if (cachedMapped) {
-                        const age = Date.now() - cachedMapped.fetchedAt;
-                        const isGenomic = activeQueryKey.match(/^chr(2[0-2]|1[0-9]|[1-9]|X|Y|MT|M):g\./i);
-                        const isEmpty = !cachedMapped.rsId && (cachedMapped.gnomadAf === undefined || cachedMapped.gnomadAf === null) && !cachedMapped.clinvarSignificance && !cachedMapped.geneSymbol;
-                        if (age < CACHE_TTL_MS && !(isGenomic && isEmpty)) {
-                          return cachedMapped;
-                        }
-                        // Expired or empty genomic — remove and re-fetch
-                        memoryCache.delete(activeQueryKey);
-                        savePersistentCache(memoryCache);
-                      }
-                    } else {
-                      memoryCache.delete(activeQueryKey);
-                      savePersistentCache(memoryCache);
-                    }
-                  }
-                }
-              } catch (e: any) {
-                if (e.is429) throw e;
-                console.warn('[VariantHandler] Liftover failed:', e);
-              }
-            }
-
-            // First try direct lookup by ID (extremely robust for GRCh37 or successfully mapped GRCh38)
-            const url = `${API_BASE}/${encodeURIComponent(activeQueryKey)}?fields=${FIELDS}`;
-            let data: any;
-
             const performFetch = async (targetUrl: string) => {
               if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.sendMessage) {
                 const response = await new Promise<{ success: boolean; data?: any; error?: string; is429?: boolean; retryAfter?: number }>((resolve) => {
@@ -694,6 +758,111 @@ export function useVariantEnrichment(
               }
             };
 
+            let activeQueryKey = queryKey;
+            let mappedPos = '';
+            // Strip the @build suffix we append to cache keys to prevent cross-build collisions
+            let rawQueryKey = queryKey.replace(/@(GRCh38|GRCh37)$/, '');
+            let genomicMatch = rawQueryKey.match(/^chr(2[0-2]|1[0-9]|[1-9]|X|Y|MT|M):g\.([0-9]+)(?:_([0-9]+))?(?:([ACGTN\-]+)>([ACGTN\-]+)|(delins|del|ins|dup|inv)([ACGTN]*))$/i);
+
+            // 1. Resolve UCSC sequence for structural variants lacking alleles
+            let resolvedHgvsg: string | undefined = undefined;
+            if (genomicMatch) {
+              const changeType = genomicMatch[6]?.toLowerCase();
+              const hasAlleles = hasRealAllele(genomicMatch[4]) && hasRealAllele(genomicMatch[5]);
+              if (changeType && !hasAlleles) {
+                const ucscRes = await resolveUcscSequence(parsed, build as GenomeBuild, performFetch);
+                if (ucscRes) {
+                  resolvedHgvsg = ucscRes.resolvedHgvsg;
+                  activeQueryKey = resolvedHgvsg;
+                  rawQueryKey = resolvedHgvsg;
+                  // Re-evaluate genomicMatch for the resolved coordinates
+                  genomicMatch = resolvedHgvsg.match(/^chr(2[0-2]|1[0-9]|[1-9]|X|Y|MT|M):g\.([0-9]+)(?:_([0-9]+))?(?:([ACGTN\-]+)>([ACGTN\-]+)|(delins|del|ins|dup|inv)([ACGTN]*))$/i);
+                }
+              }
+            }
+
+            // 2. Validate reference allele if explicit alleles are present
+            let refMismatch: string | undefined = undefined;
+            if (genomicMatch) {
+              const ref = genomicMatch[4];
+              const alt = genomicMatch[5];
+              if (hasRealAllele(ref) && hasRealAllele(alt)) {
+                const tempParsed = {
+                  ...parsed,
+                  chromosome: genomicMatch[1],
+                  position: genomicMatch[2],
+                  ref,
+                  alt
+                };
+                const validationRes = await validateRefAllele(tempParsed, build as GenomeBuild, performFetch);
+                if (validationRes) {
+                  refMismatch = validationRes;
+                }
+              }
+            }
+
+            // Ensure activeQueryKey uses the raw (no-suffix) key for actual API calls
+            if (!resolvedHgvsg && queryKey !== rawQueryKey) {
+              activeQueryKey = rawQueryKey;
+            }
+
+            if (genomicMatch && build === 'GRCh38') {
+              const chrom = genomicMatch[1];
+              const pos = genomicMatch[2];
+              const endPos = genomicMatch[3] || pos;
+              const ref = genomicMatch[4] || '';
+              const alt = genomicMatch[5] || '';
+              const changeType = genomicMatch[6]?.toLowerCase();
+              const changeSeq = genomicMatch[7] || '';
+              
+              try {
+                const mapUrl = `https://rest.ensembl.org/map/human/GRCh38/${chrom}:${pos}..${endPos}/GRCh37?content-type=application/json`;
+                let mapData: any;
+                mapData = await performFetch(mapUrl);
+                
+                if (mapData && Array.isArray(mapData.mappings) && mapData.mappings.length > 0) {
+                  const mappedStart = mapData.mappings[0].mapped?.start;
+                  if (mappedStart) {
+                    mappedPos = String(mappedStart);
+                    if (ref && alt) {
+                      activeQueryKey = `chr${chrom}:g.${mappedStart}${ref}>${alt}`;
+                    } else if (changeType) {
+                      const diff = parseInt(endPos, 10) - parseInt(pos, 10);
+                      const mappedEnd = isNaN(diff) ? '' : `_${mappedStart + diff}`;
+                      activeQueryKey = `chr${chrom}:g.${mappedStart}${mappedEnd}${changeType}${changeSeq}`;
+                    } else {
+                      activeQueryKey = `chr${chrom}:g.${mappedStart}`;
+                    }
+                    
+                    // Check mapped cache
+                    if (!forceFresh) {
+                      const cachedMapped = memoryCache.get(activeQueryKey);
+                      if (cachedMapped) {
+                        const age = Date.now() - cachedMapped.fetchedAt;
+                        const isGenomic = activeQueryKey.match(/^chr(2[0-2]|1[0-9]|[1-9]|X|Y|MT|M):g\./i);
+                        const isEmpty = !cachedMapped.rsId && (cachedMapped.gnomadAf === undefined || cachedMapped.gnomadAf === null) && !cachedMapped.clinvarSignificance && !cachedMapped.geneSymbol;
+                        if (age < CACHE_TTL_MS && !(isGenomic && isEmpty)) {
+                          return cachedMapped;
+                        }
+                        // Expired or empty genomic — remove and re-fetch
+                        memoryCache.delete(activeQueryKey);
+                        savePersistentCache(memoryCache);
+                      }
+                    } else {
+                      memoryCache.delete(activeQueryKey);
+                      savePersistentCache(memoryCache);
+                    }
+                  }
+                }
+              } catch (e: any) {
+                if (e.is429) throw e;
+                console.warn('[VariantHandler] Liftover failed:', e);
+              }
+            }
+
+            // First try direct lookup by ID (extremely robust for GRCh37 or successfully mapped GRCh38)
+            const url = `${API_BASE}/${encodeURIComponent(activeQueryKey)}?fields=${FIELDS}`;
+            let data: any;
             data = await performFetch(url);
 
             // If direct ID lookup returned notfound or error, fall back to genomic search query (if it was a genomic match)
@@ -725,6 +894,15 @@ export function useVariantEnrichment(
             }
 
             const enrichmentData = parseApiResponse(data, activeQueryKey);
+            if (resolvedHgvsg) {
+              enrichmentData.hgvsg = resolvedHgvsg;
+              if (enrichmentData.source === 'none') {
+                enrichmentData.source = 'myvariant';
+              }
+            }
+            if (refMismatch) {
+              enrichmentData.refMismatch = refMismatch;
+            }
 
             // R2: ClinVar E-utilities direct layer. Runs when MyVariant did not
             // supply ClinVar significance/review, the rsID, or build-correct

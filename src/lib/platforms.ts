@@ -2,7 +2,7 @@
  * Variant Handler — Platform Adapters
  */
 
-import type { ParsedVariant } from './parser';
+import { ParsedVariant, parseVariant } from './parser';
 
 export interface PlatformAdapter {
   id: string;
@@ -105,16 +105,24 @@ export function hasRealAllele(allele?: string): boolean {
 export function getMissingDataReason(
   parsed: ParsedVariant,
   adapter: PlatformAdapter,
-  enrichment?: { geneSymbol?: string } | null,
+  enrichment?: { geneSymbol?: string; hgvsg?: string } | null,
 ): string | null {
   const needsCoords  = ['dash', 'hgvs_g', 'coordinate'].includes(adapter.requiredFormat);
   const needsAlleles = ['dash', 'hgvs_g'].includes(adapter.requiredFormat);
   const needsHgvsC   = adapter.requiredFormat === 'hgvs_c';
 
-  if (needsCoords  && (!parsed.chromosome || !parsed.position))  return `Chromosome and position required for ${adapter.name}`;
-  if (needsAlleles && (!hasRealAllele(parsed.ref) || !hasRealAllele(parsed.alt))) return `Ref and Alt alleles required for ${adapter.name}`;
+  let currentParsed = parsed;
+  if (enrichment?.hgvsg) {
+    const resolvedGenomic = parseVariant(enrichment.hgvsg);
+    if (resolvedGenomic.isValid) {
+      currentParsed = resolvedGenomic;
+    }
+  }
 
-  const gene = enrichment?.geneSymbol || parsed.geneSymbol;
+  if (needsCoords  && (!currentParsed.chromosome || !currentParsed.position))  return `Chromosome and position required for ${adapter.name}`;
+  if (needsAlleles && (!hasRealAllele(currentParsed.ref) || !hasRealAllele(currentParsed.alt))) return `Ref and Alt alleles required for ${adapter.name}`;
+
+  const gene = enrichment?.geneSymbol || currentParsed.geneSymbol;
   if (gene) {
     // N7: for hgvs_c platforms (VariantValidator) a gene-only fallback would
     // launch the bare homepage (buildPlatformUrl returns the site root when no
@@ -125,6 +133,6 @@ export function getMissingDataReason(
     }
   }
 
-  if (needsHgvsC   && (!parsed.transcript || !parsed.codingChange)) return `Transcript and coding change required for ${adapter.name}`;
+  if (needsHgvsC   && (!currentParsed.transcript || !currentParsed.codingChange)) return `Transcript and coding change required for ${adapter.name}`;
   return null;
 }

@@ -9,7 +9,7 @@
  * platforms.  This file now only contains portals that are genuinely
  * optional add-ons not present in INITIAL_PLATFORMS.
  */
-import { PlatformAdapter } from './parser';
+import { PlatformAdapter } from './platforms';
 
 /**
  * Curated clinical genomics portals available as optional add-ons.

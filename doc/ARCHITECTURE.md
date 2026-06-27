@@ -1,6 +1,6 @@
 # Architecture & Design Reference
 
-> **Status:** Current as of `v1.1.1`. Last updated after the N1–N9 audit remediation and the R1–R7 scope/limitations remediation (canonical DB removed; layered ClinVar-direct + Ensembl enrichment; session-scoped cache; bounds validator).
+> **Status:** Current as of `v1.1.2`. Last updated after the UCSC Sequence API integration, the URL builder Strategy Pattern refactoring, and the content script URL change detection optimization.
 
 This document explains the system design of Variant Handler — why things are structured the way they are, and the key patterns used to keep the codebase safe and maintainable.
 
@@ -146,9 +146,9 @@ This version-stripping pattern was originally used to match canonical-DB transcr
 
 ### 3.4 URL Construction
 
-`buildPlatformUrl()` fills a URL template string using named `{{placeholders}}`. All user-derived values are `encodeURIComponent`-encoded to prevent URL injection.
+`buildPlatformUrl()` delegates to platform-specific builders using a Registry/Strategy pattern (implemented in `src/lib/urlBuilders.ts`). Custom builders are registered for gnomAD, UCSC, SpliceAI, AlphaMissense, ClinVar, dbSNP, Mutalyzer, and VariantValidator, while other platforms default to a template-based builder. All user-derived values are `encodeURIComponent`-encoded to prevent URL injection.
 
-The end position for UCSC (and any future platform using `{{endPos}}`) is computed by `computeEndPos()`:
+The end position for UCSC (and any other platform using the `{{endPos}}` placeholder) is computed by `computeEndPos()`:
 ```typescript
 endPos = pos + max(ref.length, alt.length) - 1
 ```

@@ -1458,11 +1458,20 @@ if (isContextValid()) {
 
   // Watch for SPA URL changes
   let lastUrl = window.location.href;
-  setInterval(() => {
+  const handleUrlChange = () => {
     if (!isContextValid()) return;
     if (window.location.href !== lastUrl) {
       lastUrl = window.location.href;
       startInjectionMonitoring();
     }
-  }, 1000);
+  };
+
+  window.addEventListener('popstate', handleUrlChange);
+  window.addEventListener('hashchange', handleUrlChange);
+
+  const urlObserver = new MutationObserver(handleUrlChange);
+  const headEl = document.querySelector('head');
+  if (headEl) {
+    urlObserver.observe(headEl, { childList: true, characterData: true, subtree: true });
+  }
 }

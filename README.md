@@ -7,7 +7,7 @@
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.8-3178c6?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
 [![React](https://img.shields.io/badge/React-19-61dafb?logo=react&logoColor=black)](https://react.dev/)
 [![Manifest V3](https://img.shields.io/badge/Chrome_Extension-MV3-4285F4?logo=googlechrome&logoColor=white)](https://developer.chrome.com/docs/extensions/mv3/intro/)
-[![Tests](https://img.shields.io/badge/Tests-105%20passing-10b981)](./src/__tests__/parser.test.ts)
+[![Tests](https://img.shields.io/badge/Tests-127%20passing-10b981)](./src/__tests__/parser.test.ts)
 
 </div>
 
@@ -30,7 +30,7 @@ Variant Handler acts as a **persistent, format-aware clipboard** that travels ac
 | Class | Supported? | Notes |
 |-------|-----------|-------|
 | **SNVs** (single nucleotide) | ✅ Full | Primary use case — HGVSg, VCF dash, simple `chr:posREF>ALT`, HGVSc, HGVSp all parse and launch to every platform. |
-| **Small indels** (≤ a few kb del/ins/dup/delins/inv at sequence level) | ✅ Partial | HGVS `del`/`ins`/`dup`/`delins`/`inv` with explicit sequence or coordinate ranges parse; alleles are VCF-trimmed but not left-aligned without the reference genome (Live Enrichment resolves normalised HGVSg via Ensembl VEP). |
+| **Small indels** (≤ a few kb del/ins/dup/delins/inv at sequence level) | ✅ Full | HGVS `del`/`ins`/`dup`/`delins`/`inv` with explicit sequence or ranges parse. Lacking sequence (e.g., range deletions or duplications) is resolved via the UCSC Sequence API (during live enrichment) to construct standard VCF alleles and enable launches. |
 | **CNVs / copy-number** (cytogenetic `del(17)(p13.1)`, MLPA "del exon 7–10", large-scale gains/losses) | ❌ Not supported | No parser, no platform integration (no gnomAD CNV, ClinGen dosage, or DECIPHER CNV viewer). See [`doc/LIMITATIONS.md`](./doc/LIMITATIONS.md) §1.1. |
 | **Translocations / fusions** (`t(9;22)(q34;q11)`, fusion transcripts) | ❌ Not supported | |
 | **RNA-level** (`r.76a>u`) | ❌ Not supported | |
@@ -68,11 +68,12 @@ Accepts any variant notation and extracts structured fields (chromosome, positio
 | NC_ genomic accession | `NC_000007.14:c.117559590A>G` → infers chr7 |
 | Mitochondrial | `NC_012920.1:c.1555A>G` → infers chrMT |
 
-### 🌐 Live Coordinate Resolution (Layered Enrichment)
-Genomic coordinates for transcript-only inputs (e.g. `NM_000492.4:c.1521_1523delCTT`) are resolved at runtime via a layered enrichment backend — no static coordinate table:
-1. **MyVariant.info** — rsID, gnomAD AF, ClinVar snapshot, gene/HGVSc (fast cached path)
-2. **ClinVar E-utilities direct** — current ClinVar significance/review (no lag), dbSNP rsID, build-correct coordinates for both GRCh38 + GRCh37
-3. **Ensembl VEP** — gene/HGVSg with true left-aligned alleles; GRCh38→GRCh37 liftover
+### 🌐 Live Coordinate & Sequence Resolution (Layered Enrichment)
+Genomic coordinates and sequences are resolved at runtime via a layered enrichment backend:
+1. **UCSC Sequence API** — fetches reference genome sequence data to resolve VCF-conforming coordinates and alleles for structural variants lacking explicit sequence.
+2. **MyVariant.info** — rsID, gnomAD AF, ClinVar snapshot, gene/HGVSc (fast cached path)
+3. **ClinVar E-utilities direct** — current ClinVar significance/review (no lag), dbSNP rsID, build-correct coordinates for both GRCh38 + GRCh37
+4. **Ensembl VEP** — gene/HGVSg with true left-aligned alleles; GRCh38→GRCh37 liftover
 
 Disable Live Lookup in Settings for sensitive/unpublished variants — parsing and URL-building work fully offline.
 
@@ -303,8 +304,9 @@ All panel shortcuts use `Alt` + key and are disabled when a text field has focus
 | Malformed localStorage | `parseBatchItem()` validates each item shape on read |
 | Third-party favicon/telemetry leak | Platform buttons use local first-letter colored circles — no external favicon or analytics requests |
 | Cross-build coordinate mismatch | Chromosome-length bounds validator warns when a position exceeds the selected build's max; ClinVar direct supplies build-correct coords; Ensembl liftover runs during enrichment |
+| Reference allele mismatch | Live enrichment queries UCSC Sequence API to validate ref alleles; warning banners alert users of mismatches |
 | Sensitive genomic data at rest | Enrichment cache in `chrome.storage.session` (cleared on browser close); queue/history behind "Clear data on close" toggle + "Clear all stored data" action |
-| CSP | Manifest `script-src 'self'; object-src 'none'; connect-src` limited to MyVariant, Ensembl, and NCBI E-utilities |
+| CSP | Manifest `script-src 'self'; object-src 'none'; connect-src` limited to UCSC Sequence API, MyVariant, Ensembl, and NCBI E-utilities |
 
 ---
 
@@ -316,10 +318,9 @@ The extension requests the minimum required permissions:
 |------------|--------|
 | `sidePanel` | Open the side panel via toolbar click |
 | `storage` | Persist queue, history, theme, and genome-build preference in `chrome.storage.local` |
-| `clipboardRead` | Paste-from-clipboard buttons (single-variant paste + batch paste-and-merge) |
 | Host permissions (7 domains) | Inject content script to autofill search inputs on supported clinical databases |
 
-All coordinate parsing is performed locally. The extension optionally queries public clinical APIs (MyVariant.info and Ensembl) over HTTPS to fetch annotation enrichments if live lookup is enabled in Settings.
+All coordinate parsing is performed locally. The extension optionally queries public clinical APIs (UCSC Sequence API, MyVariant.info, Ensembl, and NCBI) over HTTPS to fetch annotation enrichments if live lookup is enabled in Settings.
 
 ---
 
@@ -341,10 +342,11 @@ Theme preference is saved to `localStorage` and restored on next open.
 
 ### Adding a New Platform
 
-1. Add an entry to `INITIAL_PLATFORMS` in [`src/lib/parser.ts`](./src/lib/parser.ts)
-2. Set `requiredFormat` to one of: `'dash' | 'hgvs_g' | 'hgvs_c' | 'coordinate' | 'custom'`
-3. Add the domain to `host_permissions` and `content_scripts.matches` in [`public/manifest.json`](./public/manifest.json)
-4. Add a domain-specific input selector to `findSearchInput()` in [`src/content/index.ts`](./src/content/index.ts) if the generic heuristic doesn't find the right field
+1. Add an entry to `INITIAL_PLATFORMS` in [`src/lib/platforms.ts`](./src/lib/platforms.ts).
+2. Set `requiredFormat` to one of: `'dash' | 'hgvs_g' | 'hgvs_c' | 'coordinate' | 'custom'`.
+3. If the platform requires custom URL generation logic (e.g., gnomAD or ClinVar), implement a `PlatformUrlBuilder` in [`src/lib/urlBuilders.ts`](./src/lib/urlBuilders.ts) and register it in the `builders` Map. Otherwise, URL generation will fall back to replacing template placeholders specified in `urlTemplate`.
+4. Add the domain to `host_permissions` and `content_scripts.matches` in [`public/manifest.json`](./public/manifest.json).
+5. Add a domain-specific input selector to `findSearchInput()` in [`src/content/index.ts`](./src/content/index.ts) if the generic heuristic doesn't find the right field.
 
 ### Coordinate Resolution (no static hotspot table)
 

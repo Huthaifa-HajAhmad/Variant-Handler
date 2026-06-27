@@ -6,6 +6,35 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [1.1.2] — 2026-06-27
+
+### 🚀 New Features & Enhancements
+
+- **UCSC Sequence API Integration & Reference Validation** (`src/hooks/useVariantEnrichment.ts`, `src/components/VariantWorkbench.tsx`) — Integrates the UCSC Genome Browser `/getData/sequence` REST API to dynamically fetch reference genome sequence data. This:
+  - Resolves coordinates and constructs standard VCF alleles for structural variants (deletions, duplications, insertions, delins, and inversions) that lack explicit sequence. The Launchpad buttons for gnomAD and SpliceAI now enable automatically once sequence resolution completes.
+  - Automatically validates user-supplied reference alleles (`ref`) against the genome assembly for both SNVs and indels, showing an alert warning banner in the Workbench if a mismatch is detected. If the base matches on the alternative assembly (GRCh37 vs. GRCh38) at the exact coordinates, the warning specifically advises that the user might have selected the wrong genome build.
+
+- **Content Script URL Polling Optimization** (`src/content/index.ts`) — Replaced the permanent 1-second `setInterval` timer with lightweight event listeners for `popstate` and `hashchange` combined with a `MutationObserver` on the `<head>` element. This prevents permanent background timer overhead.
+
+### ⚙️ Refactoring & Cleanups
+
+- **URL Builder Strategy Pattern** (`src/lib/urlBuilders.ts`, `src/lib/parser.ts`) — Refactored the 165-line `buildPlatformUrl` switch-on-id function into a Registry/Strategy pattern. Platform-specific URL logic is decoupled into standalone builders and registered in a builder map, resolving clean-code and modularity concerns.
+
+- **Removed Unused `clipboardRead` Permission** (`public/manifest.json`) — Cleaned up the extension manifest permissions list to satisfy least-privilege guidelines.
+
+### ✅ Tests Added
+- Added 6 new unit tests verifying:
+  - UCSC Sequence API range calculations and VCF allele formatting across del, dup, ins, inv, and delins variants.
+  - Platform button activation status updates after live sequence-level coordinate resolution.
+
+---
+
+## [1.1.1] — 2026-06-19
+
+- Internal audit fixes and performance improvements.
+
+---
+
 ## [1.0.1] — 2026-06-13
 
 ### 🔴 Critical Fixes — Clinical Correctness

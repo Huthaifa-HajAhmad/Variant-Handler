@@ -25,7 +25,8 @@ const ALLOWED_DOMAINS = [
   'myvariant.info',
   'rest.ensembl.org',
   'grch37.rest.ensembl.org',
-  'eutils.ncbi.nlm.nih.gov'
+  'eutils.ncbi.nlm.nih.gov',
+  'api.genome.ucsc.edu'
 ];
 
 if (typeof chrome !== 'undefined' && chrome.runtime) {
