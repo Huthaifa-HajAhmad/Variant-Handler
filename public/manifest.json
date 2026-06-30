@@ -1,11 +1,13 @@
 {
   "manifest_version": 3,
   "name": "Variant Handler",
-  "version": "1.1.2",
+  "version": "1.2.0",
   "description": "Stateful sidebar companion for rare disease genomic coordinate parsing and navigation.",
   "permissions": [
     "sidePanel",
-    "storage"
+    "storage",
+    "clipboardRead",
+    "clipboardWrite"
   ],
   "host_permissions": [
     "*://gnomad.broadinstitute.org/*",
@@ -40,13 +42,13 @@
     "default_path": "index.html"
   },
   "content_security_policy": {
-    "extension_pages": "script-src 'self'; object-src 'none'; connect-src https://myvariant.info https://rest.ensembl.org https://grch37.rest.ensembl.org https://eutils.ncbi.nlm.nih.gov https://api.genome.ucsc.edu;"
+    "extension_pages": "script-src 'self'; object-src 'none'; connect-src https://myvariant.info https://rest.ensembl.org https://grch37.rest.ensembl.org https://eutils.ncbi.nlm.nih.gov https://api.genome.ucsc.edu https://api.ncbi.nlm.nih.gov;"
   },
   "commands": {
     "_execute_action": {
       "suggested_key": {
-        "default": "Alt+V",
-        "mac": "Alt+V"
+        "default": "Ctrl+Shift+G",
+        "mac": "Command+Shift+G"
       },
       "description": "Open Variant Handler Side Panel"
     }

@@ -361,3 +361,71 @@ export function parseGenomicHgvs(str: string): GenomicCoordinate | null {
   }
   return null;
 }
+
+export function getFormattedVariant(parsed: ParsedVariant, format: string): string {
+  if (!parsed.isValid) return parsed.raw;
+
+  const chrom = parsed.chromosome ?? '';
+  const pos = parsed.position ?? '';
+  const ref = parsed.ref ?? '';
+  const alt = parsed.alt ?? '';
+
+  const cleanRaw = parsed.raw
+    .replace(/\s*[\(\[][A-Za-z0-9]+[\)\]]\s*/g, '')
+    .trim()
+    .replace(/^(?:Chr|CHR)/, 'chr');
+  switch (format) {
+    case 'dash':
+      if (chrom && pos && hasRealAllele(ref) && hasRealAllele(alt)) {
+        return `${chrom}-${pos}-${ref}-${alt}`;
+      }
+      if (parsed.transcript && parsed.codingChange) {
+        return `${parsed.transcript}:${parsed.codingChange}`;
+      }
+      return cleanRaw;
+    case 'hgvs_g':
+      if (chrom && pos && hasRealAllele(ref) && hasRealAllele(alt)) {
+        return `chr${chrom}:g.${pos}${ref}>${alt}`;
+      }
+      if (parsed.transcript && parsed.codingChange) {
+        return `${parsed.transcript}:${parsed.codingChange}`;
+      }
+      return cleanRaw;
+    case 'hgvs_c':
+      return parsed.transcript && parsed.codingChange
+        ? `${parsed.transcript}:${parsed.codingChange}`
+        : cleanRaw;
+    case 'coordinate': {
+      if (!chrom || !pos) return cleanRaw;
+      const start = parseInt(pos, 10);
+      let end = pos;
+      if (parsed.endPosition) {
+        end = parsed.endPosition;
+      } else {
+        const span = ref && alt ? Math.max(ref.length, alt.length) - 1 : 0;
+        end = isNaN(start) ? pos : String(start + span);
+      }
+      return `chr${chrom}:${pos}-${end}`;
+    }
+    case 'custom': {
+      if (chrom && pos && ref && alt) {
+        if (typeof window !== 'undefined' && window.location.hostname.includes('ncbi.nlm.nih.gov')) {
+          return `${chrom}-${pos}-${ref}-${alt}`;
+        }
+        return `chr${chrom}:g.${pos}${ref}>${alt}`;
+      }
+      if (parsed.transcript && parsed.codingChange) {
+        return `${parsed.transcript}:${parsed.codingChange}`;
+      }
+      if (chrom && pos) {
+        const start = parseInt(pos, 10);
+        const endPos = parsed.endPosition ? parseInt(parsed.endPosition, 10) : NaN;
+        const end = !isNaN(start) && !isNaN(endPos) && endPos > start ? String(endPos) : pos;
+        return `chr${chrom}:${pos}-${end}`;
+      }
+      return cleanRaw;
+    }
+    default:
+      return cleanRaw;
+  }
+}

@@ -16,6 +16,7 @@ import {
   buildPlatformUrl,
   INITIAL_PLATFORMS,
   getMissingDataReason,
+  getFormattedVariant,
 } from '../lib/parser';
 import { GenomeBuild, DEFAULT_BUILD } from '../utils/genomeBuild';
 import { BatchItem } from '../lib/types';
@@ -32,23 +33,14 @@ import Header from '../components/Header';
 import VariantWorkbench from '../components/VariantWorkbench';
 import PlatformLaunchpad from '../components/PlatformLaunchpad';
 import BatchQueuePanel from '../components/BatchQueuePanel';
-import { Check } from 'lucide-react';
+import { Check, AlertCircle } from 'lucide-react';
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
 const ENRICHMENT_ENABLED_KEY = 'variantstream_live_enrichment_enabled';
 const GENOME_BUILD_KEY       = 'variantstream_genome_build';
 
-// ── Default Demo Data ────────────────────────────────────────────────────────
-
-const DEFAULT_BATCH: BatchItem[] = [
-  { id: '1', input: 'NM_000277.3:c.1222C>T',        gene: 'PAH',  note: 'Autosomal recessive phenylketonuria candidate founder mutation.' },
-  { id: '2', input: 'NM_000152.5:c.1054C>T',        gene: 'GAA',  note: 'Pompe disease (Glycogen Storage Disease Type II) — GAA enzyme deficiency variant.' },
-  { id: '3', input: 'NM_000154.4:c.563A>G',         gene: 'GALT', note: 'Classic autosomal recessive transferase-deficiency galactosemia.' },
-  { id: '4', input: 'NM_000492.4:c.1521_1523delCTT', gene: 'CFTR', note: 'Delta-F508 homozygous rare candidate; check airway epithelia allele rate.' },
-  { id: '5', input: 'NM_004006.3:c.589C>T',         gene: 'DMD',  note: 'Muscular dystrophy splicing modifier; verify exons deletion database.' },
-  { id: '6', input: 'NM_014855.3:c.1102A>G',        gene: 'MDC1', note: 'Awaiting lab validation.' },
-];
+const DEFAULT_BATCH: BatchItem[] = [];
 
 export default function SidepanelView() {
   // ── Hooks ───────────────────────────────────────────────────────────────
@@ -57,7 +49,8 @@ export default function SidepanelView() {
   const { history, addToHistory, removeFromHistory, clearHistory, cap, setHistoryCap } = useHistory(DEFAULT_BATCH.map((b) => b.input));
 
   // ── Local state ─────────────────────────────────────────────────────────
-  const [activeInput,    setActiveInput]    = useState('NM_000492.4:c.1521_1523delCTT');
+  const [activeInput,    setActiveInput]    = useState('');
+  const [activeTabUrl,   setActiveTabUrl]   = useState('');
   const [microNote,      setMicroNote]      = useState('');
   const [isStorageLoaded, setIsStorageLoaded] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
@@ -141,6 +134,18 @@ export default function SidepanelView() {
     [history],
   );
 // ── Effects ─────────────────────────────────────────────────────────
+
+  // Load microNote when activeInput changes, matching any existing queue item note
+  useEffect(() => {
+    const matched = batchQueue.find(
+      (item) => item.input.trim().toLowerCase() === activeInput.trim().toLowerCase()
+    );
+    if (matched) {
+      setMicroNote(matched.note || '');
+    } else {
+      setMicroNote('');
+    }
+  }, [activeInput, batchQueue]);
 
 useEffect(() => {
   if (typeof chrome !== 'undefined' && chrome.runtime) {
@@ -262,6 +267,40 @@ useEffect(() => {
     };
   }, []);
 
+  const updateActiveTabUrl = useCallback(() => {
+    if (typeof chrome !== 'undefined' && chrome.tabs && chrome.tabs.query) {
+      chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+        const activeTab = tabs[0];
+        if (activeTab && activeTab.url) {
+          setActiveTabUrl(activeTab.url);
+        } else {
+          setActiveTabUrl('');
+        }
+      });
+    }
+  }, []);
+
+  useEffect(() => {
+    updateActiveTabUrl();
+
+    if (typeof chrome !== 'undefined' && chrome.tabs) {
+      const handleActivated = () => updateActiveTabUrl();
+      const handleUpdated = (_tabId: number, changeInfo: chrome.tabs.TabChangeInfo) => {
+        if (changeInfo.url) {
+          updateActiveTabUrl();
+        }
+      };
+
+      chrome.tabs.onActivated.addListener(handleActivated);
+      chrome.tabs.onUpdated.addListener(handleUpdated);
+
+      return () => {
+        chrome.tabs.onActivated.removeListener(handleActivated);
+        chrome.tabs.onUpdated.removeListener(handleUpdated);
+      };
+    }
+  }, [updateActiveTabUrl]);
+
   // T10: Consolidated state sync to chrome.storage.local (also handles T9 genome build propagation)
   useEffect(() => {
     if (!isStorageLoaded) return;
@@ -362,6 +401,97 @@ useEffect(() => {
 
   const isLight = activeTheme.isLight;
 
+  const handleAutofillVariant = useCallback(() => {
+    if (!parsed.isValid) return;
+    if (typeof chrome === 'undefined' || !chrome.tabs) {
+      triggerAlert('Active tab actions only available in extension mode.');
+      return;
+    }
+    chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+      const activeTab = tabs[0];
+      if (!activeTab || !activeTab.id || !activeTab.url) {
+        triggerAlert('No active genomic portal tab found.');
+        return;
+      }
+      try {
+        const parsedUrl = new URL(activeTab.url);
+        const adapter = INITIAL_PLATFORMS.find(p => parsedUrl.hostname.includes(p.domain));
+        const formatted = adapter ? getFormattedVariant(parsed, adapter.requiredFormat) : activeInput;
+
+        chrome.tabs.sendMessage(activeTab.id, { type: 'AUTOFILL_VARIANT', value: formatted }, (response) => {
+          const lastError = chrome.runtime.lastError;
+          if (lastError) {
+            triggerAlert('Could not communicate with tab search input. Please refresh the active tab and try again.');
+          } else if (response && !response.success) {
+            triggerAlert(response.error || 'Autofill failed.');
+          } else {
+            triggerAlert('Variant autofilled in tab search box!');
+          }
+        });
+      } catch (err) {
+        console.error(err);
+      }
+    });
+  }, [parsed, activeInput, triggerAlert]);
+
+  const handleAutofillGene = useCallback(() => {
+    const geneSymbol = enrichment?.geneSymbol || parsed.geneSymbol || inferGeneLabel(parsed);
+    if (!geneSymbol || geneSymbol === 'GENE') {
+      triggerAlert('No gene symbol resolved.');
+      return;
+    }
+    if (typeof chrome === 'undefined' || !chrome.tabs) {
+      triggerAlert('Active tab actions only available in extension mode.');
+      return;
+    }
+    chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+      const activeTab = tabs[0];
+      if (!activeTab || !activeTab.id) {
+        triggerAlert('No active tab found.');
+        return;
+      }
+      chrome.tabs.sendMessage(activeTab.id, { type: 'AUTOFILL_GENE', value: geneSymbol }, (response) => {
+        const lastError = chrome.runtime.lastError;
+        if (lastError) {
+          triggerAlert('Could not communicate with tab search input. Please refresh the active tab and try again.');
+        } else if (response && !response.success) {
+          triggerAlert(response.error || 'Autofill failed.');
+        } else {
+          triggerAlert('Gene symbol autofilled in tab search box!');
+        }
+      });
+    });
+  }, [enrichment, parsed, triggerAlert]);
+
+  const handleHighlightInTab = useCallback(() => {
+    const pChange = enrichment?.proteinChange || parsed.proteinChange;
+    if (!pChange) {
+      triggerAlert('No protein alteration mapped.');
+      return;
+    }
+    if (typeof chrome === 'undefined' || !chrome.tabs) {
+      triggerAlert('Active tab actions only available in extension mode.');
+      return;
+    }
+    chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+      const activeTab = tabs[0];
+      if (!activeTab || !activeTab.id) {
+        triggerAlert('No active tab found.');
+        return;
+      }
+      chrome.tabs.sendMessage(activeTab.id, { type: 'FIND_VARIANT', value: pChange }, (response) => {
+        const lastError = chrome.runtime.lastError;
+        if (lastError) {
+          triggerAlert('Could not communicate with tab table. Please refresh the active tab and try again.');
+        } else if (response && !response.success) {
+          triggerAlert('Variant not found in visible table rows.');
+        } else {
+          triggerAlert('Variant highlighted in table!');
+        }
+      });
+    });
+  }, [enrichment, parsed, triggerAlert]);
+
   if (!isStorageLoaded) {
     return (
       <div className={`w-full h-screen ${activeTheme.primaryBg} flex items-center justify-center`}>
@@ -381,17 +511,31 @@ useEffect(() => {
         onThemeToggle={toggleTheme}
       />
 
-      {/* Floating alert */}
-      {alertMsg && (
-        <div
-          role="status"
-          aria-live="polite"
-          className={`absolute top-14 left-1/2 -translate-x-1/2 z-40 flex items-center gap-2 px-3 py-1.5 rounded-full text-[10px] font-bold shadow-lg border transition-all duration-300 ${isLight ? 'bg-white border-slate-200 text-slate-700 shadow-slate-200' : 'bg-slate-800 border-slate-700 text-slate-100 shadow-black/40'}`}
-        >
-          <Check className="w-3 h-3 text-emerald-500" />
-          {alertMsg}
-        </div>
-      )}
+      {/* Floating toast */}
+      {alertMsg && (() => {
+        const isErrorToast = /fail|error|denied|could not|no active|not found|invalid|missing/i.test(alertMsg);
+        return (
+          <div
+            role="status"
+            aria-live="polite"
+            className={`absolute top-12 left-3 right-3 z-50 flex items-start gap-2.5 px-3.5 py-2.5 rounded-xl text-[11px] font-semibold shadow-xl border-l-4 transition-all duration-300 ${
+              isErrorToast
+                ? isLight
+                  ? 'bg-rose-50 border-l-rose-500 border border-rose-200 text-rose-800 shadow-rose-100'
+                  : 'bg-rose-950/60 border-l-rose-500 border border-rose-900/60 text-rose-200 shadow-black/40'
+                : isLight
+                  ? 'bg-emerald-50 border-l-emerald-500 border border-emerald-200 text-emerald-800 shadow-emerald-100'
+                  : 'bg-emerald-950/60 border-l-emerald-500 border border-emerald-900/60 text-emerald-200 shadow-black/40'
+            }`}
+          >
+            {isErrorToast
+              ? <AlertCircle className="w-3.5 h-3.5 shrink-0 mt-px text-rose-500" />
+              : <Check className="w-3.5 h-3.5 shrink-0 mt-px text-emerald-500" />
+            }
+            <span className="leading-snug">{alertMsg}</span>
+          </div>
+        );
+      })()}
 
       {/* ── Main scrollable content ─────────────────────────────────────── */}
       <div className="flex-grow flex flex-col overflow-y-auto p-4 gap-4">
@@ -412,6 +556,10 @@ useEffect(() => {
           enrichmentError={enrichmentError}
           liveEnrichmentEnabled={liveEnrichmentEnabled}
           onRefreshEnrichment={refetchEnrichment}
+          onAutofillVariant={handleAutofillVariant}
+          onAutofillGene={handleAutofillGene}
+          onHighlightInTab={handleHighlightInTab}
+          activeTabUrl={activeTabUrl}
         />
 
         <PlatformLaunchpad

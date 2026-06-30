@@ -8,7 +8,7 @@
  *   - Clear filter (×) button
  */
 import React, { useState, useMemo } from 'react';
-import { ListOrdered, History, Trash2, FileText, FileSpreadsheet, Presentation, Search, X, Plus, ClipboardList } from 'lucide-react';
+import { ListOrdered, History, Trash2, FileText, FileSpreadsheet, Presentation, Search, X, Plus, ClipboardList, ClipboardPaste } from 'lucide-react';
 import { BatchItem } from '../lib/types';
 import { ParsedVariant, parseVariant } from '../lib/parser';
 import { ColorTheme } from '../lib/themes';
@@ -213,20 +213,16 @@ export default function BatchQueuePanel({
               spellCheck={false}
               className={`w-full bg-transparent text-xs outline-none border-none ${isLight ? 'text-slate-800 placeholder-slate-400' : 'text-slate-200 placeholder-slate-600'}`}
             />
+            <button
+              type="button"
+              title="Paste from clipboard"
+              onClick={handlePasteAndMerge}
+              className={`ml-2 p-1 px-1.5 rounded-md flex items-center gap-1 cursor-pointer transition-colors ${isLight ? 'text-slate-400 hover:text-indigo-600 hover:bg-indigo-50' : 'text-slate-500 hover:text-indigo-400 hover:bg-slate-800'}`}
+            >
+              <ClipboardPaste className="w-3.5 h-3.5" />
+              <span className="text-[10px] font-bold">Paste</span>
+            </button>
           </div>
-          <button
-            type={singleAddInput.trim().length > 0 ? "submit" : "button"}
-            onClick={singleAddInput.trim().length > 0 ? undefined : handlePasteAndMerge}
-            id="btn-queue-single-add"
-            title={singleAddInput.trim().length > 0 ? "Add variant to queue" : "Paste and merge from clipboard"}
-            className={`px-3 py-1.5 rounded-lg text-xs font-bold shrink-0 cursor-pointer transition-all shadow-sm ${
-              singleAddInput.trim().length > 0
-                ? isLight ? 'bg-indigo-600 hover:bg-indigo-700 text-white' : 'bg-indigo-600 hover:bg-indigo-500 text-white'
-                : isLight ? 'bg-slate-100 hover:bg-slate-200 border border-slate-300 text-slate-700' : 'bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300'
-            }`}
-          >
-            {singleAddInput.trim().length > 0 ? 'Add' : 'Paste'}
-          </button>
         </form>
       )}
 

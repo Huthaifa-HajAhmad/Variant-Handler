@@ -27,6 +27,8 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { ParsedVariant, GenomeBuild, hasRealAllele } from '../lib/parser';
 import { resolveClinVarDirect } from '../lib/clinvarDirect';
+import { resolveGnomadV4 } from '../lib/ucscGnomad';
+import { resolveNcbiAlfa } from '../lib/ncbiAlfa';
 
 const sequenceCache = new Map<string, string>();
 
@@ -192,12 +194,20 @@ export interface EnrichmentData {
   rsId?: string;
   geneSymbol?: string;
   gnomadAf?: number;      // allele frequency (0–1)
+  gnomadV4ExomeAf?: number;
+  gnomadV4GenomeAf?: number;
+  alfaAf?: number;
+  caddPhred?: number;
+  revelScore?: number;
+  amScore?: number;
+  amPred?: string;
   clinvarSignificance?: string;
   clinvarReview?: string;
   rcvAccession?: string;       // RCV accession from ClinVar direct (R2)
   hgvsg?: string;         // HGVSg from API (may backfill coordinates)
   proteinChange?: string; // HGVSp resolved live
-  codingChange?: string;  // HGVSC resolved live
+  proteinNote?: string;   // Alternative isoform explanation note if canonical has no impact
+  codingChange?: string;  // HGVSc resolved live
   transcript?: string;    // HGVSc transcript resolved live
   refMismatch?: string;   // Warning message if reference allele mismatches reference genome
   source: 'myvariant' | 'ensembl' | 'clinvar' | 'both' | 'none';
@@ -206,7 +216,7 @@ export interface EnrichmentData {
 
 // ── Cache constants ───────────────────────────────────────────────────────────
 
-const CACHE_STORAGE_KEY = 'variantstream_enrichment_cache';
+const CACHE_STORAGE_KEY = 'variantstream_enrichment_cache_v6';
 const CACHE_TTL_MS      = 24 * 60 * 60 * 1000; // 24 hours
 const DEBOUNCE_MS       = 800;
 const API_BASE          = 'https://myvariant.info/v1/variant';
@@ -230,6 +240,10 @@ const FIELDS = [
   'snpeff.ann.hgvs_c',
   'evs.hgvs.coding',
   'evs.gene.accession',
+  'cadd.phred',
+  'dbnsfp.revel.score',
+  'dbnsfp.alphamissense.score',
+  'dbnsfp.alphamissense.pred',
 ].join(',');
 
 // ── In-memory cache (synchronous hot layer) ───────────────────────────────────
@@ -243,7 +257,7 @@ const memoryCache = new Map<string, EnrichmentData>();
 // memoryCache remains the hot layer; session storage only seeds/persists it.
 // A cacheReady promise gates the first read so callers don't miss the preload.
 
-const SESSION_CACHE_KEY = 'variantstream_enrichment_cache';
+const SESSION_CACHE_KEY = 'variantstream_enrichment_cache_v6';
 
 function isSessionStorageAvailable(): boolean {
   return typeof chrome !== 'undefined' && !!chrome.storage && !!chrome.storage.session;
@@ -273,9 +287,8 @@ let cacheReady: Promise<void> = (async () => {
     if (raw) {
       const obj = JSON.parse(raw) as Record<string, EnrichmentData>;
       const now = Date.now();
-      const invalidationThreshold = Date.parse("2026-06-19T19:53:00Z");
       for (const [k, v] of Object.entries(obj)) {
-        if (v && typeof v.fetchedAt === 'number' && now - v.fetchedAt < CACHE_TTL_MS && v.fetchedAt > invalidationThreshold) {
+        if (v && typeof v.fetchedAt === 'number' && now - v.fetchedAt < CACHE_TTL_MS) {
           memoryCache.set(k, v);
         }
       }
@@ -515,6 +528,47 @@ export function parseApiResponse(data: any, queryKey: string): EnrichmentData {
       ? data.gnomad_genome.af.af
       : undefined;
 
+  // CADD PHRED score
+  const caddPhred: number | undefined =
+    typeof data?.cadd?.phred === 'number'
+      ? data.cadd.phred
+      : typeof data?.cadd?.phred === 'string'
+      ? parseFloat(data.cadd.phred)
+      : undefined;
+
+  // REVEL score
+  const revelScore: number | undefined =
+    typeof data?.dbnsfp?.revel?.score === 'number'
+      ? data.dbnsfp.revel.score
+      : typeof data?.dbnsfp?.revel?.score === 'string'
+      ? parseFloat(data.dbnsfp.revel.score)
+      : undefined;
+
+  // AlphaMissense score
+  const amScore: number | undefined = (() => {
+    const am = data?.dbnsfp?.alphamissense;
+    if (!am) return undefined;
+    const scoreVal = am.score;
+    if (typeof scoreVal === 'number') return scoreVal;
+    if (typeof scoreVal === 'string') return parseFloat(scoreVal);
+    if (Array.isArray(scoreVal) && scoreVal.length > 0) {
+      const parsedVal = typeof scoreVal[0] === 'number' ? scoreVal[0] : parseFloat(scoreVal[0]);
+      return isNaN(parsedVal) ? undefined : parsedVal;
+    }
+    return undefined;
+  })();
+
+  const amPred: string | undefined = (() => {
+    const am = data?.dbnsfp?.alphamissense;
+    if (!am) return undefined;
+    const predVal = am.pred;
+    if (typeof predVal === 'string') return predVal;
+    if (Array.isArray(predVal) && predVal.length > 0) {
+      return String(predVal[0]);
+    }
+    return undefined;
+  })();
+
   // ClinVar (may be array of RCV entries — sort by star status first)
   const rcv = Array.isArray(data?.clinvar?.rcv)
     ? [...data.clinvar.rcv].sort((a: any, b: any) => getReviewStars(b?.review_status) - getReviewStars(a?.review_status))[0]
@@ -596,6 +650,10 @@ export function parseApiResponse(data: any, queryKey: string): EnrichmentData {
     rsId,
     geneSymbol,
     gnomadAf,
+    caddPhred,
+    revelScore,
+    amScore,
+    amPred,
     clinvarSignificance,
     clinvarReview,
     hgvsg,
@@ -655,6 +713,7 @@ export function useVariantEnrichment(
 
   const debounceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const abortRef      = useRef<AbortController | null>(null);
+  const currentQueryKeyRef = useRef<string | null>(null);
 
   const fetchEnrichment = useCallback(async (queryKey: string, build: string | undefined, forceFresh = false) => {
     // R4: ensure the session-storage preload has completed before the first
@@ -669,8 +728,10 @@ export function useVariantEnrichment(
         const isEmpty = !cached.rsId && (cached.gnomadAf === undefined || cached.gnomadAf === null) && !cached.clinvarSignificance && !cached.geneSymbol;
 
         if (age < CACHE_TTL_MS && !(isGenomic && isEmpty)) {
-          setEnrichment(cached);
-          setIsLoading(false);
+          if (currentQueryKeyRef.current === queryKey) {
+            setEnrichment(cached);
+            setIsLoading(false);
+          }
           return;
         }
         // Expired or empty genomic — remove and re-fetch
@@ -763,6 +824,9 @@ export function useVariantEnrichment(
             // Strip the @build suffix we append to cache keys to prevent cross-build collisions
             let rawQueryKey = queryKey.replace(/@(GRCh38|GRCh37)$/, '');
             let genomicMatch = rawQueryKey.match(/^chr(2[0-2]|1[0-9]|[1-9]|X|Y|MT|M):g\.([0-9]+)(?:_([0-9]+))?(?:([ACGTN\-]+)>([ACGTN\-]+)|(delins|del|ins|dup|inv)([ACGTN]*))$/i);
+            // Preserve the original GRCh38 match before any liftover mutation so
+            // the VEP query always uses the correct build coordinates.
+            const originalGenomicMatch = genomicMatch;
 
             // 1. Resolve UCSC sequence for structural variants lacking alleles
             let resolvedHgvsg: string | undefined = undefined;
@@ -910,59 +974,73 @@ export function useVariantEnrichment(
             // coordinates for BOTH builds (ClinVar variation_loc carries both).
             // Does NOT supply alleles (ClinVar variation_loc ref/alt are empty) —
             // Ensembl VEP hgvsg remains the allele resolver below.
-            const needsClinVarDirect =
-              !enrichmentData.clinvarSignificance ||
-              !enrichmentData.clinvarReview ||
-              !enrichmentData.rsId;
-            if (needsClinVarDirect) {
-              // Build an HGVSc query string for ClinVar esearch: prefer the
-              // transcript:coding form (most reliable ClinVar term match).
-              const hgvsForClinVar =
-                enrichmentData.transcript && enrichmentData.codingChange
-                  ? `${enrichmentData.transcript}:${enrichmentData.codingChange}`
-                  : (parsed.transcript && parsed.codingChange
-                      ? `${parsed.transcript}:${parsed.codingChange}`
-                      : '');
-              if (hgvsForClinVar) {
-                try {
-                  const clinvarDirect = await resolveClinVarDirect(hgvsForClinVar, (build as GenomeBuild) || 'GRCh38');
-                  if (clinvarDirect.clinvarSignificance) enrichmentData.clinvarSignificance = clinvarDirect.clinvarSignificance;
-                  if (clinvarDirect.clinvarReview) enrichmentData.clinvarReview = clinvarDirect.clinvarReview;
-                  if (clinvarDirect.rcvAccession) enrichmentData.rcvAccession = clinvarDirect.rcvAccession;
-                  if (clinvarDirect.rsId && !enrichmentData.rsId) enrichmentData.rsId = clinvarDirect.rsId;
-                  // Coordinates: ClinVar direct gives build-correct coords. Only
-                  // override when MyVariant didn't resolve a position for this build
-                  // (avoids clobbering a VEP/MyVariant hgvsg that carries alleles).
-                  if (clinvarDirect.chromosome && clinvarDirect.position && !enrichmentData.hgvsg) {
-                    enrichmentData.hgvsg = `chr${clinvarDirect.chromosome}:g.${clinvarDirect.position}`;
-                  }
-                  if (clinvarDirect.clinvarSignificance || clinvarDirect.rsId) {
-                    if (enrichmentData.source === 'none') enrichmentData.source = 'clinvar';
-                    else if (enrichmentData.source === 'myvariant') enrichmentData.source = 'both';
-                  }
-                } catch (e: any) {
-                  if (e.is429) throw e;
-                  console.warn('[VariantHandler] ClinVar direct merge skipped:', e);
+            // ClinVar E-utilities direct layer: always query to get the live Clinical Significance and Review Status
+            const hgvsForClinVar =
+              enrichmentData.transcript && enrichmentData.codingChange
+                ? `${enrichmentData.transcript}:${enrichmentData.codingChange}`
+                : (parsed.transcript && parsed.codingChange
+                    ? `${parsed.transcript}:${parsed.codingChange}`
+                    : '');
+            if (hgvsForClinVar) {
+              try {
+                const clinvarDirect = await resolveClinVarDirect(hgvsForClinVar, (build as GenomeBuild) || 'GRCh38');
+                if (clinvarDirect.clinvarSignificance) enrichmentData.clinvarSignificance = clinvarDirect.clinvarSignificance;
+                if (clinvarDirect.clinvarReview) enrichmentData.clinvarReview = clinvarDirect.clinvarReview;
+                if (clinvarDirect.rcvAccession) enrichmentData.rcvAccession = clinvarDirect.rcvAccession;
+                if (clinvarDirect.rsId) enrichmentData.rsId = clinvarDirect.rsId;
+                // Coordinates: ClinVar direct gives build-correct coords. Only
+                // override when MyVariant didn't resolve a position for this build
+                // (avoids clobbering a VEP/MyVariant hgvsg that carries alleles).
+                if (clinvarDirect.chromosome && clinvarDirect.position && !enrichmentData.hgvsg) {
+                  enrichmentData.hgvsg = `chr${clinvarDirect.chromosome}:g.${clinvarDirect.position}`;
                 }
+                if (clinvarDirect.clinvarSignificance || clinvarDirect.rsId) {
+                  if (enrichmentData.source === 'none') enrichmentData.source = 'clinvar';
+                  else if (enrichmentData.source === 'myvariant') enrichmentData.source = 'both';
+                }
+
+                // If rsId is resolved, fetch ALFA frequency from NCBI
+                const altAllele = enrichmentData.hgvsg
+                  ? enrichmentData.hgvsg.split('>')[1] || parsed.alt
+                  : parsed.alt;
+                if (enrichmentData.rsId && altAllele) {
+                  try {
+                    const alfaRes = await resolveNcbiAlfa(enrichmentData.rsId, altAllele, performFetch);
+                    if (alfaRes.alfaAf !== undefined) {
+                      enrichmentData.alfaAf = alfaRes.alfaAf;
+                    }
+                  } catch (alfaErr: any) {
+                    if (alfaErr.is429) throw alfaErr;
+                    console.warn('[VariantHandler] ALFA fetch failed:', alfaErr);
+                  }
+                }
+              } catch (e: any) {
+                if (e.is429) throw e;
+                console.warn('[VariantHandler] ClinVar/ALFA direct merge skipped:', e);
               }
             }
 
-            // Fallback: If no gene symbol or coding sequence was resolved, query Ensembl VEP to find them
-            if ((!enrichmentData.geneSymbol || !enrichmentData.codingChange) && genomicMatch) {
-              const chrom = genomicMatch[1];
-              const pos = genomicMatch[2];
-              const endPos = genomicMatch[3] || pos;
-              const ref = genomicMatch[4] || '';
-              const alt = genomicMatch[5] || '';
-              const changeType = genomicMatch[6]?.toLowerCase();
-              const changeSeq = genomicMatch[7] || '';
+            // Query Ensembl VEP to resolve/verify the canonical transcript annotations.
+            // IMPORTANT: always use the original build coordinates (pre-liftover) so the
+            // correct assembly REST endpoint receives matching positions.
+            if (originalGenomicMatch) {
+              const chrom = originalGenomicMatch[1];
+              const pos = originalGenomicMatch[2];
+              const endPos = originalGenomicMatch[3] || pos;
+              const ref = originalGenomicMatch[4] || '';
+              const alt = originalGenomicMatch[5] || '';
+              const changeType = originalGenomicMatch[6]?.toLowerCase();
+              const changeSeq = originalGenomicMatch[7] || '';
 
               let vepAlt = alt;
+              if (vepAlt.startsWith('>')) {
+                vepAlt = vepAlt.slice(1);
+              }
               let vepStart = pos;
               let vepEnd = endPos;
 
               if (changeType === 'del') {
-                vepAlt = 'deletion';
+                vepAlt = '-';
               } else if (changeType === 'ins') {
                 vepAlt = changeSeq || 'N';
               } else if (changeType === 'dup') {
@@ -1010,11 +1088,11 @@ export function useVariantEnrichment(
                   const bestCons = sortedCons[0];
                     
                   if (bestCons) {
-                    if (bestCons.gene_symbol && !enrichmentData.geneSymbol) {
+                    if (bestCons.gene_symbol) {
                       enrichmentData.geneSymbol = bestCons.gene_symbol;
                     }
                     
-                    if (bestCons.hgvsc && !enrichmentData.codingChange) {
+                    if (bestCons.hgvsc) {
                       const parts = bestCons.hgvsc.split(':');
                       if (parts.length > 1) {
                         enrichmentData.transcript = parts[0];
@@ -1022,53 +1100,47 @@ export function useVariantEnrichment(
                       } else if (bestCons.hgvsc.startsWith('c.')) {
                         enrichmentData.codingChange = bestCons.hgvsc;
                       }
-                    } else if (!enrichmentData.codingChange && bestCons.cds_start !== undefined && bestCons.cds_start !== null) {
-                      const cdsStartVal = parseInt(bestCons.cds_start, 10);
+                    } else {
+                      let constructedChange = '';
+                      const cdsStartVal = bestCons.cds_start !== undefined && bestCons.cds_start !== null ? parseInt(bestCons.cds_start, 10) : NaN;
                       const cdsEndVal = bestCons.cds_end !== undefined && bestCons.cds_end !== null ? parseInt(bestCons.cds_end, 10) : cdsStartVal;
                       if (!isNaN(cdsStartVal)) {
-                        let constructedChange = '';
                         const variantAllele = typeof bestCons.variant_allele === 'string' ? bestCons.variant_allele.toLowerCase() : '';
                         if (variantAllele === 'deletion' || variantAllele === 'del' || changeType === 'del') {
-                          if (cdsStartVal !== cdsEndVal && !isNaN(cdsEndVal)) {
-                            constructedChange = `c.${cdsStartVal}_${cdsEndVal}del`;
-                          } else {
-                            constructedChange = `c.${cdsStartVal}del`;
-                          }
+                          constructedChange = cdsStartVal !== cdsEndVal && !isNaN(cdsEndVal) ? `c.${cdsStartVal}_${cdsEndVal}del` : `c.${cdsStartVal}del`;
                         } else if (variantAllele === 'duplication' || variantAllele === 'dup' || changeType === 'dup') {
-                          if (cdsStartVal !== cdsEndVal && !isNaN(cdsEndVal)) {
-                            constructedChange = `c.${cdsStartVal}_${cdsEndVal}dup`;
-                          } else {
-                            constructedChange = `c.${cdsStartVal}dup`;
-                          }
+                          constructedChange = cdsStartVal !== cdsEndVal && !isNaN(cdsEndVal) ? `c.${cdsStartVal}_${cdsEndVal}dup` : `c.${cdsStartVal}dup`;
                         } else if (variantAllele === 'inversion' || variantAllele === 'inv' || changeType === 'inv') {
-                          if (cdsStartVal !== cdsEndVal && !isNaN(cdsEndVal)) {
-                            constructedChange = `c.${cdsStartVal}_${cdsEndVal}inv`;
-                          } else {
-                            constructedChange = `c.${cdsStartVal}inv`;
-                          }
+                          constructedChange = cdsStartVal !== cdsEndVal && !isNaN(cdsEndVal) ? `c.${cdsStartVal}_${cdsEndVal}inv` : `c.${cdsStartVal}inv`;
                         } else if (variantAllele === 'insertion' || variantAllele === 'ins' || changeType === 'ins') {
-                          if (cdsStartVal !== cdsEndVal && !isNaN(cdsEndVal)) {
-                            constructedChange = `c.${cdsStartVal}_${cdsEndVal}ins`;
-                          } else {
-                            constructedChange = `c.${cdsStartVal}ins`;
-                          }
+                          constructedChange = cdsStartVal !== cdsEndVal && !isNaN(cdsEndVal) ? `c.${cdsStartVal}_${cdsEndVal}ins` : `c.${cdsStartVal}ins`;
                         }
+                      }
 
-                        if (constructedChange) {
-                          enrichmentData.codingChange = constructedChange;
-                          const resolvedTx = bestCons.mane_select 
-                            ? (typeof bestCons.mane_select === 'string' ? bestCons.mane_select.split(' ')[0] : undefined) 
-                            : bestCons.transcript_id;
-                          if (resolvedTx) {
-                            enrichmentData.transcript = resolvedTx;
-                          }
+                      if (constructedChange) {
+                        enrichmentData.codingChange = constructedChange;
+                        const resolvedTx = bestCons.mane_select 
+                          ? (typeof bestCons.mane_select === 'string' ? bestCons.mane_select.split(' ')[0] : undefined) 
+                          : bestCons.transcript_id;
+                        if (resolvedTx) {
+                          enrichmentData.transcript = resolvedTx;
                         }
                       }
                     }
                     
-                    if (bestCons.hgvsp && !enrichmentData.proteinChange) {
+                    if (bestCons.hgvsp) {
                       const parts = bestCons.hgvsp.split(':');
                       enrichmentData.proteinChange = parts.length > 1 ? parts[1] : parts[0];
+                    } else {
+                      // If the canonical transcript has no protein change, clear alternative protein changes
+                      // and missense-specific predictors. Store a note explaining the discrepancy.
+                      if (enrichmentData.proteinChange) {
+                        enrichmentData.proteinNote = `${enrichmentData.proteinChange} in alternative transcript`;
+                      }
+                      enrichmentData.proteinChange = undefined;
+                      enrichmentData.amScore = undefined;
+                      enrichmentData.amPred = undefined;
+                      enrichmentData.revelScore = undefined;
                     }
                     
                     // If we succeeded in resolving any new fields, update source
@@ -1084,6 +1156,23 @@ export function useVariantEnrichment(
               } catch (e: any) {
                 if (e.is429) throw e;
                 console.warn('[VariantHandler] Ensembl VEP query failed:', e);
+              }
+            }
+
+            // Query gnomAD v4 from UCSC Genome Browser track API
+            const hgvsForGnomad = enrichmentData.hgvsg || (activeQueryKey.includes(':g.') ? activeQueryKey : '');
+            if (hgvsForGnomad && hgvsForGnomad.match(/^chr([^:]+):g\.(\d+)([A-Z]+)>([A-Z]+)$/i)) {
+              try {
+                const gnomadV4Res = await resolveGnomadV4(hgvsForGnomad, performFetch);
+                if (gnomadV4Res.gnomadV4ExomeAf !== undefined) {
+                  enrichmentData.gnomadV4ExomeAf = gnomadV4Res.gnomadV4ExomeAf;
+                }
+                if (gnomadV4Res.gnomadV4GenomeAf !== undefined) {
+                  enrichmentData.gnomadV4GenomeAf = gnomadV4Res.gnomadV4GenomeAf;
+                }
+              } catch (e: any) {
+                if (e.is429) throw e;
+                console.warn('[VariantHandler] UCSC gnomAD v4 query failed:', e);
               }
             }
 
@@ -1116,19 +1205,25 @@ export function useVariantEnrichment(
 
     try {
       const data = await entry.promise;
-      setEnrichment(data);
+      if (currentQueryKeyRef.current === queryKey) {
+        setEnrichment(data);
+      }
     } catch (err: unknown) {
       if (err instanceof Error && err.name === 'AbortError') return; // Cancelled — ignore
       const msg = err instanceof Error ? err.message : String(err);
       console.warn('[VariantHandler] Enrichment fetch failed:', msg);
-      setError(msg);
+      if (currentQueryKeyRef.current === queryKey) {
+        setError(msg);
+      }
     } finally {
       // Only clear the in-flight slot if it still refers to our entry (a
       // force-refresh may have replaced it with a new controller).
       if (inFlightRequests.get(queryKey) === entry) {
         inFlightRequests.delete(queryKey);
       }
-      setIsLoading(false);
+      if (currentQueryKeyRef.current === queryKey) {
+        setIsLoading(false);
+      }
     }
   }, []);
 
@@ -1151,8 +1246,15 @@ export function useVariantEnrichment(
     const queryKey = deriveQueryKey(parsed, build);
     if (!queryKey) {
       setEnrichment(null);
+      currentQueryKeyRef.current = null;
       return;
     }
+
+    currentQueryKeyRef.current = queryKey;
+
+    // Clear previous enrichment results immediately when queryKey changes to avoid UI leakage
+    setEnrichment(null);
+    setError(null);
 
     // Debounce: wait for the user to finish typing
     if (debounceTimer.current) clearTimeout(debounceTimer.current);
@@ -1183,6 +1285,7 @@ export function useVariantEnrichment(
   const refetch = useCallback(() => {
     const queryKey = deriveQueryKey(parsed, build);
     if (!queryKey) return;
+    currentQueryKeyRef.current = queryKey;
     fetchEnrichment(queryKey, build, true);
   }, [parsed, build, fetchEnrichment]);
 

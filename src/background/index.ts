@@ -26,7 +26,8 @@ const ALLOWED_DOMAINS = [
   'rest.ensembl.org',
   'grch37.rest.ensembl.org',
   'eutils.ncbi.nlm.nih.gov',
-  'api.genome.ucsc.edu'
+  'api.genome.ucsc.edu',
+  'api.ncbi.nlm.nih.gov'
 ];
 
 if (typeof chrome !== 'undefined' && chrome.runtime) {

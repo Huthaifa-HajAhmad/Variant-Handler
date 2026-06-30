@@ -48,6 +48,27 @@ export default function SettingsModal({
 }: SettingsModalProps) {
   const isLight = activeTheme.isLight;
 
+  const [extensionShortcut, setExtensionShortcut] = React.useState('Ctrl+Shift+G');
+
+  React.useEffect(() => {
+    if (typeof chrome !== 'undefined' && chrome.commands && chrome.commands.getAll) {
+      chrome.commands.getAll((commands) => {
+        const cmd = commands.find(c => c.name === '_execute_action');
+        if (cmd && cmd.shortcut) {
+          setExtensionShortcut(cmd.shortcut);
+        }
+      });
+    }
+  }, []);
+
+  const handleConfigureShortcuts = () => {
+    if (typeof chrome !== 'undefined' && chrome.tabs && chrome.tabs.create) {
+      chrome.tabs.create({ url: 'chrome://extensions/shortcuts' });
+    } else {
+      window.open('chrome://extensions/shortcuts', '_blank');
+    }
+  };
+
   // ── Styling helpers ───────────────────────────────────────────────────
   const cardCls = `border rounded-xl p-4 space-y-2 ${isLight ? 'bg-white border-slate-200 shadow-sm' : 'bg-slate-900/80 border-slate-800'}`;
   const headingCls = `font-bold ${isLight ? 'text-slate-800' : 'text-white'} text-xs uppercase tracking-wide font-display`;
@@ -245,6 +266,28 @@ export default function SettingsModal({
                 <kbd className={kbdCls}>{keys}</kbd>
               </div>
             ))}
+
+            {/* Extension open command */}
+            <div className={`mt-2 flex flex-col gap-2 p-2.5 rounded-lg border ${isLight ? 'bg-indigo-50/40 border-indigo-100/70 text-slate-700' : 'bg-slate-900/60 border-slate-800/80 text-slate-300'}`}>
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-semibold">Open Extension Side Panel</span>
+                <kbd className={kbdCls}>{extensionShortcut || 'Not Assigned'}</kbd>
+              </div>
+              <p className="text-[10px] text-slate-500 leading-snug">
+                Chrome system-wide hotkey. Click configure to change or set a custom shortcut.
+              </p>
+              <button
+                type="button"
+                onClick={handleConfigureShortcuts}
+                className={`py-1 px-2.5 rounded text-[10px] font-bold self-start transition-all cursor-pointer ${
+                  isLight 
+                    ? 'bg-indigo-600 hover:bg-indigo-700 text-white shadow-sm' 
+                    : 'bg-indigo-700 hover:bg-indigo-600 text-white'
+                }`}
+              >
+                Configure in Chrome Shortcuts
+              </button>
+            </div>
           </div>
         </div>
 

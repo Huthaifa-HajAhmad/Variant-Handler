@@ -67,7 +67,7 @@ describe('searchClinVarByHgvs', () => {
     const calledUrl = sendMessageMock.mock.calls[0][0].url as string;
     expect(calledUrl).toContain('esearch.fcgi');
     expect(calledUrl).toContain('db=clinvar');
-    expect(calledUrl).toContain(encodeURIComponent('"NM_000492.4" AND "c.1521_1523del"'));
+    expect(calledUrl).toContain(encodeURIComponent('"NM_000492.4:c.1521_1523del"'));
   });
 
   it('returns null when no ClinVar records match', async () => {

@@ -115,7 +115,7 @@ export async function searchClinVarByHgvs(hgvs: string): Promise<string | null> 
   const accession = hgvs.slice(0, colonIdx).trim();
   const change = hgvs.slice(colonIdx + 1).trim();
   if (!accession || !change) return null;
-  const term = `"${accession}" AND "${change}"`;
+  const term = `"${accession}:${change}"`;
   const url = `${EUTILS_BASE}/esearch.fcgi?db=clinvar&term=${encodeURIComponent(term)}&retmode=json&retmax=1`;
   const data = await fetchViaBackground(url);
   const ids = data?.esearchresult?.idlist;

@@ -8,7 +8,7 @@
  *  - EnrichmentPanel slot below coordinate breakdown
  */
 import React, { useState, useEffect } from 'react';
-import { Edit3, Check, Copy, Cpu, ClipboardPaste, Dna, Plus, Minus, Loader2, Globe, AlertCircle, AlertTriangle, RotateCw } from 'lucide-react';
+import { Edit3, Check, Copy, Cpu, ClipboardPaste, Dna, Plus, Minus, Loader2, Globe, AlertCircle, AlertTriangle, RotateCw, ChevronDown, ChevronUp, Zap } from 'lucide-react';
 import { ParsedVariant, parseGenomicHgvs } from '../lib/parser';
 import { GenomeBuild } from '../utils/genomeBuild';
 import { ColorTheme } from '../lib/themes';
@@ -59,6 +59,10 @@ interface VariantWorkbenchProps {
   enrichmentError: string | null;
   liveEnrichmentEnabled: boolean;
   onRefreshEnrichment?: () => void;
+  onAutofillVariant?: () => void;
+  onAutofillGene?: () => void;
+  onHighlightInTab?: () => void;
+  activeTabUrl?: string;
 }
 
 export default function VariantWorkbench({
@@ -78,10 +82,15 @@ export default function VariantWorkbench({
   enrichmentError,
   liveEnrichmentEnabled,
   onRefreshEnrichment,
+  onAutofillVariant,
+  onAutofillGene,
+  onHighlightInTab,
+  activeTabUrl,
 }: VariantWorkbenchProps) {
   const isLight = activeTheme.isLight;
   const [isSaving, setIsSaving] = useState(false);
   const [noteExpanded, setNoteExpanded] = useState(false);
+  const [isPredictorsExpanded, setIsPredictorsExpanded] = useState(false);
 
   useEffect(() => {
     if (!microNote) return;
@@ -127,6 +136,45 @@ export default function VariantWorkbench({
   const codingValue = codingChange && transcript ? `${transcript}:${codingChange}` : '';
   const proteinValue = proteinChange ?? '';
   const isSplicingOrIntronic = codingChange ? /c\.\d+([+-]\d+)/.test(codingChange) : false;
+
+  // Contextual Active Tab Action highlights
+  let isAutofillVariantActive = false;
+  let isAutofillGeneActive = false;
+  let isHighlightActive = false;
+
+  if (activeTabUrl) {
+    try {
+      const parsedUrl = new URL(activeTabUrl);
+      const host = parsedUrl.hostname;
+      const path = parsedUrl.pathname + parsedUrl.search;
+
+      if (host.includes('ncbi.nlm.nih.gov')) {
+        isAutofillGeneActive = true;
+      } else if (host.includes('alphamissense.hegelab.org')) {
+        if (path.includes('/results') || path.includes('/hotspot')) {
+          isHighlightActive = true;
+        } else {
+          isAutofillGeneActive = true;
+        }
+      } else if (host.includes('gnomad.broadinstitute.org')) {
+        const isTableContext = path.includes('/gene/') || path.includes('/variant/') || path.includes('/transcript/') || path.includes('/search');
+        if (isTableContext) {
+          isHighlightActive = true;
+        } else {
+          isAutofillVariantActive = true;
+        }
+      } else if (host.includes('genome.ucsc.edu') || host.includes('spliceailookup.broadinstitute.org')) {
+        isAutofillVariantActive = true;
+      }
+    } catch (e) {
+      console.warn('Failed to parse active tab URL', e);
+    }
+  }
+
+  const hasAnyActive = isAutofillVariantActive || isAutofillGeneActive || isHighlightActive;
+  if (!hasAnyActive) {
+    isAutofillVariantActive = true;
+  }
 
   return (
     <div className={`${cardBase} p-4 relative`}>
@@ -220,9 +268,10 @@ export default function VariantWorkbench({
                 triggerAlert('Paste failed — clipboard access denied.');
               }
             }}
-            className={`ml-2 p-1 rounded-md cursor-pointer transition-colors ${isLight ? 'text-slate-400 hover:text-indigo-600 hover:bg-indigo-50' : 'text-slate-500 hover:text-indigo-400 hover:bg-slate-800'}`}
+            className={`ml-2 p-1 px-1.5 rounded-md flex items-center gap-1 cursor-pointer transition-all duration-200 ${isLight ? 'text-slate-400 hover:text-indigo-600 hover:bg-indigo-50' : 'text-slate-500 hover:text-indigo-400 hover:bg-slate-800'}`}
           >
-            <ClipboardPaste className="w-4 h-4" />
+            <ClipboardPaste className="w-3.5 h-3.5" />
+            <span className="text-[10px] font-bold">Paste</span>
           </button>
         </div>
       </div>
@@ -392,10 +441,15 @@ export default function VariantWorkbench({
                 )}
               </div>
             </div>
-            <div className="mt-1">
+            <div className="mt-1 flex flex-col gap-0.5">
               <span className={`${rowValCls} ${!proteinChange ? (isLight ? 'text-slate-400 font-normal' : 'text-slate-500 font-normal') : ''}`}>
                 {proteinChange || (isSplicingOrIntronic ? 'No protein impact mapped (splicing/intronic variant)' : 'No protein impact mapped')}
               </span>
+              {enrichment?.proteinNote && (
+                <span className="text-[10px] text-slate-400 dark:text-slate-500 font-medium italic mt-0.5 leading-snug">
+                  ({enrichment.proteinNote})
+                </span>
+              )}
             </div>
           </div>
 
@@ -472,30 +526,59 @@ export default function VariantWorkbench({
                   </div>
                 </div>
 
-                {/* gnomAD AF */}
+                {/* Allele Frequencies */}
                 <div className={`p-1.5 px-2 rounded-lg border flex flex-col justify-between ${isLight ? 'bg-amber-50 border-amber-100' : 'bg-amber-950/30 border-amber-900/50'}`}>
-                  <span className={rowLabelCls}>gnomAD AF</span>
-                  <div className="mt-1">
-                    {enrichment.gnomadAf !== undefined ? (
-                      <div className="flex items-center gap-2">
-                        <span className={rowValCls} style={{ color: afColor(enrichment.gnomadAf) }}>
-                          {formatAf(enrichment.gnomadAf)}
-                        </span>
-                        <div className={`flex-grow h-1 rounded-full overflow-hidden ${isLight ? 'bg-slate-200' : 'bg-slate-800'}`}>
-                          <div
-                            className="h-full rounded-full transition-all"
-                            style={{
-                              width: `${Math.min(100, enrichment.gnomadAf * 2000)}%`,
-                              minWidth: enrichment.gnomadAf > 0 ? '2px' : '0',
-                              background: afColor(enrichment.gnomadAf),
-                            }}
-                          />
-                        </div>
+                  <span className={rowLabelCls}>Allele Frequencies</span>
+                  {enrichment.gnomadAf === undefined && enrichment.gnomadV4ExomeAf === undefined && enrichment.gnomadV4GenomeAf === undefined ? (
+                    <div className="mt-1.5 py-1.5 text-[10px] text-slate-400 dark:text-slate-500 italic flex items-center justify-center">
+                      Not found in gnomAD
+                    </div>
+                  ) : (
+                    <div className="mt-1.5 flex flex-col gap-1 text-[10px]">
+                      {/* v3 */}
+                      <div className="flex items-center justify-between">
+                        <span className="text-slate-500">gnomAD v3:</span>
+                        {enrichment.gnomadAf !== undefined ? (
+                          <span className="font-mono font-bold" style={{ color: afColor(enrichment.gnomadAf) }}>
+                            {formatAf(enrichment.gnomadAf)}
+                          </span>
+                        ) : (
+                          <span className="text-slate-400 italic">Not found</span>
+                        )}
                       </div>
-                    ) : (
-                      <span className={rowValCls}>—</span>
-                    )}
-                  </div>
+                      {/* v4.1 Exome */}
+                      <div className="flex items-center justify-between">
+                        <span className="text-slate-500">gnomAD v4 (Exome):</span>
+                        {enrichment.gnomadV4ExomeAf !== undefined ? (
+                          <span className="font-mono font-bold" style={{ color: afColor(enrichment.gnomadV4ExomeAf) }}>
+                            {formatAf(enrichment.gnomadV4ExomeAf)}
+                          </span>
+                        ) : (
+                          <span className="text-slate-400 italic">Not found</span>
+                        )}
+                      </div>
+                      {/* v4.1 Genome */}
+                      <div className="flex items-center justify-between">
+                        <span className="text-slate-500">gnomAD v4 (Genome):</span>
+                        {enrichment.gnomadV4GenomeAf !== undefined ? (
+                          <span className="font-mono font-bold" style={{ color: afColor(enrichment.gnomadV4GenomeAf) }}>
+                            {formatAf(enrichment.gnomadV4GenomeAf)}
+                          </span>
+                        ) : (
+                          <span className="text-slate-400 italic">Not found</span>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                  {/* NCBI ALFA */}
+                  {enrichment.alfaAf !== undefined && (
+                    <div className="mt-1.5 pt-1.5 border-t border-amber-200/50 dark:border-amber-900/30 flex items-center justify-between text-[10px]">
+                      <span className="text-slate-500">NCBI ALFA:</span>
+                      <span className="font-mono font-bold" style={{ color: afColor(enrichment.alfaAf) }}>
+                        {formatAf(enrichment.alfaAf)}
+                      </span>
+                    </div>
+                  )}
                 </div>
 
                 {/* ClinVar Status */}
@@ -532,8 +615,169 @@ export default function VariantWorkbench({
                         )}
                       </div>
                     ) : (
-                      <span className={rowValCls}>—</span>
+                      <div className="py-1 text-[10px] text-slate-400 dark:text-slate-500 italic flex items-center justify-center">
+                        Not found in ClinVar
+                      </div>
                     )}
+                  </div>
+                </div>
+
+                {/* In Silico Predictors Collapsible Card */}
+                <div className={`col-span-2 rounded-lg border overflow-hidden ${
+                  isLight ? 'bg-slate-50 border-slate-200' : 'bg-slate-900/40 border-slate-800/80'
+                }`}>
+                  <button
+                    type="button"
+                    onClick={() => setIsPredictorsExpanded(!isPredictorsExpanded)}
+                    className={`w-full p-2.5 px-3 flex items-center justify-between text-xs font-semibold select-none transition-colors hover:no-underline outline-none border-none ${
+                      isLight ? 'hover:bg-slate-100/70 text-slate-700 bg-slate-50' : 'hover:bg-slate-800/45 text-slate-300 bg-slate-900/10'
+                    }`}
+                  >
+                    <div className="flex items-center gap-1.5">
+                      <Cpu className="w-4 h-4 text-slate-500" />
+                      <span>In Silico Predictors</span>
+                      <span className={`text-[9px] px-1.5 py-0.5 rounded font-mono ${
+                        isLight ? 'bg-slate-200/75 text-slate-600' : 'bg-slate-800 text-slate-400'
+                      }`}>
+                        { [enrichment.caddPhred, enrichment.revelScore, enrichment.amScore].filter(x => x !== undefined).length } available
+                      </span>
+                    </div>
+                    {isPredictorsExpanded ? (
+                      <ChevronUp className="w-4 h-4 text-slate-400" />
+                    ) : (
+                      <ChevronDown className="w-4 h-4 text-slate-400" />
+                    )}
+                  </button>
+
+                  {isPredictorsExpanded && (
+                    <div className={`p-3 border-t grid grid-cols-3 gap-3 text-xs ${
+                      isLight ? 'border-slate-200 bg-white' : 'border-slate-800 bg-slate-950/20'
+                    }`}>
+                      {/* CADD */}
+                      <div className="flex flex-col gap-1">
+                        <span className="text-[9px] font-bold text-slate-500 uppercase tracking-wider">CADD (PHRED)</span>
+                        {enrichment.caddPhred !== undefined ? (
+                          <div className="flex flex-col gap-0.5 mt-0.5">
+                            <span className="text-sm font-mono font-bold text-slate-800 dark:text-slate-200">
+                              {enrichment.caddPhred.toFixed(1)}
+                            </span>
+                            <span className={`text-[8px] font-medium ${
+                              enrichment.caddPhred >= 20 ? 'text-rose-500' : 'text-slate-400'
+                            }`}>
+                              {enrichment.caddPhred >= 30 ? 'Top 0.1% deleterious' : enrichment.caddPhred >= 20 ? 'Top 1% deleterious' : enrichment.caddPhred >= 10 ? 'Top 10% deleterious' : 'Likely benign'}
+                            </span>
+                          </div>
+                        ) : (
+                          <span className="text-slate-400 italic">No data</span>
+                        )}
+                      </div>
+
+                      {/* REVEL */}
+                      <div className="flex flex-col gap-1">
+                        <span className="text-[9px] font-bold text-slate-500 uppercase tracking-wider">REVEL</span>
+                        {enrichment.revelScore !== undefined ? (
+                          <div className="flex flex-col gap-0.5 mt-0.5">
+                            <span className="text-sm font-mono font-bold text-slate-800 dark:text-slate-200">
+                              {enrichment.revelScore.toFixed(3)}
+                            </span>
+                            <span className={`text-[8px] font-medium ${
+                              enrichment.revelScore >= 0.5 ? 'text-rose-500' : 'text-slate-400'
+                            }`}>
+                              {enrichment.revelScore >= 0.75 ? 'Strongly Pathogenic' : enrichment.revelScore >= 0.5 ? 'Pathogenic' : enrichment.revelScore < 0.15 ? 'Benign' : 'VUS'}
+                            </span>
+                          </div>
+                        ) : (
+                          <span className="text-slate-400 italic">No data</span>
+                        )}
+                      </div>
+
+                      {/* AlphaMissense */}
+                      <div className="flex flex-col gap-1">
+                        <span className="text-[9px] font-bold text-slate-500 uppercase tracking-wider">AlphaMissense</span>
+                        {enrichment.amScore !== undefined ? (
+                          <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
+                            <span className={`text-sm font-mono font-extrabold ${isLight ? 'text-slate-800' : 'text-slate-100'}`}>
+                              {enrichment.amScore.toFixed(3)}
+                            </span>
+                            {enrichment.amPred && (
+                              <span className={`text-[10px] font-semibold ${
+                                enrichment.amPred.toUpperCase() === 'P' || enrichment.amPred.toLowerCase().startsWith('path')
+                                  ? isLight ? 'text-rose-500' : 'text-rose-400'
+                                  : enrichment.amPred.toUpperCase() === 'B' || enrichment.amPred.toLowerCase().startsWith('ben')
+                                  ? isLight ? 'text-emerald-600' : 'text-emerald-400'
+                                  : isLight ? 'text-slate-400' : 'text-slate-500'
+                              }`}>
+                                · {enrichment.amPred.toUpperCase() === 'P' ? 'Pathogenic' : enrichment.amPred.toUpperCase() === 'B' ? 'Benign' : 'Ambiguous'}
+                              </span>
+                            )}
+                          </div>
+                        ) : (
+                          <span className="text-slate-400 italic">No data</span>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* Active Tab Actions Card */}
+                <div className={`col-span-2 p-3 rounded-xl border flex flex-col gap-2.5 transition-all duration-300 ${
+                  isLight 
+                    ? 'bg-indigo-50/50 border-indigo-100 shadow-sm shadow-indigo-100/30' 
+                    : 'bg-indigo-950/10 border-indigo-500/20 shadow-lg shadow-black/5'
+                }`}>
+                  <span className="text-[10px] font-bold text-indigo-500 uppercase tracking-widest flex items-center gap-1.5 font-display">
+                    <Zap className="w-3.5 h-3.5 animate-pulse text-indigo-500" />
+                    Active Tab Integration
+                  </span>
+                  <p className={`text-[10px] ${isLight ? 'text-slate-500' : 'text-slate-400'} leading-relaxed -mt-1`}>
+                    Interact directly with the currently active genomic portal tab:
+                  </p>
+                  <div className="grid grid-cols-3 gap-2">
+                    <button
+                      type="button"
+                      onClick={onAutofillVariant}
+                      className={`p-2 rounded-lg text-[10px] font-bold flex items-center justify-center gap-1 cursor-pointer transition-all duration-200 ${
+                        isAutofillVariantActive
+                          ? isLight 
+                            ? 'bg-indigo-600 hover:bg-indigo-700 hover:shadow-md text-white shadow-sm' 
+                            : 'bg-indigo-600 hover:bg-indigo-500 hover:shadow-lg text-white'
+                          : isLight
+                          ? 'border border-indigo-200 text-indigo-600 bg-transparent hover:bg-indigo-50/50'
+                          : 'border border-indigo-900/40 text-indigo-400 bg-transparent hover:bg-indigo-950/20'
+                      }`}
+                    >
+                      Autofill Variant
+                    </button>
+                    <button
+                      type="button"
+                      onClick={onAutofillGene}
+                      className={`p-2 rounded-lg text-[10px] font-bold flex items-center justify-center gap-1 cursor-pointer transition-all duration-200 ${
+                        isAutofillGeneActive
+                          ? isLight 
+                            ? 'bg-emerald-600 hover:bg-emerald-700 hover:shadow-md text-white shadow-sm' 
+                            : 'bg-emerald-600 hover:bg-emerald-500 hover:shadow-lg text-white'
+                          : isLight
+                          ? 'border border-emerald-200 text-emerald-600 bg-transparent hover:bg-emerald-50/50'
+                          : 'border border-emerald-900/40 text-emerald-400 bg-transparent hover:bg-emerald-950/20'
+                      }`}
+                    >
+                      Autofill Gene
+                    </button>
+                    <button
+                      type="button"
+                      onClick={onHighlightInTab}
+                      className={`p-2 rounded-lg text-[10px] font-bold flex items-center justify-center gap-1 cursor-pointer transition-all duration-200 ${
+                        isHighlightActive
+                          ? isLight 
+                            ? 'bg-amber-600 hover:bg-amber-700 hover:shadow-md text-white shadow-sm' 
+                            : 'bg-amber-600 hover:bg-amber-500 hover:shadow-lg text-white'
+                          : isLight
+                          ? 'border border-amber-200 text-amber-600 bg-transparent hover:bg-amber-50/50'
+                          : 'border border-amber-900/40 text-amber-400 bg-transparent hover:bg-amber-950/20'
+                      }`}
+                    >
+                      Highlight Tab
+                    </button>
                   </div>
                 </div>
 
@@ -546,14 +790,7 @@ export default function VariantWorkbench({
                     <span>{enrichment.refMismatch}</span>
                   </div>
                 )}
-                {enrichment.source === 'ensembl' && (
-                  <div className={`col-span-2 p-2 rounded-lg border text-[10px] font-semibold flex items-center gap-1.5 ${
-                    isLight ? 'bg-teal-50 border-teal-200 text-teal-700' : 'bg-teal-950/30 border-teal-900/50 text-teal-300'
-                  }`}>
-                    <Globe className="w-3.5 h-3.5 shrink-0 text-teal-500" />
-                    Gene resolved via Ensembl region overlap (no records in MyVariant.info).
-                  </div>
-                )}
+
 
                 {enrichment.source === 'none' && (
                   <div className={`col-span-2 p-2 rounded-lg border text-[10px] font-semibold flex items-center gap-1.5 ${

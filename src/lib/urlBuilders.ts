@@ -73,21 +73,26 @@ export const spliceaiBuilder: PlatformUrlBuilder = (parsed, adapter, build, enri
 };
 
 export const alphamissenseBuilder: PlatformUrlBuilder = (parsed, adapter, build, enrichment) => {
-  const chrom = parsed.chromosome ?? '';
-  const pos = parsed.position ?? '';
-  const ref = parsed.ref ?? '';
-  const alt = parsed.alt ?? '';
   const gene = enrichment?.geneSymbol || parsed.geneSymbol || '';
-  const rsId = enrichment?.rsId;
-  const hgvsg = enrichment?.hgvsg;
-  const hgvsc = (enrichment?.transcript && enrichment?.codingChange) ? `${enrichment.transcript}:${enrichment.codingChange}` : '';
-  const hgvsp = enrichment?.proteinChange;
-  const { pos: nPos, ref: nRef, alt: nAlt } = normaliseAlleles(pos, ref, alt);
+  const hgvsp = enrichment?.proteinChange || parsed.proteinChange || '';
+  
+  let term = '';
+  if (gene && hgvsp) {
+    term = `${gene} ${hgvsp}`;
+  } else if (gene) {
+    term = gene;
+  } else if (hgvsp) {
+    term = hgvsp;
+  } else {
+    const transcript = enrichment?.transcript || parsed.transcript;
+    const codingChange = enrichment?.codingChange || parsed.codingChange;
+    if (transcript && codingChange) {
+      term = `${transcript}:${codingChange}`;
+    } else {
+      term = parsed.raw;
+    }
+  }
 
-  const fullHgvsC = parsed.transcript && parsed.codingChange ? `${parsed.transcript}:${parsed.codingChange}` : '';
-  const fullHgvsG = chrom && nPos && hasRealAllele(nRef) && hasRealAllele(nAlt) ? `chr${chrom}:g.${nPos}${nRef}>${nAlt}` : '';
-
-  const term = hgvsp || hgvsg || hgvsc || rsId || fullHgvsG || fullHgvsC || gene || parsed.raw;
   return `https://alphamissense.hegelab.org/search?variant=${encodeURIComponent(term)}`;
 };
 

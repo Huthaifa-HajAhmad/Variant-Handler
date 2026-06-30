@@ -349,7 +349,7 @@ export function exportPPT(
 
   html += `</div></body></html>`;
 
-  const blob = new Blob([html], { type: 'application/vnd.ms-powerpoint;charset=utf-8;' });
-  downloadBlob(blob, `variantstream_slides_${Date.now()}.ppt`);
-  onAlert('PowerPoint presentation generated successfully!');
+  const blob = new Blob([html], { type: 'text/html;charset=utf-8;' });
+  downloadBlob(blob, `variantstream_slides_${Date.now()}.html`);
+  onAlert('Case discussion slide deck generated successfully! Open the downloaded HTML file in your browser.');
 }
