@@ -1,8 +1,27 @@
 {
   "name": "variant-handler",
+  "description": "A persistent genomics annotation sidepanel assisting clinical scientists and molecular pathologists.",
   "private": true,
   "version": "1.2.0",
   "type": "module",
+  "author": "Huthaifa Haj Ahmad",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Huthaifa-HajAhmad/Variant-Handler.git"
+  },
+  "homepage": "https://github.com/Huthaifa-HajAhmad/Variant-Handler#readme",
+  "bugs": {
+    "url": "https://github.com/Huthaifa-HajAhmad/Variant-Handler/issues"
+  },
+  "keywords": [
+    "genomics",
+    "variant",
+    "hgvs",
+    "vcf",
+    "chrome-extension",
+    "sidepanel"
+  ],
   "scripts": {
     "dev": "vite --port=3000 --host=0.0.0.0",
     "build": "vite build && esbuild src/content/index.ts --bundle --outfile=dist/assets/content.js --minify --target=chrome100 && esbuild src/background/index.ts --bundle --outfile=dist/assets/background.js --minify --target=chrome100",

@@ -823,7 +823,7 @@ export function useVariantEnrichment(
             let mappedPos = '';
             // Strip the @build suffix we append to cache keys to prevent cross-build collisions
             let rawQueryKey = queryKey.replace(/@(GRCh38|GRCh37)$/, '');
-            let genomicMatch = rawQueryKey.match(/^chr(2[0-2]|1[0-9]|[1-9]|X|Y|MT|M):g\.([0-9]+)(?:_([0-9]+))?(?:([ACGTN\-]+)>([ACGTN\-]+)|(delins|del|ins|dup|inv)([ACGTN]*))$/i);
+            let genomicMatch = rawQueryKey.match(/^chr(2[0-2]|1[0-9]|[1-9]|X|Y|MT|M):g\.([0-9]+)(?:[_-]([0-9]+))?(?:([ACGTN\-]+)>([ACGTN\-]+)|(delins|del|ins|dup|inv)([ACGTN]*))$/i);
             // Preserve the original GRCh38 match before any liftover mutation so
             // the VEP query always uses the correct build coordinates.
             const originalGenomicMatch = genomicMatch;

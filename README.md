@@ -7,7 +7,7 @@
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.8-3178c6?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
 [![React](https://img.shields.io/badge/React-19-61dafb?logo=react&logoColor=black)](https://react.dev/)
 [![Manifest V3](https://img.shields.io/badge/Chrome_Extension-MV3-4285F4?logo=googlechrome&logoColor=white)](https://developer.chrome.com/docs/extensions/mv3/intro/)
-[![Tests](https://img.shields.io/badge/Tests-127%20passing-10b981)](./src/__tests__/parser.test.ts)
+[![Tests](https://img.shields.io/badge/Tests-140%20passing-10b981)](./src/__tests__/parser.test.ts)
 
 </div>
 
@@ -102,7 +102,7 @@ Buttons are disabled with a descriptive tooltip when the active variant is missi
 ### 📜 Search History
 - Automatically records validated variant searches with 600 ms debounce
 - Only records inputs that parse successfully (no partial-entry noise)
-- Capped at 20 entries; individual entries can be cleared
+- Capped at a configurable limit (default 100, selectable in Settings); individual entries can be cleared
 - Persisted to `localStorage`
 
 ### 📤 Export Suite
@@ -134,8 +134,8 @@ Supported sites: gnomAD, UCSC, SpliceAI, AlphaMissense, NCBI (ClinVar/dbSNP), Mu
 
 ```bash
 # 1. Clone and install
-git clone https://github.com/your-org/variant-handler.git
-cd variant-handler
+git clone https://github.com/Huthaifa-HajAhmad/Variant-Handler.git
+cd Variant-Handler
 npm install
 
 # 2. Run the side panel UI in dev mode (for rapid UI iteration)
@@ -369,6 +369,18 @@ Add the `accession → symbol` mapping to `TRANSCRIPT_TO_GENE` in [`src/utils/va
 
 ---
 
+## AI-Assisted Development
+
+This project was developed with AI assistance and validated against a comprehensive suite of 140+ unit tests to ensure parsing accuracy and safety.
+
+---
+
+## Contributing
+
+Contributions are welcome! Please read [`CONTRIBUTING.md`](./CONTRIBUTING.md) to get started with setting up the project locally, running tests, and submitting changes.
+
+---
+
 ## License
 
-This project is for clinical research and educational use. See `LICENSE` for details.
+This project is licensed under the MIT License - see the [`LICENSE`](./LICENSE) file for details.

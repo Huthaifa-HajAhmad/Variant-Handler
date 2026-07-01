@@ -85,7 +85,7 @@ const GENOMIC_REGEXES = [
   // Simple coord+change:  chr12:25245350C>T
   /^(?:chr)?(2[0-2]|1[0-9]|[1-9]|X|Y|MT|M|NC_\d+(?:\.\d+)?)(?:\([^)]*\)|\[[^\]]*\])?\s*:\s*([0-9]+)\s*([ACGTN]+)\s*>\s*([ACGTN]+)/i,
   // HGVSg indels/ranges: chr9:g.38068458_38068460del | chrX:g.32801509_32801510insA | chr17:g.43044294dup | chr7:g.140753336_140753337delinsTT
-  /^(?:chr)?(2[0-2]|1[0-9]|[1-9]|X|Y|MT|M|NC_\d+(?:\.\d+)?)(?:\([^)]*\)|\[[^\]]*\])?\s*:\s*g\.\s*([0-9]+)\s*(?:_\s*([0-9]+))?\s*(delins|del|ins|dup|inv)\s*([ACGTN]*)$/i,
+  /^(?:chr)?(2[0-2]|1[0-9]|[1-9]|X|Y|MT|M|NC_\d+(?:\.\d+)?)(?:\([^)]*\)|\[[^\]]*\])?\s*:\s*g\.\s*([0-9]+)\s*(?:[_-]\s*([0-9]+))?\s*(delins|del|ins|dup|inv)\s*([ACGTN]*)$/i,
   // Coordinate-only:  chr17:43044295
   /^(?:chr)?(2[0-2]|1[0-9]|[1-9]|X|Y|MT|M|NC_\d+(?:\.\d+)?)(?:\([^)]*\)|\[[^\]]*\])?\s*:\s*([0-9]+)$/i,
 ];
@@ -373,7 +373,8 @@ export function getFormattedVariant(parsed: ParsedVariant, format: string): stri
   const cleanRaw = parsed.raw
     .replace(/\s*[\(\[][A-Za-z0-9]+[\)\]]\s*/g, '')
     .trim()
-    .replace(/^(?:Chr|CHR)/, 'chr');
+    .replace(/^(?:Chr|CHR)/, 'chr')
+    .replace(/([0-9]+)-([0-9]+)(del|ins|dup|inv|delins)/i, '$1_$2$3');
   switch (format) {
     case 'dash':
       if (chrom && pos && hasRealAllele(ref) && hasRealAllele(alt)) {

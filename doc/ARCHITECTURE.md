@@ -1,6 +1,6 @@
 # Architecture & Design Reference
 
-> **Status:** Current as of `v1.1.2`. Last updated after the UCSC Sequence API integration, the URL builder Strategy Pattern refactoring, and the content script URL change detection optimization.
+> **Status:** Current as of `v1.2.0`. Last updated after the Ensembl VEP integration, transcript discrepancy warnings, and NCBI ALFA/gnomAD v4 frequency resolver integrations.
 
 This document explains the system design of Variant Handler — why things are structured the way they are, and the key patterns used to keep the codebase safe and maintainable.
 

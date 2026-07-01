@@ -285,7 +285,7 @@ useEffect(() => {
 
     if (typeof chrome !== 'undefined' && chrome.tabs) {
       const handleActivated = () => updateActiveTabUrl();
-      const handleUpdated = (_tabId: number, changeInfo: chrome.tabs.TabChangeInfo) => {
+      const handleUpdated = (_tabId: number, changeInfo: chrome.tabs.OnUpdatedInfo, _tab: chrome.tabs.Tab) => {
         if (changeInfo.url) {
           updateActiveTabUrl();
         }
@@ -435,7 +435,7 @@ useEffect(() => {
   }, [parsed, activeInput, triggerAlert]);
 
   const handleAutofillGene = useCallback(() => {
-    const geneSymbol = enrichment?.geneSymbol || parsed.geneSymbol || inferGeneLabel(parsed);
+    const geneSymbol = enrichment?.geneSymbol || parsed.geneSymbol || inferGeneLabel(activeInput, parsed);
     if (!geneSymbol || geneSymbol === 'GENE') {
       triggerAlert('No gene symbol resolved.');
       return;

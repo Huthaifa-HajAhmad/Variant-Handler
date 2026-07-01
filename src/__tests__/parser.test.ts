@@ -18,6 +18,7 @@ import {
   getMissingDataReason,
   computeEndPos,
   INITIAL_PLATFORMS,
+  getFormattedVariant,
 } from '../lib/parser';
 import { normaliseAlleles } from '../utils/normalize';
 import { detectGenomeBuild, ucscDb, gnomadDataset } from '../utils/genomeBuild';
@@ -115,6 +116,16 @@ describe('parseVariant — Genomic Coordinate Formats', () => {
     expect(r.endPosition).toBe('38068460');
     expect(r.genomeBuild).toBe('GRCh38');
   });
+
+  it('parses HGVSg range deletion with dash instead of underscore', () => {
+    const r = parseVariant('Chr20:g.23364487-23364490del');
+    expect(r.isValid).toBe(true);
+    expect(r.chromosome).toBe('20');
+    expect(r.position).toBe('23364487');
+    expect(r.endPosition).toBe('23364490');
+    expect(r.type).toBe('genomic');
+  });
+
 
   it('parses HGVSg deletion with deleted sequence', () => {
     const r = parseVariant('chr7:g.117559590_117559592delCTT');
@@ -789,4 +800,17 @@ describe('ClinVar URL generation and filter-clearing parameter', () => {
     });
   });
 });
+
+describe('getFormattedVariant — genomic range normalization', () => {
+  it('normalizes dash/hyphen range separators to underscores for hgvs_g format', () => {
+    const p = parseVariant('Chr20:g.23364487-23364490del');
+    expect(getFormattedVariant(p, 'hgvs_g')).toBe('chr20:g.23364487_23364490del');
+  });
+
+  it('formats range deletion as coordinate range for custom format', () => {
+    const p = parseVariant('Chr20:g.23364487-23364490del');
+    expect(getFormattedVariant(p, 'custom')).toBe('chr20:23364487-23364490');
+  });
+});
+
 

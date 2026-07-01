@@ -6,6 +6,29 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [1.2.0] — 2026-07-01
+
+### 🚀 New Features & Enhancements
+
+- **Ensembl VEP Integration & Transcript Gating** (`src/hooks/useVariantEnrichment.ts`, `src/components/VariantWorkbench.tsx`) — Integrates Ensembl VEP (Variant Effect Predictor) annotations to:
+  - Enforce MANE Select / canonical transcript priority in VEP query.
+  - Run VEP unconditionally for all genomic coordinate inputs.
+  - Display transcript discrepancy warnings transparently (e.g., `p.Phe191Leu in alternative transcript`) in a dedicated Protein Alteration card note.
+  - Improve robust handling of liftovers and prevent GRCh37/GRCh38 coordinate poisoning bugs by capturing `originalGenomicMatch`.
+- **Integrate Additional Frequency & Direct ClinVar Resolvers** (`src/lib/ncbiAlfa.ts`, `src/lib/ucscGnomad.ts`, `src/lib/clinvarDirect.ts`) — Direct E-utilities ClinVar fetching, UCSC gnomAD v4 frequency resolver, and NCBI ALFA allele frequency resolver.
+- **Improved Queue & Active Tab UX** (`src/components/BatchQueuePanel.tsx`, `src/sidepanel/index.tsx`) — Contextual active tab button highlighting per portal URL, keyboard shortcut references link to Chrome Shortcuts page in Settings, removed duplicate toast notifications, improved red/green full-width error alert banners, and optimized queue input by relying on Enter and Paste buttons.
+- **Settings & Theme Polish** (`src/components/SettingsModal.tsx`) — Polished settings UI, monospace layout for AM score pred labels.
+
+### ⚙️ Refactoring & Cleanups
+
+- **Cache Keys Bump** (`src/hooks/useVariantEnrichment.ts`) — Bumped to `variantstream_enrichment_cache_v6` to invalidate stale caches.
+- **Race Condition Fixes** — Gates state commits via `currentQueryKeyRef` and syncs queue item notes to active inputs using a `useEffect` synchronization.
+
+### ✅ Tests Added
+- Added unit tests for `ncbiAlfa.test.ts` and `ucscGnomad.test.ts` verifying exome/genome query error handling and ALFA/gnomAD frequency resolutions.
+
+---
+
 ## [1.1.2] — 2026-06-27
 
 ### 🚀 New Features & Enhancements

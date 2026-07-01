@@ -1,4 +1,4 @@
-import { ParsedVariant, parseVariant, computeEndPos } from './parser';
+import { ParsedVariant, parseVariant, computeEndPos, getFormattedVariant } from './parser';
 import { PlatformAdapter, getMissingDataReason, hasRealAllele } from './platforms';
 import { GenomeBuild, DEFAULT_BUILD, ucscDb, gnomadDataset, spliceAiAssembly } from '../utils/genomeBuild';
 import { normaliseAlleles } from '../utils/normalize';
@@ -168,8 +168,8 @@ export const variantvalidatorBuilder: PlatformUrlBuilder = (parsed, adapter, bui
   const hgvsc = (enrichment?.transcript && enrichment?.codingChange) ? `${enrichment.transcript}:${enrichment.codingChange}` : '';
   const hgvsg = enrichment?.hgvsg;
   const fullHgvsC = parsed.transcript && parsed.codingChange ? `${parsed.transcript}:${parsed.codingChange}` : '';
-  const fullHgvsG = (parsed.chromosome && parsed.position && hasRealAllele(parsed.ref) && hasRealAllele(parsed.alt))
-    ? `chr${parsed.chromosome}:g.${parsed.position}${parsed.ref}>${parsed.alt}` : '';
+  const fullHgvsG = (parsed.chromosome && parsed.position)
+    ? getFormattedVariant(parsed, 'hgvs_g') : '';
 
   const variantTerm = hgvsc || hgvsg || fullHgvsC || fullHgvsG;
   if (variantTerm) {

@@ -6,7 +6,6 @@
   "permissions": [
     "sidePanel",
     "storage",
-    "clipboardRead",
     "clipboardWrite"
   ],
   "host_permissions": [

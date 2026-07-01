@@ -1,6 +1,0 @@
-{
-  "name": "Variant Handler",
-  "description": "A persistent genomics annotation sidepanel assisting clinical scientists and molecular pathologists when navigating between different gene expression and variant database websites.",
-  "requestFramePermissions": [],
-  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
-}
