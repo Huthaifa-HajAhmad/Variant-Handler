@@ -6,6 +6,23 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [1.2.2] — 2026-07-03
+
+### 🐛 Bug Fixes
+- **VEP Multi-Base Coordinate Range Resolution** (`src/hooks/useVariantEnrichment.ts`) — Automatically calculates the end coordinate position for multi-base reference alleles (e.g., deletions/substitutions) during Ensembl VEP queries, preventing API errors (`400 Bad Request`).
+- **Tests Added** — Unit tests covering multi-base coordinate range derivation.
+
+---
+
+## [1.2.1] — 2026-07-02
+
+### ⚙️ Refactoring & Governance
+- **Open Source Preparation** — Standalone `LICENSE` (MIT), `CONTRIBUTING.md`, and `CODE_OF_CONDUCT.md` added.
+- **Repository Hygiene** — Cleaned up Google AI Studio configuration files and metadata details.
+- **Documentation Badges** — Bumped test badge to reflect 140 passing tests.
+
+---
+
 ## [1.2.0] — 2026-07-01
 
 ### 🚀 New Features & Enhancements
