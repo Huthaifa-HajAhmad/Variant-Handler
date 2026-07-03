@@ -19,6 +19,11 @@ describe('deriveQueryKey — build suffix (T12)', () => {
     expect(deriveQueryKey(parsed, 'GRCh37')).toBe('chr7:g.140753336A>T@GRCh37');
   });
 
+  it('correctly calculates the range for multi-base reference alleles in genomic keys', () => {
+    const parsed = parseVariant('20:23365554 GACGTGAAGCGGC > G');
+    expect(deriveQueryKey(parsed, 'GRCh38')).toBe('chr20:g.23365554_23365566GACGTGAAGCGGC>G@GRCh38');
+  });
+
   it('does NOT append the build suffix to transcript keys (build-independent)', () => {
     // Use a transcript input (no genomic coords in the notation) so the
     // genomic branch of deriveQueryKey is not taken via coord backfill.

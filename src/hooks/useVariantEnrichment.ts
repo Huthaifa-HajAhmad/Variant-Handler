@@ -334,7 +334,13 @@ export function deriveQueryKey(parsed: ParsedVariant, build: GenomeBuild): strin
   if (parsed.chromosome && parsed.position) {
     let base = '';
     if (parsed.ref && parsed.alt) {
-      base = `chr${parsed.chromosome}:g.${parsed.position}${parsed.ref}>${parsed.alt}`;
+      if (parsed.ref.length > 1 && parsed.ref !== '-') {
+        const start = parseInt(parsed.position, 10);
+        const end = isNaN(start) ? parsed.position : String(start + parsed.ref.length - 1);
+        base = `chr${parsed.chromosome}:g.${parsed.position}_${end}${parsed.ref}>${parsed.alt}`;
+      } else {
+        base = `chr${parsed.chromosome}:g.${parsed.position}${parsed.ref}>${parsed.alt}`;
+      }
     } else {
       // Indel/Structural coordinate range format
       const match = parsed.raw.match(/(delins|del|ins|dup|inv)\s*([ACGTN]*)$/i);
