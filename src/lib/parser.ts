@@ -76,18 +76,16 @@ function cleanChrom(chrom: string): string {
  * single-digit partial matches of two-digit chromosomes.
  */
 const GENOMIC_REGEXES = [
-  // HGVSg:  chr7:g.140753336A>T   or   ChrX(GRCh38):g.77989236C>G
-  // Anchored at ^ (N5) so a transcript accession like "NM_000492.4:g.1521del"
-  // cannot partial-match "4:g.1521del" as a genomic variant.
-  /^(?:chr)?(2[0-2]|1[0-9]|[1-9]|X|Y|MT|M|NC_\d+(?:\.\d+)?)(?:\([^)]*\)|\[[^\]]*\])?(?=\s*:)\s*:\s*g\.\s*([0-9]+)\s*([ACGTN]+)\s*>\s*([ACGTN]+)/i,
-  // VCF dash/colon:  7-140753336-A-T   or   12:25245350:C:T
-  /^(?:chr)?(2[0-2]|1[0-9]|[1-9]|X|Y|MT|M|NC_\d+(?:\.\d+)?)(?:\([^)]*\)|\[[^\]]*\])?\s*[-:_]\s*([0-9]+)\s*[-:_]\s*([ACGTN]+)\s*[-:_>]\s*([ACGTN]+)/i,
-  // Simple coord+change:  chr12:25245350C>T
-  /^(?:chr)?(2[0-2]|1[0-9]|[1-9]|X|Y|MT|M|NC_\d+(?:\.\d+)?)(?:\([^)]*\)|\[[^\]]*\])?\s*:\s*([0-9]+)\s*([ACGTN]+)\s*>\s*([ACGTN]+)/i,
+  // HGVSg:  chr7:g.140753336A>T   or   ChrX(GRCh38):g.77989236C>G   or hybrid A-T / A>T
+  /^(?:chr)?(2[0-2]|1[0-9]|[1-9]|X|Y|MT|M|NC_\d+(?:\.\d+)?)(?:\([^)]*\)|\[[^\]]*\])?(?=\s*:)\s*:\s*g\.\s*([0-9]+)\s*([ACGTN]+)\s*[-:>]\s*([ACGTN]+)/i,
+  // VCF dash/colon:  7-140753336-A-T   or   12:25245350:C:T   or hybrid 12:g.25245350-C-T
+  /^(?:chr)?(2[0-2]|1[0-9]|[1-9]|X|Y|MT|M|NC_\d+(?:\.\d+)?)(?:\([^)]*\)|\[[^\]]*\])?\s*[-:_]\s*(?:g\.\s*)?([0-9]+)\s*[-:_]\s*([ACGTN]+)\s*[-:_>]\s*([ACGTN]+)/i,
+  // Simple coord+change:  chr12:25245350C>T   or   12:g.25245350C-T
+  /^(?:chr)?(2[0-2]|1[0-9]|[1-9]|X|Y|MT|M|NC_\d+(?:\.\d+)?)(?:\([^)]*\)|\[[^\]]*\])?\s*:\s*(?:g\.\s*)?([0-9]+)\s*([ACGTN]+)\s*[-:>]\s*([ACGTN]+)/i,
   // HGVSg indels/ranges: chr9:g.38068458_38068460del | chrX:g.32801509_32801510insA | chr17:g.43044294dup | chr7:g.140753336_140753337delinsTT
   /^(?:chr)?(2[0-2]|1[0-9]|[1-9]|X|Y|MT|M|NC_\d+(?:\.\d+)?)(?:\([^)]*\)|\[[^\]]*\])?\s*:\s*g\.\s*([0-9]+)\s*(?:[_-]\s*([0-9]+))?\s*(delins|del|ins|dup|inv)\s*([ACGTN]*)$/i,
   // Coordinate-only:  chr17:43044295
-  /^(?:chr)?(2[0-2]|1[0-9]|[1-9]|X|Y|MT|M|NC_\d+(?:\.\d+)?)(?:\([^)]*\)|\[[^\]]*\])?\s*:\s*([0-9]+)$/i,
+  /^(?:chr)?(2[0-2]|1[0-9]|[1-9]|X|Y|MT|M|NC_\d+(?:\.\d+)?)(?:\([^)]*\)|\[[^\]]*\])?\s*:\s*(?:g\.\s*)?([0-9]+)$/i,
 ];
 
 // R1: canonical hotspot database removed — parser is now notation-only.

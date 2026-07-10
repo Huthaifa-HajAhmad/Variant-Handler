@@ -51,6 +51,24 @@ describe('parseVariant — Genomic Coordinate Formats', () => {
     expect(r.alt).toBe('T');
   });
 
+  it('parses hybrid HGVSg/VCF dash format (e.g. Chr2(GRCh38):g.10675808-C-T)', () => {
+    const r = parseVariant('Chr2(GRCh38):g.10675808-C-T');
+    expect(r.isValid).toBe(true);
+    expect(r.chromosome).toBe('2');
+    expect(r.position).toBe('10675808');
+    expect(r.ref).toBe('C');
+    expect(r.alt).toBe('T');
+    expect(r.genomeBuild).toBe('GRCh38');
+  });
+
+  it('parses hybrid coordinate+change with dash (e.g. chr12:g.25245350C-T)', () => {
+    const r = parseVariant('chr12:g.25245350C-T');
+    expect(r.isValid).toBe(true);
+    expect(r.chromosome).toBe('12');
+    expect(r.position).toBe('25245350');
+    expect(r.ref).toBe('C');
+    expect(r.alt).toBe('T');
+  });
   it('parses chromosome X', () => {
     const r = parseVariant('chrX:g.12345678C>G');
     expect(r.isValid).toBe(true);
