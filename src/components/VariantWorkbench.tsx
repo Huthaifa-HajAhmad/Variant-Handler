@@ -665,7 +665,7 @@ export default function VariantWorkbench({
                         <span className="text-[9px] font-bold text-slate-500 uppercase tracking-wider">CADD (PHRED)</span>
                         {enrichment.caddPhred !== undefined ? (
                           <div className="flex flex-col gap-0.5 mt-0.5">
-                            <span className="text-sm font-mono font-bold text-slate-800 dark:text-slate-200">
+                            <span className={`text-sm font-mono font-bold ${isLight ? 'text-slate-800' : 'text-slate-100'}`}>
                               {enrichment.caddPhred.toFixed(1)}
                             </span>
                             <span className={`text-[8px] font-medium ${
@@ -684,7 +684,7 @@ export default function VariantWorkbench({
                         <span className="text-[9px] font-bold text-slate-500 uppercase tracking-wider">REVEL</span>
                         {enrichment.revelScore !== undefined ? (
                           <div className="flex flex-col gap-0.5 mt-0.5">
-                            <span className="text-sm font-mono font-bold text-slate-800 dark:text-slate-200">
+                            <span className={`text-sm font-mono font-bold ${isLight ? 'text-slate-800' : 'text-slate-100'}`}>
                               {enrichment.revelScore.toFixed(3)}
                             </span>
                             <span className={`text-[8px] font-medium ${
