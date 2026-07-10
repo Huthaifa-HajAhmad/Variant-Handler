@@ -582,16 +582,24 @@ export function parseApiResponse(data: any, queryKey: string): EnrichmentData {
     if (typeof scoreVal === 'number') return scoreVal;
     if (typeof scoreVal === 'string') return parseFloat(scoreVal);
     if (Array.isArray(scoreVal) && scoreVal.length > 0) {
-      const uniprotAccs = data?.dbnsfp?.uniprot;
+      const uniprotAccs = data?.dbnsfp?.uniprot || data?.dbnsfp?.uniprot_acc;
       let canonicalIdx = 0;
-      if (Array.isArray(uniprotAccs) && uniprotAccs.length === scoreVal.length) {
+      if (Array.isArray(uniprotAccs)) {
         const foundIdx = uniprotAccs.findIndex((u: any) => {
-          const acc = typeof u === 'string' ? u : u?.acc;
+          const acc = typeof u === 'string' ? u : u?.acc || u?.acc_id;
           return typeof acc === 'string' && !acc.includes('-');
         });
-        if (foundIdx !== -1) canonicalIdx = foundIdx;
+        if (foundIdx !== -1 && foundIdx < scoreVal.length) {
+          canonicalIdx = foundIdx;
+        }
       }
       const parsedVal = typeof scoreVal[canonicalIdx] === 'number' ? scoreVal[canonicalIdx] : parseFloat(scoreVal[canonicalIdx]);
+      console.log('[VariantHandler] amScore resolved:', {
+        uniprot: uniprotAccs,
+        score: scoreVal,
+        canonicalIdx,
+        result: parsedVal
+      });
       return isNaN(parsedVal) ? undefined : parsedVal;
     }
     return undefined;
@@ -603,14 +611,16 @@ export function parseApiResponse(data: any, queryKey: string): EnrichmentData {
     const predVal = am.pred;
     if (typeof predVal === 'string') return predVal;
     if (Array.isArray(predVal) && predVal.length > 0) {
-      const uniprotAccs = data?.dbnsfp?.uniprot;
+      const uniprotAccs = data?.dbnsfp?.uniprot || data?.dbnsfp?.uniprot_acc;
       let canonicalIdx = 0;
-      if (Array.isArray(uniprotAccs) && uniprotAccs.length === predVal.length) {
+      if (Array.isArray(uniprotAccs)) {
         const foundIdx = uniprotAccs.findIndex((u: any) => {
-          const acc = typeof u === 'string' ? u : u?.acc;
+          const acc = typeof u === 'string' ? u : u?.acc || u?.acc_id;
           return typeof acc === 'string' && !acc.includes('-');
         });
-        if (foundIdx !== -1) canonicalIdx = foundIdx;
+        if (foundIdx !== -1 && foundIdx < predVal.length) {
+          canonicalIdx = foundIdx;
+        }
       }
       return String(predVal[canonicalIdx]);
     }
