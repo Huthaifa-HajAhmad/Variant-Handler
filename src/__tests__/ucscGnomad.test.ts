@@ -18,7 +18,9 @@ describe('resolveGnomadV4', () => {
               chromStart: 140753335,
               ref: 'A',
               alt: 'T',
-              AF: '0.00015'
+              AF: '0.00015',
+              AC: '15',
+              AN: '100000'
             }
           ]
         });
@@ -30,7 +32,9 @@ describe('resolveGnomadV4', () => {
               chromStart: 140753335,
               ref: 'A',
               alt: 'T',
-              AF: '0.00025'
+              AF: '0.00025',
+              AC: '25',
+              AN: '100000'
             }
           ]
         });
@@ -40,7 +44,11 @@ describe('resolveGnomadV4', () => {
 
     const res = await resolveGnomadV4('chr7:g.140753336A>T', fetchMock);
     expect(res.gnomadV4ExomeAf).toBe(0.00015);
+    expect(res.gnomadV4ExomeAc).toBe(15);
+    expect(res.gnomadV4ExomeAn).toBe(100000);
     expect(res.gnomadV4GenomeAf).toBe(0.00025);
+    expect(res.gnomadV4GenomeAc).toBe(25);
+    expect(res.gnomadV4GenomeAn).toBe(100000);
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 

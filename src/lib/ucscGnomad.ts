@@ -2,7 +2,11 @@ import { GenomeBuild } from './parser';
 
 export interface UcscGnomadResult {
   gnomadV4ExomeAf?: number;
+  gnomadV4ExomeAc?: number;
+  gnomadV4ExomeAn?: number;
   gnomadV4GenomeAf?: number;
+  gnomadV4GenomeAc?: number;
+  gnomadV4GenomeAn?: number;
 }
 
 /**
@@ -55,10 +59,18 @@ export async function resolveGnomadV4(
           typeof item.alt === 'string' &&
           item.alt.toUpperCase() === alt
       );
-      if (matched && typeof matched.AF === 'string') {
-        const val = parseFloat(matched.AF);
-        if (!isNaN(val)) {
-          result.gnomadV4ExomeAf = val;
+      if (matched) {
+        if (typeof matched.AF === 'string') {
+          const val = parseFloat(matched.AF);
+          if (!isNaN(val)) result.gnomadV4ExomeAf = val;
+        }
+        if (typeof matched.AC === 'string') {
+          const val = parseInt(matched.AC, 10);
+          if (!isNaN(val)) result.gnomadV4ExomeAc = val;
+        }
+        if (typeof matched.AN === 'string') {
+          const val = parseInt(matched.AN, 10);
+          if (!isNaN(val)) result.gnomadV4ExomeAn = val;
         }
       }
     }
@@ -73,10 +85,18 @@ export async function resolveGnomadV4(
           typeof item.alt === 'string' &&
           item.alt.toUpperCase() === alt
       );
-      if (matched && typeof matched.AF === 'string') {
-        const val = parseFloat(matched.AF);
-        if (!isNaN(val)) {
-          result.gnomadV4GenomeAf = val;
+      if (matched) {
+        if (typeof matched.AF === 'string') {
+          const val = parseFloat(matched.AF);
+          if (!isNaN(val)) result.gnomadV4GenomeAf = val;
+        }
+        if (typeof matched.AC === 'string') {
+          const val = parseInt(matched.AC, 10);
+          if (!isNaN(val)) result.gnomadV4GenomeAc = val;
+        }
+        if (typeof matched.AN === 'string') {
+          const val = parseInt(matched.AN, 10);
+          if (!isNaN(val)) result.gnomadV4GenomeAn = val;
         }
       }
     }

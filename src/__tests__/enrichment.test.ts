@@ -216,4 +216,34 @@ describe('validateRefAllele', () => {
     expect(res).toContain('reference matches "A" at this position on GRCh37');
     expect(res).toContain('wrong genome build');
   });
+
+  describe('parseApiResponse — gnomadAf fallback', () => {
+    it('uses gnomad_genome.af.af if present', () => {
+      const data = {
+        _id: 'chr7:g.1A>T',
+        gnomad_genome: { af: { af: 0.001 } },
+        gnomad_exome: { af: { af: 0.002 } }
+      };
+      const result = parseApiResponse(data, 'chr7:g.1A>T');
+      expect(result.gnomadAf).toBe(0.001);
+    });
+
+    it('falls back to gnomad_exome.af.af if genome is missing', () => {
+      const data = {
+        _id: 'chr7:g.1A>T',
+        gnomad_exome: { af: { af: 0.002 } }
+      };
+      const result = parseApiResponse(data, 'chr7:g.1A>T');
+      expect(result.gnomadAf).toBe(0.002);
+    });
+
+    it('returns undefined if both are missing', () => {
+      const data = {
+        _id: 'chr7:g.1A>T'
+      };
+      const result = parseApiResponse(data, 'chr7:g.1A>T');
+      expect(result.gnomadAf).toBeUndefined();
+    });
+  });
 });
+

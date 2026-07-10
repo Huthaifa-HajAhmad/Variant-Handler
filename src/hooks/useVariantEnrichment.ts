@@ -194,8 +194,14 @@ export interface EnrichmentData {
   rsId?: string;
   geneSymbol?: string;
   gnomadAf?: number;      // allele frequency (0–1)
+  gnomadAc?: number;      // allele count (v2.1)
+  gnomadAn?: number;      // allele number (v2.1)
   gnomadV4ExomeAf?: number;
+  gnomadV4ExomeAc?: number;
+  gnomadV4ExomeAn?: number;
   gnomadV4GenomeAf?: number;
+  gnomadV4GenomeAc?: number;
+  gnomadV4GenomeAn?: number;
   alfaAf?: number;
   caddPhred?: number;
   revelScore?: number;
@@ -528,10 +534,28 @@ export function parseApiResponse(data: any, queryKey: string): EnrichmentData {
       ? `rs${data.dbsnp.rsid}`
       : undefined;
 
-  // gnomAD allele frequency
+  // gnomAD allele frequency (falls back to exomes if genomes is missing)
   const gnomadAf: number | undefined =
     typeof data?.gnomad_genome?.af?.af === 'number'
       ? data.gnomad_genome.af.af
+      : typeof data?.gnomad_exome?.af?.af === 'number'
+      ? data.gnomad_exome.af.af
+      : undefined;
+
+  // gnomAD allele count (falls back to exomes if genomes is missing)
+  const gnomadAc: number | undefined =
+    typeof data?.gnomad_genome?.ac?.ac === 'number'
+      ? data.gnomad_genome.ac.ac
+      : typeof data?.gnomad_exome?.ac?.ac === 'number'
+      ? data.gnomad_exome.ac.ac
+      : undefined;
+
+  // gnomAD allele number (falls back to exomes if genomes is missing)
+  const gnomadAn: number | undefined =
+    typeof data?.gnomad_genome?.an?.an === 'number'
+      ? data.gnomad_genome.an.an
+      : typeof data?.gnomad_exome?.an?.an === 'number'
+      ? data.gnomad_exome.an.an
       : undefined;
 
   // CADD PHRED score
@@ -656,6 +680,8 @@ export function parseApiResponse(data: any, queryKey: string): EnrichmentData {
     rsId,
     geneSymbol,
     gnomadAf,
+    gnomadAc,
+    gnomadAn,
     caddPhred,
     revelScore,
     amScore,
@@ -1165,16 +1191,43 @@ export function useVariantEnrichment(
               }
             }
 
-            // Query gnomAD v4 from UCSC Genome Browser track API
-            const hgvsForGnomad = enrichmentData.hgvsg || (activeQueryKey.includes(':g.') ? activeQueryKey : '');
-            if (hgvsForGnomad && hgvsForGnomad.match(/^chr([^:]+):g\.(\d+)([A-Z]+)>([A-Z]+)$/i)) {
+            // Query gnomAD v4 from UCSC Genome Browser track API (always uses GRCh38)
+            let hgvsForGnomad = '';
+            if (build === 'GRCh38' && originalGenomicMatch) {
+              const chrom = originalGenomicMatch[1];
+              const pos = originalGenomicMatch[2];
+              const ref = originalGenomicMatch[4];
+              const alt = originalGenomicMatch[5];
+              if (ref && alt) {
+                hgvsForGnomad = `chr${chrom}:g.${pos}${ref}>${alt}`;
+              } else {
+                const changeType = originalGenomicMatch[6];
+                const changeSeq = originalGenomicMatch[7] || '';
+                hgvsForGnomad = `chr${chrom}:g.${pos}${originalGenomicMatch[3] ? `_${originalGenomicMatch[3]}` : ''}${changeType}${changeSeq}`;
+              }
+            } else {
+              hgvsForGnomad = enrichmentData.hgvsg || (activeQueryKey.includes(':g.') ? activeQueryKey : '');
+            }
+            if (hgvsForGnomad && hgvsForGnomad.match(/^chr([^:]+):g\.(\d+)([A-Z_0-9\-]+)>(?:[A-Z_0-9\-]+)|(?:delins|del|ins|dup|inv).*$/i)) {
               try {
                 const gnomadV4Res = await resolveGnomadV4(hgvsForGnomad, performFetch);
                 if (gnomadV4Res.gnomadV4ExomeAf !== undefined) {
                   enrichmentData.gnomadV4ExomeAf = gnomadV4Res.gnomadV4ExomeAf;
                 }
+                if (gnomadV4Res.gnomadV4ExomeAc !== undefined) {
+                  enrichmentData.gnomadV4ExomeAc = gnomadV4Res.gnomadV4ExomeAc;
+                }
+                if (gnomadV4Res.gnomadV4ExomeAn !== undefined) {
+                  enrichmentData.gnomadV4ExomeAn = gnomadV4Res.gnomadV4ExomeAn;
+                }
                 if (gnomadV4Res.gnomadV4GenomeAf !== undefined) {
                   enrichmentData.gnomadV4GenomeAf = gnomadV4Res.gnomadV4GenomeAf;
+                }
+                if (gnomadV4Res.gnomadV4GenomeAc !== undefined) {
+                  enrichmentData.gnomadV4GenomeAc = gnomadV4Res.gnomadV4GenomeAc;
+                }
+                if (gnomadV4Res.gnomadV4GenomeAn !== undefined) {
+                  enrichmentData.gnomadV4GenomeAn = gnomadV4Res.gnomadV4GenomeAn;
                 }
               } catch (e: any) {
                 if (e.is429) throw e;
