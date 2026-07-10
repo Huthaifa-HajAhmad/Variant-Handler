@@ -222,7 +222,7 @@ export interface EnrichmentData {
 
 // ── Cache constants ───────────────────────────────────────────────────────────
 
-const CACHE_STORAGE_KEY = 'variantstream_enrichment_cache_v6';
+const CACHE_STORAGE_KEY = 'variantstream_enrichment_cache_v7';
 const CACHE_TTL_MS      = 24 * 60 * 60 * 1000; // 24 hours
 const DEBOUNCE_MS       = 800;
 const API_BASE          = 'https://myvariant.info/v1/variant';
