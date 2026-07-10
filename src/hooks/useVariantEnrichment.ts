@@ -263,7 +263,7 @@ const memoryCache = new Map<string, EnrichmentData>();
 // memoryCache remains the hot layer; session storage only seeds/persists it.
 // A cacheReady promise gates the first read so callers don't miss the preload.
 
-const SESSION_CACHE_KEY = 'variantstream_enrichment_cache_v6';
+const SESSION_CACHE_KEY = 'variantstream_enrichment_cache_v7';
 
 function isSessionStorageAvailable(): boolean {
   return typeof chrome !== 'undefined' && !!chrome.storage && !!chrome.storage.session;
