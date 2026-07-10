@@ -33,7 +33,7 @@ Variant Handler acts as a **persistent, format-aware clipboard** that travels ac
 |-------|-----------|-------|
 | **SNVs** (single nucleotide) | ✅ Full | Primary use case — HGVSg, VCF dash, simple `chr:posREF>ALT`, HGVSc, HGVSp all parse and launch to every platform. |
 | **Small indels** (≤ a few kb del/ins/dup/delins/inv at sequence level) | ✅ Full | HGVS `del`/`ins`/`dup`/`delins`/`inv` with explicit sequence or ranges parse. Lacking sequence (e.g., range deletions or duplications) is resolved via the UCSC Sequence API (during live enrichment) to construct standard VCF alleles and enable launches. |
-| **CNVs / copy-number** (cytogenetic `del(17)(p13.1)`, MLPA "del exon 7–10", large-scale gains/losses) | ❌ Not supported | No parser, no platform integration (no gnomAD CNV, ClinGen dosage, or DECIPHER CNV viewer). See [`doc/LIMITATIONS.md`](./doc/LIMITATIONS.md) §1.1. |
+| **CNVs / copy-number** (cytogenetic `del(17)(p13.1)`, MLPA "del exon 7–10", large-scale gains/losses) | ❌ Not supported | No parser, no platform integration (no gnomAD CNV, ClinGen dosage, or DECIPHER CNV viewer) |
 | **Translocations / fusions** (`t(9;22)(q34;q11)`, fusion transcripts) | ❌ Not supported | |
 | **RNA-level** (`r.76a>u`) | ❌ Not supported | |
 | **Multi-allelic / complex** (`[c.123A>T;c.456G>C]`, uncertain positions `c.(100_200)A>T`) | ❌ Not supported | |
