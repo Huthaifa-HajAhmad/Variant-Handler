@@ -6,6 +6,19 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [1.2.3] — 2026-07-10
+
+### 🚀 New Features & Enhancements
+- **Hybrid Genomic Coordinate Parsing** — Support parsing hybrid VCF/HGVSg formats combining `g.` prefixes and dash separators (e.g., `Chr2(GRCh38):g.10675808-C-T`).
+- **gnomAD UI Styling Improvements** — Refactored gnomAD panels to fit narrow side panels. Removed spaces/frequencies to render strict AC/AN count formatting (e.g., `10/1,461,752`).
+
+### 🐛 Bug Fixes
+- **Canonical AlphaMissense Score Prioritization** — Resolved coordinate mapping and prioritized canonical UniProt isoform matching (without a dash `-` suffix) for AlphaMissense score extraction. Added fallbacks for missing `uniprot` database entries (utilizing `mutpred.accession`).
+- **CADD & REVEL Contrast Fix** — Resolved faint CADD and REVEL score text contrast in dark mode by switching to theme-aware text colors.
+- **Browser Clipboard Support** — Re-added `"clipboardRead"` permission to the extension manifest to ensure Edge side panels can read coordinates from clipboard.
+
+---
+
 ## [1.2.2] — 2026-07-03
 
 ### 🐛 Bug Fixes
