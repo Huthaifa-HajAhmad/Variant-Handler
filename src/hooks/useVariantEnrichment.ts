@@ -582,7 +582,16 @@ export function parseApiResponse(data: any, queryKey: string): EnrichmentData {
     if (typeof scoreVal === 'number') return scoreVal;
     if (typeof scoreVal === 'string') return parseFloat(scoreVal);
     if (Array.isArray(scoreVal) && scoreVal.length > 0) {
-      const parsedVal = typeof scoreVal[0] === 'number' ? scoreVal[0] : parseFloat(scoreVal[0]);
+      const uniprotAccs = data?.dbnsfp?.uniprot;
+      let canonicalIdx = 0;
+      if (Array.isArray(uniprotAccs) && uniprotAccs.length === scoreVal.length) {
+        const foundIdx = uniprotAccs.findIndex((u: any) => {
+          const acc = typeof u === 'string' ? u : u?.acc;
+          return typeof acc === 'string' && !acc.includes('-');
+        });
+        if (foundIdx !== -1) canonicalIdx = foundIdx;
+      }
+      const parsedVal = typeof scoreVal[canonicalIdx] === 'number' ? scoreVal[canonicalIdx] : parseFloat(scoreVal[canonicalIdx]);
       return isNaN(parsedVal) ? undefined : parsedVal;
     }
     return undefined;
@@ -594,7 +603,16 @@ export function parseApiResponse(data: any, queryKey: string): EnrichmentData {
     const predVal = am.pred;
     if (typeof predVal === 'string') return predVal;
     if (Array.isArray(predVal) && predVal.length > 0) {
-      return String(predVal[0]);
+      const uniprotAccs = data?.dbnsfp?.uniprot;
+      let canonicalIdx = 0;
+      if (Array.isArray(uniprotAccs) && uniprotAccs.length === predVal.length) {
+        const foundIdx = uniprotAccs.findIndex((u: any) => {
+          const acc = typeof u === 'string' ? u : u?.acc;
+          return typeof acc === 'string' && !acc.includes('-');
+        });
+        if (foundIdx !== -1) canonicalIdx = foundIdx;
+      }
+      return String(predVal[canonicalIdx]);
     }
     return undefined;
   })();

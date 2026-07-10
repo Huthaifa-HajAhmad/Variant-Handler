@@ -245,5 +245,45 @@ describe('validateRefAllele', () => {
       expect(result.gnomadAf).toBeUndefined();
     });
   });
+
+  describe('parseApiResponse — AlphaMissense canonical prioritization', () => {
+    it('prioritizes canonical UniProt accession without dash suffix', () => {
+      const data = {
+        _id: 'chr2:g.10815934C>T',
+        dbnsfp: {
+          uniprot: [
+            { acc: 'Q9BSC4-2' },
+            { acc: 'Q9BSC4' }
+          ],
+          alphamissense: {
+            score: [0.7501, 0.922],
+            pred: ['P', 'P']
+          }
+        }
+      };
+      const result = parseApiResponse(data, 'chr2:g.10815934C>T');
+      expect(result.amScore).toBe(0.922);
+      expect(result.amPred).toBe('P');
+    });
+
+    it('falls back to the first entry if no canonical accession is found', () => {
+      const data = {
+        _id: 'chr2:g.10815934C>T',
+        dbnsfp: {
+          uniprot: [
+            { acc: 'Q9BSC4-2' },
+            { acc: 'Q9BSC4-3' }
+          ],
+          alphamissense: {
+            score: [0.7501, 0.922],
+            pred: ['B', 'P']
+          }
+        }
+      };
+      const result = parseApiResponse(data, 'chr2:g.10815934C>T');
+      expect(result.amScore).toBe(0.7501);
+      expect(result.amPred).toBe('B');
+    });
+  });
 });
 

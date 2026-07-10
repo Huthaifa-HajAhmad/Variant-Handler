@@ -535,7 +535,7 @@ export default function VariantWorkbench({
 
                 {/* Allele Frequencies */}
                 <div className={`p-1.5 px-2 rounded-lg border flex flex-col justify-between ${isLight ? 'bg-amber-50 border-amber-100' : 'bg-amber-950/30 border-amber-900/50'}`}>
-                  <span className={rowLabelCls}>Allele Frequencies / Counts</span>
+                  <span className={rowLabelCls}>gnomAD (AC/AN)</span>
                   {enrichment.gnomadAf === undefined && enrichment.gnomadV4ExomeAf === undefined && enrichment.gnomadV4GenomeAf === undefined ? (
                     <div className="mt-1.5 py-1.5 text-[10px] text-slate-400 dark:text-slate-500 italic flex items-center justify-center">
                       Not found in gnomAD
@@ -544,7 +544,7 @@ export default function VariantWorkbench({
                     <div className="mt-1.5 flex flex-col gap-1 text-[10px]">
                       {/* v3 */}
                       <div className="flex items-center justify-between">
-                        <span className="text-slate-500">gnomAD v3:</span>
+                        <span className="text-slate-500">v3:</span>
                         {enrichment.gnomadAf !== undefined ? (
                           <span className="font-mono font-bold" style={{ color: afColor(enrichment.gnomadAf) }}>
                             {formatAfOrCount(enrichment.gnomadAf, enrichment.gnomadAc, enrichment.gnomadAn)}
@@ -555,7 +555,7 @@ export default function VariantWorkbench({
                       </div>
                       {/* v4.1 Exome */}
                       <div className="flex items-center justify-between">
-                        <span className="text-slate-500">gnomAD v4 (Exome):</span>
+                        <span className="text-slate-500">v4 Exome:</span>
                         {enrichment.gnomadV4ExomeAf !== undefined ? (
                           <span className="font-mono font-bold" style={{ color: afColor(enrichment.gnomadV4ExomeAf) }}>
                             {formatAfOrCount(enrichment.gnomadV4ExomeAf, enrichment.gnomadV4ExomeAc, enrichment.gnomadV4ExomeAn)}
@@ -566,7 +566,7 @@ export default function VariantWorkbench({
                       </div>
                       {/* v4.1 Genome */}
                       <div className="flex items-center justify-between">
-                        <span className="text-slate-500">gnomAD v4 (Genome):</span>
+                        <span className="text-slate-500">v4 Genome:</span>
                         {enrichment.gnomadV4GenomeAf !== undefined ? (
                           <span className="font-mono font-bold" style={{ color: afColor(enrichment.gnomadV4GenomeAf) }}>
                             {formatAfOrCount(enrichment.gnomadV4GenomeAf, enrichment.gnomadV4GenomeAc, enrichment.gnomadV4GenomeAn)}
