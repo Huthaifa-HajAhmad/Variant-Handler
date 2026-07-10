@@ -42,7 +42,7 @@ function formatAf(af: number): string {
 
 function formatAfOrCount(af?: number, ac?: number, an?: number): string {
   if (ac !== undefined && an !== undefined) {
-    return `${ac} / ${an.toLocaleString()}${af !== undefined ? ` (${formatAf(af)})` : ''}`;
+    return `${ac} / ${an.toLocaleString()}`;
   }
   if (af !== undefined) return formatAf(af);
   return 'Not found';
