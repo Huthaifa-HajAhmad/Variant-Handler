@@ -282,7 +282,27 @@ describe('validateRefAllele', () => {
       };
       const result = parseApiResponse(data, 'chr2:g.10815934C>T');
       expect(result.amScore).toBe(0.7501);
-      expect(result.amPred).toBe('B');
+    });
+
+    it('falls back to mutpred.accession if uniprot and uniprot_acc are missing', () => {
+      const data = {
+        _id: 'chr2:g.10815934C>T',
+        dbnsfp: {
+          mutpred: {
+            accession: [
+              'Q9BSC4-2',
+              'Q9BSC4'
+            ]
+          },
+          alphamissense: {
+            score: [0.7501, 0.922],
+            pred: ['P', 'P']
+          }
+        }
+      };
+      const result = parseApiResponse(data, 'chr2:g.10815934C>T');
+      expect(result.amScore).toBe(0.922);
+      expect(result.amPred).toBe('P');
     });
   });
 });

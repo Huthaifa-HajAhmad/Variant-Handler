@@ -582,7 +582,7 @@ export function parseApiResponse(data: any, queryKey: string): EnrichmentData {
     if (typeof scoreVal === 'number') return scoreVal;
     if (typeof scoreVal === 'string') return parseFloat(scoreVal);
     if (Array.isArray(scoreVal) && scoreVal.length > 0) {
-      const uniprotAccs = data?.dbnsfp?.uniprot || data?.dbnsfp?.uniprot_acc;
+      const uniprotAccs = data?.dbnsfp?.uniprot || data?.dbnsfp?.uniprot_acc || data?.dbnsfp?.mutpred?.accession;
       let canonicalIdx = 0;
       if (Array.isArray(uniprotAccs)) {
         const foundIdx = uniprotAccs.findIndex((u: any) => {
@@ -611,7 +611,7 @@ export function parseApiResponse(data: any, queryKey: string): EnrichmentData {
     const predVal = am.pred;
     if (typeof predVal === 'string') return predVal;
     if (Array.isArray(predVal) && predVal.length > 0) {
-      const uniprotAccs = data?.dbnsfp?.uniprot || data?.dbnsfp?.uniprot_acc;
+      const uniprotAccs = data?.dbnsfp?.uniprot || data?.dbnsfp?.uniprot_acc || data?.dbnsfp?.mutpred?.accession;
       let canonicalIdx = 0;
       if (Array.isArray(uniprotAccs)) {
         const foundIdx = uniprotAccs.findIndex((u: any) => {
