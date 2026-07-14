@@ -776,7 +776,10 @@ export function useVariantEnrichment(
   build: GenomeBuild,
 ): UseVariantEnrichmentResult {
   console.log('[VariantHandler] useVariantEnrichment hook render:', {
-    parsed,
+    raw: parsed?.raw,
+    isValid: parsed?.isValid,
+    transcript: parsed?.transcript,
+    codingChange: parsed?.codingChange,
     enabled,
     build
   });
