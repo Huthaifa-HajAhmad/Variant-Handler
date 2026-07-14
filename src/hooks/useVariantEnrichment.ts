@@ -775,6 +775,11 @@ export function useVariantEnrichment(
   enabled: boolean,
   build: GenomeBuild,
 ): UseVariantEnrichmentResult {
+  console.log('[VariantHandler] useVariantEnrichment hook render:', {
+    parsed,
+    enabled,
+    build
+  });
   const [enrichment, setEnrichment] = useState<EnrichmentData | null>(null);
   const [isLoading, setIsLoading]   = useState(false);
   const [error, setError]           = useState<string | null>(null);
