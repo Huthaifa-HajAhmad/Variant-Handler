@@ -222,7 +222,7 @@ export interface EnrichmentData {
 
 // ── Cache constants ───────────────────────────────────────────────────────────
 
-const CACHE_STORAGE_KEY = 'variantstream_enrichment_cache_v8';
+const CACHE_STORAGE_KEY = 'variantstream_enrichment_cache_v9';
 const CACHE_TTL_MS      = 24 * 60 * 60 * 1000; // 24 hours
 const DEBOUNCE_MS       = 800;
 const API_BASE          = 'https://myvariant.info/v1/variant';
@@ -265,7 +265,7 @@ const memoryCache = new Map<string, EnrichmentData>();
 // memoryCache remains the hot layer; session storage only seeds/persists it.
 // A cacheReady promise gates the first read so callers don't miss the preload.
 
-const SESSION_CACHE_KEY = 'variantstream_enrichment_cache_v8';
+const SESSION_CACHE_KEY = 'variantstream_enrichment_cache_v9';
 
 function isSessionStorageAvailable(): boolean {
   return typeof chrome !== 'undefined' && !!chrome.storage && !!chrome.storage.session;
