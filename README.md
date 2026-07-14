@@ -35,16 +35,7 @@ Variant Handler acts as a **persistent, format-aware clipboard** that travels ac
 > [!NOTE]
 > **Out of Scope / Unsupported Classes:**
 > Cytogenetic CNVs (e.g., `del(17)(p13.1)`), large structural variants, chromosomal translocations/fusions, RNA-level changes (`r.76a>u`), and multi-allelic/complex genotypes are not supported by the parser or portal launchers.
-
-### Oncology / somatic data — important caveat
-
-The extension is **not built for somatic (oncology) workflows**. Specifically:
-
-- **No germline/somatic distinction.** The parser treats every input as a constitutional variant. There is no tumour/normal pairing, no variant allele frequency (VAF) handling, and no somatic-specific notation parsing.
-- **Enrichment has poor somatic coverage.** The Live Lookup source (MyVariant.info) is curated primarily for **germline** variants. Well-characterised somatic variants (e.g., `BRAF c.1799T>A` / V600E, `EGFR` exon 19 deletions) may return empty or partial annotation, and no COSMIC / OncoKB /cIViC integration exists.
-- **Why oncology genes appear at all.** The bundled gene-symbol table (`src/lib/geneSymbols.ts`) includes `BRCA1/2`, `TP53`, `BRAF`, `KRAS`, `EGFR`, `PTEN`, and the Lynch genes (`MSH2/6`, `MLH1`, `PMS2`). These overlap hereditary cancer-predisposition (germline, in scope) with somatic oncology markers (out of scope). Their presence enables gene-symbol backfill for hereditary cancer panels, **not** somatic analysis.
-
-**Recommendation:** For pure oncology/somatic reporting (VAF, COSMIC, OncoKB, tumour-board workflows), use a somatic-focused tool. Variant Handler can *parse and navigate* the notation for an oncology variant you paste, but it will not surface somatic-relevant annotation and should not be relied on for somatic clinical interpretation.
+> The extension is **not built for somatic (oncology) workflows**.
 
 ---
 
@@ -152,20 +143,6 @@ npm run build
 # → Click "Load unpacked" → select the dist/ folder
 ```
 
-### Running Tests
-
-```bash
-npm test           # Run all tests once
-npm run test:watch # Watch mode
-npm run test:ui    # Browser-based Vitest UI
-```
-
-### Type Checking
-
-```bash
-npm run lint       # Runs tsc --noEmit (zero warnings = clean)
-```
-
 ---
 
 ## Project Structure
@@ -195,7 +172,7 @@ variant-handler/
 │   │   ├── useKeyboardShortcuts.ts  # Alt+key global shortcuts (ref pattern)
 │   │   └── useTheme.ts         # Theme selection + light/dark toggle
 │   ├── lib/
-│   │   ├── parser.ts           # 🧠 Core genomic parser + platform URL builder
+│   │   ├── parser.ts           # Core genomic parser + platform URL builder
 │   │   ├── portals.ts          # Optional CLINICAL_PRESETS platform adapters
 │   │   ├── themes.ts           # Color theme definitions
 │   │   └── types.ts            # Shared domain types (BatchItem)
@@ -285,6 +262,7 @@ Host Page Input Field
 ## Keyboard Shortcuts
 
 All panel shortcuts use `Alt` + key and are disabled when a text field has focus.
+Optionally: you can configure your own combination in panel settings!
 
 | Shortcut | Action |
 |----------|--------|
