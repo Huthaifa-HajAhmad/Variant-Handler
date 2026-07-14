@@ -819,6 +819,7 @@ export function useVariantEnrichment(
     // queryKey's still-running (and deduped) fetch. The shared `abortRef` is
     // kept only to support the legacy direct-fetch dev path and unmount cleanup.
     const existing = inFlightRequests.get(queryKey);
+    console.log('[VariantHandler] fetchEnrichment inFlight check for:', queryKey, 'existing:', !!existing);
     if (existing) {
       // If a fresh fetch was requested but an in-flight one exists, abort the
       // old one for THIS queryKey only and start a new one.
@@ -832,9 +833,11 @@ export function useVariantEnrichment(
     setError(null);
 
     let entry = inFlightRequests.get(queryKey);
+    console.log('[VariantHandler] fetchEnrichment entry found:', !!entry);
     if (!entry) {
       const abortController = new AbortController();
       const promise = (async () => {
+        console.log('[VariantHandler] fetchEnrichment executing new fetch promise for:', queryKey);
         let attempts = 0;
         while (attempts < 3) {
           if (Date.now() < rateLimitResetTime) {
@@ -895,6 +898,12 @@ export function useVariantEnrichment(
             // Strip the @build suffix we append to cache keys to prevent cross-build collisions
             let rawQueryKey = queryKey.replace(/@(GRCh38|GRCh37)$/, '');
             let genomicMatch = rawQueryKey.match(/^chr(2[0-2]|1[0-9]|[1-9]|X|Y|MT|M):g\.([0-9]+)(?:[_-]([0-9]+))?(?:([ACGTN\-]+)>([ACGTN\-]+)|(delins|del|ins|dup|inv)([ACGTN]*))$/i);
+
+            console.log('[VariantHandler] Pre-resolution check:', {
+              genomicMatch: !!genomicMatch,
+              transcript: parsed.transcript,
+              codingChange: parsed.codingChange
+            });
 
             // 0. If it's a coding/transcript variant, try to resolve its genomic coordinates using Ensembl VEP HGVS endpoint first
             if (!genomicMatch && parsed.transcript && parsed.codingChange) {
