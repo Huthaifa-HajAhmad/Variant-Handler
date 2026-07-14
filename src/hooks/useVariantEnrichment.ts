@@ -886,6 +886,39 @@ export function useVariantEnrichment(
             // Strip the @build suffix we append to cache keys to prevent cross-build collisions
             let rawQueryKey = queryKey.replace(/@(GRCh38|GRCh37)$/, '');
             let genomicMatch = rawQueryKey.match(/^chr(2[0-2]|1[0-9]|[1-9]|X|Y|MT|M):g\.([0-9]+)(?:[_-]([0-9]+))?(?:([ACGTN\-]+)>([ACGTN\-]+)|(delins|del|ins|dup|inv)([ACGTN]*))$/i);
+
+            // 0. If it's a coding/transcript variant, try to resolve its genomic coordinates using Ensembl VEP HGVS endpoint first
+            if (!genomicMatch && parsed.transcript && parsed.codingChange) {
+              try {
+                const serverBase = build === 'GRCh37' ? 'https://grch37.rest.ensembl.org' : 'https://rest.ensembl.org';
+                const hgvsNotation = `${parsed.transcript}:${parsed.codingChange}`;
+                const vepUrl = `${serverBase}/vep/homo_sapiens/hgvs/${encodeURIComponent(hgvsNotation)}?content-type=application/json&hgvs=1&mane=1`;
+                const vepData = await performFetch(vepUrl);
+                if (Array.isArray(vepData) && vepData.length > 0) {
+                  const v = vepData[0];
+                  const chrom = v.seq_region_name;
+                  const start = v.start;
+                  const end = v.end;
+                  const alleleString = v.allele_string;
+                  if (chrom && start && alleleString) {
+                    const parts = alleleString.split('/');
+                    if (parts.length >= 2) {
+                      const refAllele = parts[0];
+                      const altAllele = parts[1];
+                      const range = end > start ? `${start}_${end}` : start;
+                      const genomicActiveKey = `chr${chrom}:g.${range}${refAllele}>${altAllele}`;
+                      activeQueryKey = genomicActiveKey;
+                      rawQueryKey = genomicActiveKey;
+                      genomicMatch = genomicActiveKey.match(/^chr(2[0-2]|1[0-9]|[1-9]|X|Y|MT|M):g\.([0-9]+)(?:[_-]([0-9]+))?(?:([ACGTN\-]+)>([ACGTN\-]+)|(delins|del|ins|dup|inv)([ACGTN]*))$/i);
+                    }
+                  }
+                }
+              } catch (vepErr: any) {
+                if (vepErr.is429) throw vepErr;
+                console.warn('[VariantHandler] VEP HGVS lookup failed during initial resolution:', vepErr);
+              }
+            }
+
             // Preserve the original GRCh38 match before any liftover mutation so
             // the VEP query always uses the correct build coordinates.
             const originalGenomicMatch = genomicMatch;
@@ -1020,6 +1053,12 @@ export function useVariantEnrichment(
             }
 
             const enrichmentData = parseApiResponse(data, activeQueryKey);
+            if (activeQueryKey.includes(':g.') && !enrichmentData.hgvsg) {
+              enrichmentData.hgvsg = activeQueryKey;
+            }
+            if (!enrichmentData.geneSymbol && parsed.geneSymbol) {
+              enrichmentData.geneSymbol = parsed.geneSymbol;
+            }
             if (resolvedHgvsg) {
               enrichmentData.hgvsg = resolvedHgvsg;
               if (enrichmentData.source === 'none') {
