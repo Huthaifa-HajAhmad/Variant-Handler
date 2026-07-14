@@ -289,19 +289,25 @@ let cacheReady: Promise<void> = (async () => {
     } catch { /* ignore */ }
     return;
   }
-  try {
-    const data = await chrome.storage.session.get(SESSION_CACHE_KEY);
-    const raw = data[SESSION_CACHE_KEY] as string | undefined;
-    if (raw) {
-      const obj = JSON.parse(raw) as Record<string, EnrichmentData>;
-      const now = Date.now();
-      for (const [k, v] of Object.entries(obj)) {
-        if (v && typeof v.fetchedAt === 'number' && now - v.fetchedAt < CACHE_TTL_MS) {
-          memoryCache.set(k, v);
+  // Safe timeout of 500ms to prevent indefinite hangs in chrome.storage.session.get
+  const timeoutPromise = new Promise<void>((resolve) => setTimeout(resolve, 500));
+  const preloadPromise = (async () => {
+    try {
+      const data = await chrome.storage.session.get(SESSION_CACHE_KEY);
+      const raw = data[SESSION_CACHE_KEY] as string | undefined;
+      if (raw) {
+        const obj = JSON.parse(raw) as Record<string, EnrichmentData>;
+        const now = Date.now();
+        for (const [k, v] of Object.entries(obj)) {
+          if (v && typeof v.fetchedAt === 'number' && now - v.fetchedAt < CACHE_TTL_MS) {
+            memoryCache.set(k, v);
+          }
         }
       }
-    }
-  } catch { /* ignore */ }
+    } catch { /* ignore */ }
+  })();
+
+  await Promise.race([preloadPromise, timeoutPromise]);
 })();
 
 /** Clear the session cache (used by Settings → Clear all stored data + clear-on-close). */
