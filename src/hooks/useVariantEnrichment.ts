@@ -889,17 +889,21 @@ export function useVariantEnrichment(
 
             // 0. If it's a coding/transcript variant, try to resolve its genomic coordinates using Ensembl VEP HGVS endpoint first
             if (!genomicMatch && parsed.transcript && parsed.codingChange) {
+              console.log('[VariantHandler] Starting VEP HGVS resolution for:', parsed.transcript, parsed.codingChange);
               try {
                 const serverBase = build === 'GRCh37' ? 'https://grch37.rest.ensembl.org' : 'https://rest.ensembl.org';
                 const hgvsNotation = `${parsed.transcript}:${parsed.codingChange}`;
                 const vepUrl = `${serverBase}/vep/homo_sapiens/hgvs/${encodeURIComponent(hgvsNotation)}?content-type=application/json&hgvs=1&mane=1`;
+                console.log('[VariantHandler] Querying VEP URL:', vepUrl);
                 const vepData = await performFetch(vepUrl);
+                console.log('[VariantHandler] VEP Response received:', vepData);
                 if (Array.isArray(vepData) && vepData.length > 0) {
                   const v = vepData[0];
                   const chrom = v.seq_region_name;
                   const start = v.start;
                   const end = v.end;
                   const alleleString = v.allele_string;
+                  console.log('[VariantHandler] Parsed VEP fields:', { chrom, start, end, alleleString });
                   if (chrom && start && alleleString) {
                     const parts = alleleString.split('/');
                     if (parts.length >= 2) {
@@ -910,6 +914,7 @@ export function useVariantEnrichment(
                       activeQueryKey = genomicActiveKey;
                       rawQueryKey = genomicActiveKey;
                       genomicMatch = genomicActiveKey.match(/^chr(2[0-2]|1[0-9]|[1-9]|X|Y|MT|M):g\.([0-9]+)(?:[_-]([0-9]+))?(?:([ACGTN\-]+)>([ACGTN\-]+)|(delins|del|ins|dup|inv)([ACGTN]*))$/i);
+                      console.log('[VariantHandler] Successfully resolved coordinate key:', genomicActiveKey, 'genomicMatch:', !!genomicMatch);
                     }
                   }
                 }
