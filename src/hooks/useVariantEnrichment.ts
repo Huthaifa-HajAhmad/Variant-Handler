@@ -775,14 +775,7 @@ export function useVariantEnrichment(
   enabled: boolean,
   build: GenomeBuild,
 ): UseVariantEnrichmentResult {
-  console.log('[VariantHandler] useVariantEnrichment hook render:', {
-    raw: parsed?.raw,
-    isValid: parsed?.isValid,
-    transcript: parsed?.transcript,
-    codingChange: parsed?.codingChange,
-    enabled,
-    build
-  });
+  console.log(`[VariantHandler] useVariantEnrichment hook render: raw="${parsed?.raw}" isValid=${parsed?.isValid} transcript="${parsed?.transcript}" coding="${parsed?.codingChange}" enabled=${enabled} build=${build}`);
   const [enrichment, setEnrichment] = useState<EnrichmentData | null>(null);
   const [isLoading, setIsLoading]   = useState(false);
   const [error, setError]           = useState<string | null>(null);
