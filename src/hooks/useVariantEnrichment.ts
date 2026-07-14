@@ -785,9 +785,11 @@ export function useVariantEnrichment(
   const currentQueryKeyRef = useRef<string | null>(null);
 
   const fetchEnrichment = useCallback(async (queryKey: string, build: string | undefined, forceFresh = false) => {
+    console.log('[VariantHandler] fetchEnrichment started for:', queryKey, 'forceFresh:', forceFresh);
     // R4: ensure the session-storage preload has completed before the first
     // cache read, so entries seeded from chrome.storage.session aren't missed.
     await cacheReady;
+    console.log('[VariantHandler] cacheReady resolved for:', queryKey);
     // Check in-memory cache first (zero network cost)
     if (!forceFresh) {
       const cached = memoryCache.get(queryKey);
