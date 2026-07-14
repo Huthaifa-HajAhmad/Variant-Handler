@@ -61,9 +61,10 @@ Accepts any variant notation and extracts structured fields (chromosome, positio
 |--------|---------|
 | HGVSg (with/without `chr` prefix) | `chr7:g.140753336A>T`, `7:g.140753336A>T` |
 | VCF dash/colon | `7-140753336-A-T`, `12:25245350:C:T` |
+| Hybrid VCF/HGVSg combinators | `Chr2(GRCh38):g.10675808-C-T` |
 | Simple coordinate+change | `chr12:25245350C>T` |
 | Coordinate-only | `chr17:43044295` |
-| HGVSc transcript:coding | `NM_000492.4:c.1521_1523delCTT` |
+| HGVSc transcript:coding (resolved via VEP) | `NM_022482.5:c.865G>T`, `NM_000492.4:c.1521_1523delCTT` |
 | ENST coding | `ENST00000288602:c.1799T>A` |
 | Hybrid (coding + protein) | `NM_000277.3:c.1222C>T(p.Arg408Trp)` |
 | HGVSp protein | `p.Arg408Trp`, `p.Phe508del`, `p.Gln1756fs`, `p.Arg54*`, `p.(Phe508del)` |

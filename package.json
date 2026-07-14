@@ -2,7 +2,7 @@
   "name": "variant-handler",
   "description": "A persistent genomics annotation sidepanel assisting clinical scientists and molecular pathologists.",
   "private": true,
-  "version": "1.2.3",
+  "version": "1.2.4",
   "type": "module",
   "author": "Huthaifa Haj Ahmad",
   "license": "MIT",

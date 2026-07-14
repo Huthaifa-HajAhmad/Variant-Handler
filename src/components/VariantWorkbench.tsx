@@ -99,9 +99,6 @@ export default function VariantWorkbench({
   const [noteExpanded, setNoteExpanded] = useState(false);
   const [isPredictorsExpanded, setIsPredictorsExpanded] = useState(false);
 
-  useEffect(() => {
-    console.log('[VariantHandler] Side panel UI loaded');
-  }, []);
 
   useEffect(() => {
     if (!microNote) return;

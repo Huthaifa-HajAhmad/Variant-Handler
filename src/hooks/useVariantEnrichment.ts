@@ -775,7 +775,6 @@ export function useVariantEnrichment(
   enabled: boolean,
   build: GenomeBuild,
 ): UseVariantEnrichmentResult {
-  console.log(`[VariantHandler] useVariantEnrichment hook render: raw="${parsed?.raw}" isValid=${parsed?.isValid} transcript="${parsed?.transcript}" coding="${parsed?.codingChange}" enabled=${enabled} build=${build}`);
   const [enrichment, setEnrichment] = useState<EnrichmentData | null>(null);
   const [isLoading, setIsLoading]   = useState(false);
   const [error, setError]           = useState<string | null>(null);
@@ -786,11 +785,9 @@ export function useVariantEnrichment(
 
   const fetchEnrichment = useCallback(async (queryKey: string, build: string | undefined, forceFresh = false, currentParsed = parsed) => {
     const parsed = currentParsed;
-    console.log('[VariantHandler] fetchEnrichment started for:', queryKey, 'forceFresh:', forceFresh);
     // R4: ensure the session-storage preload has completed before the first
     // cache read, so entries seeded from chrome.storage.session aren't missed.
     await cacheReady;
-    console.log('[VariantHandler] cacheReady resolved for:', queryKey);
     // Check in-memory cache first (zero network cost)
     if (!forceFresh) {
       const cached = memoryCache.get(queryKey);
@@ -820,7 +817,6 @@ export function useVariantEnrichment(
     // queryKey's still-running (and deduped) fetch. The shared `abortRef` is
     // kept only to support the legacy direct-fetch dev path and unmount cleanup.
     const existing = inFlightRequests.get(queryKey);
-    console.log('[VariantHandler] fetchEnrichment inFlight check for:', queryKey, 'existing:', !!existing);
     if (existing) {
       // If a fresh fetch was requested but an in-flight one exists, abort the
       // old one for THIS queryKey only and start a new one.
@@ -834,11 +830,9 @@ export function useVariantEnrichment(
     setError(null);
 
     let entry = inFlightRequests.get(queryKey);
-    console.log('[VariantHandler] fetchEnrichment entry found:', !!entry);
     if (!entry) {
       const abortController = new AbortController();
       const promise = (async () => {
-        console.log('[VariantHandler] fetchEnrichment executing new fetch promise for:', queryKey);
         let attempts = 0;
         while (attempts < 3) {
           if (Date.now() < rateLimitResetTime) {
@@ -900,25 +894,19 @@ export function useVariantEnrichment(
             let rawQueryKey = queryKey.replace(/@(GRCh38|GRCh37)$/, '');
             let genomicMatch = rawQueryKey.match(/^chr(2[0-2]|1[0-9]|[1-9]|X|Y|MT|M):g\.([0-9]+)(?:[_-]([0-9]+))?(?:([ACGTN\-]+)>([ACGTN\-]+)|(delins|del|ins|dup|inv)([ACGTN]*))$/i);
 
-            console.log(`[VariantHandler] Pre-resolution check: genomicMatch=${!!genomicMatch} transcript="${parsed.transcript}" codingChange="${parsed.codingChange}"`);
-
             // 0. If it's a coding/transcript variant, try to resolve its genomic coordinates using Ensembl VEP HGVS endpoint first
             if (!genomicMatch && parsed.transcript && parsed.codingChange) {
-              console.log('[VariantHandler] Starting VEP HGVS resolution for:', parsed.transcript, parsed.codingChange);
               try {
                 const serverBase = build === 'GRCh37' ? 'https://grch37.rest.ensembl.org' : 'https://rest.ensembl.org';
                 const hgvsNotation = `${parsed.transcript}:${parsed.codingChange}`;
                 const vepUrl = `${serverBase}/vep/homo_sapiens/hgvs/${encodeURIComponent(hgvsNotation)}?content-type=application/json&hgvs=1&mane=1`;
-                console.log('[VariantHandler] Querying VEP URL:', vepUrl);
                 const vepData = await performFetch(vepUrl);
-                console.log('[VariantHandler] VEP Response received:', vepData);
                 if (Array.isArray(vepData) && vepData.length > 0) {
                   const v = vepData[0];
                   const chrom = v.seq_region_name;
                   const start = v.start;
                   const end = v.end;
                   const alleleString = v.allele_string;
-                  console.log('[VariantHandler] Parsed VEP fields:', { chrom, start, end, alleleString });
                   if (chrom && start && alleleString) {
                     const parts = alleleString.split('/');
                     if (parts.length >= 2) {
@@ -929,7 +917,6 @@ export function useVariantEnrichment(
                       activeQueryKey = genomicActiveKey;
                       rawQueryKey = genomicActiveKey;
                       genomicMatch = genomicActiveKey.match(/^chr(2[0-2]|1[0-9]|[1-9]|X|Y|MT|M):g\.([0-9]+)(?:[_-]([0-9]+))?(?:([ACGTN\-]+)>([ACGTN\-]+)|(delins|del|ins|dup|inv)([ACGTN]*))$/i);
-                      console.log('[VariantHandler] Successfully resolved coordinate key:', genomicActiveKey, 'genomicMatch:', !!genomicMatch);
                     }
                   }
                 }

@@ -6,6 +6,18 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [1.2.4] — 2026-07-14
+
+### 🚀 New Features & Enhancements
+- **HGVSc Transcript Coding Variant Resolution** — Integrated Ensembl VEP HGVS REST endpoint to map transcript-level coding sequence variants (e.g. `NM_022482.5:c.865G>T`) to genomic coordinates and alleles. This enables querying and displaying annotations for ClinVar, gnomAD, REVEL, and AlphaMissense on transcript inputs.
+
+### 🐛 Bug Fixes
+- **Chrome Storage Session pre-load timeout** — Added a 500ms timeout safety race to `chrome.storage.session.get` cache loading to prevent indefinite API hangs in Chromium side panel contexts.
+- **Hook Stale Closure Resolution** — Resolved stale mount-time closure inside React's `useCallback` by passing parsed variant objects explicitly, ensuring correct, up-to-date inputs are queried when the user types.
+- **Cache Version Bump** — Bumped cache storage key to `_v9` to force-invalidate old cached "not found" records from earlier runs.
+
+---
+
 ## [1.2.3] — 2026-07-10
 
 ### 🚀 New Features & Enhancements
