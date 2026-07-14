@@ -784,7 +784,8 @@ export function useVariantEnrichment(
   const abortRef      = useRef<AbortController | null>(null);
   const currentQueryKeyRef = useRef<string | null>(null);
 
-  const fetchEnrichment = useCallback(async (queryKey: string, build: string | undefined, forceFresh = false) => {
+  const fetchEnrichment = useCallback(async (queryKey: string, build: string | undefined, forceFresh = false, currentParsed = parsed) => {
+    const parsed = currentParsed;
     console.log('[VariantHandler] fetchEnrichment started for:', queryKey, 'forceFresh:', forceFresh);
     // R4: ensure the session-storage preload has completed before the first
     // cache read, so entries seeded from chrome.storage.session aren't missed.
@@ -899,11 +900,7 @@ export function useVariantEnrichment(
             let rawQueryKey = queryKey.replace(/@(GRCh38|GRCh37)$/, '');
             let genomicMatch = rawQueryKey.match(/^chr(2[0-2]|1[0-9]|[1-9]|X|Y|MT|M):g\.([0-9]+)(?:[_-]([0-9]+))?(?:([ACGTN\-]+)>([ACGTN\-]+)|(delins|del|ins|dup|inv)([ACGTN]*))$/i);
 
-            console.log('[VariantHandler] Pre-resolution check:', {
-              genomicMatch: !!genomicMatch,
-              transcript: parsed.transcript,
-              codingChange: parsed.codingChange
-            });
+            console.log(`[VariantHandler] Pre-resolution check: genomicMatch=${!!genomicMatch} transcript="${parsed.transcript}" codingChange="${parsed.codingChange}"`);
 
             // 0. If it's a coding/transcript variant, try to resolve its genomic coordinates using Ensembl VEP HGVS endpoint first
             if (!genomicMatch && parsed.transcript && parsed.codingChange) {
@@ -1410,7 +1407,7 @@ export function useVariantEnrichment(
     // Debounce: wait for the user to finish typing
     if (debounceTimer.current) clearTimeout(debounceTimer.current);
     debounceTimer.current = setTimeout(() => {
-      fetchEnrichment(queryKey, build);
+      fetchEnrichment(queryKey, build, false, parsed);
     }, DEBOUNCE_MS);
 
     return () => {
@@ -1437,7 +1434,7 @@ export function useVariantEnrichment(
     const queryKey = deriveQueryKey(parsed, build);
     if (!queryKey) return;
     currentQueryKeyRef.current = queryKey;
-    fetchEnrichment(queryKey, build, true);
+    fetchEnrichment(queryKey, build, true, parsed);
   }, [parsed, build, fetchEnrichment]);
 
   return { enrichment, isLoading, error, refetch };
