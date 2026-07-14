@@ -100,6 +100,10 @@ export default function VariantWorkbench({
   const [isPredictorsExpanded, setIsPredictorsExpanded] = useState(false);
 
   useEffect(() => {
+    console.log('[VariantHandler] Side panel UI loaded');
+  }, []);
+
+  useEffect(() => {
     if (!microNote) return;
     setIsSaving(true);
     const timer = setTimeout(() => setIsSaving(false), 1500);
