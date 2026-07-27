@@ -8,8 +8,10 @@
  *   - T14: parseApiResponse selects the highest-starred ClinVar RCV entry from
  *     an array rather than blindly taking rcv[0].
  */
-import { describe, it, expect } from 'vitest';
-import { parseApiResponse, deriveQueryKey, resolveUcscSequence, validateRefAllele } from '../hooks/useVariantEnrichment';
+import { describe, it, expect, vi } from 'vitest';
+import React, { act } from 'react';
+import { createRoot } from 'react-dom/client';
+import { useVariantEnrichment, parseApiResponse, deriveQueryKey, resolveUcscSequence, validateRefAllele } from '../hooks/useVariantEnrichment';
 import { parseVariant } from '../lib/parser';
 
 describe('deriveQueryKey — build suffix (T12)', () => {
@@ -303,6 +305,72 @@ describe('validateRefAllele', () => {
       const result = parseApiResponse(data, 'chr2:g.10815934C>T');
       expect(result.amScore).toBe(0.922);
       expect(result.amPred).toBe('P');
+    });
+  });
+
+  describe('useVariantEnrichment hook — instant lookup & abort', () => {
+    it('allows instant lookup and cancels pending requests immediately', async () => {
+      (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
+      const sendMessageMock = vi.fn();
+      (globalThis as any).chrome = {
+        runtime: { id: 'test', sendMessage: sendMessageMock, lastError: undefined },
+      };
+
+      let resolvePromise: any;
+      const delayPromise = new Promise((resolve) => {
+        resolvePromise = resolve;
+      });
+
+      sendMessageMock.mockImplementation((msg: any, cb: any) => {
+        delayPromise.then(() => {
+          cb({ success: true, data: { _id: msg.url } });
+        });
+      });
+
+      let hookResult: any;
+      function TestComponent({ parsed, enabled, build }: any) {
+        hookResult = useVariantEnrichment(parsed, enabled, build);
+        return null;
+      }
+
+      const container = document.createElement('div');
+      document.body.appendChild(container);
+      const root = createRoot(container);
+
+      const parsed1 = parseVariant('chr7:g.140753336A>T');
+      const parsed2 = parseVariant('chr12:g.102867025C>T');
+
+      await act(async () => {
+        root.render(React.createElement(TestComponent, { parsed: parsed1, enabled: true, build: "GRCh38" }));
+      });
+
+      // Bypasses debounce timer, starts fetch instantly
+      await act(async () => {
+        hookResult.lookupInstantly(parsed1, 'GRCh38');
+      });
+
+      expect(hookResult.isLoading).toBe(true);
+      expect(sendMessageMock).toHaveBeenCalledTimes(1);
+
+      // Pastes next coordinates, cancels active lookup, and starts new query instantly
+      await act(async () => {
+        hookResult.lookupInstantly(parsed2, 'GRCh38');
+      });
+
+      expect(sendMessageMock).toHaveBeenCalledTimes(2);
+
+      await act(async () => {
+        resolvePromise();
+      });
+
+      expect(hookResult.enrichment).not.toBeNull();
+      expect(hookResult.isLoading).toBe(false);
+
+      await act(async () => {
+        root.unmount();
+      });
+      container.remove();
+      delete (globalThis as any).chrome;
     });
   });
 });

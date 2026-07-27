@@ -740,6 +740,7 @@ interface UseVariantEnrichmentResult {
   isLoading: boolean;
   error: string | null;
   refetch: () => void;
+  lookupInstantly: (targetParsed: ParsedVariant, targetBuild: GenomeBuild) => void;
 }
 
 const inFlightRequests = new Map<string, { promise: Promise<any>; abortController: AbortController }>();
@@ -1385,6 +1386,11 @@ export function useVariantEnrichment(
       return;
     }
 
+    if (currentQueryKeyRef.current === queryKey) {
+      // Already running or fetched via instant lookup
+      return;
+    }
+
     currentQueryKeyRef.current = queryKey;
 
     // Clear previous enrichment results immediately when queryKey changes to avoid UI leakage
@@ -1417,6 +1423,34 @@ export function useVariantEnrichment(
     };
   }, []);
 
+  const lookupInstantly = useCallback((targetParsed: ParsedVariant, targetBuild: GenomeBuild) => {
+    // 1. Abort any currently in-flight requests
+    for (const { abortController } of inFlightRequests.values()) {
+      abortController.abort();
+    }
+    inFlightRequests.clear();
+
+    // 2. Clear any pending debounce timer
+    if (debounceTimer.current) {
+      clearTimeout(debounceTimer.current);
+    }
+
+    // 3. Derive queryKey
+    const queryKey = deriveQueryKey(targetParsed, targetBuild);
+    if (!queryKey) {
+      setEnrichment(null);
+      currentQueryKeyRef.current = null;
+      return;
+    }
+
+    currentQueryKeyRef.current = queryKey;
+    setEnrichment(null);
+    setError(null);
+
+    // 4. Fetch immediately without debounce
+    fetchEnrichment(queryKey, targetBuild, false, targetParsed);
+  }, [fetchEnrichment]);
+
   const refetch = useCallback(() => {
     const queryKey = deriveQueryKey(parsed, build);
     if (!queryKey) return;
@@ -1424,5 +1458,5 @@ export function useVariantEnrichment(
     fetchEnrichment(queryKey, build, true, parsed);
   }, [parsed, build, fetchEnrichment]);
 
-  return { enrichment, isLoading, error, refetch };
+  return { enrichment, isLoading, error, refetch, lookupInstantly };
 }

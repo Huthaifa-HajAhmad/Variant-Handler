@@ -70,6 +70,7 @@ interface VariantWorkbenchProps {
   onAutofillGene?: () => void;
   onHighlightInTab?: () => void;
   activeTabUrl?: string;
+  onInstantLookup?: (text: string) => void;
 }
 
 export default function VariantWorkbench({
@@ -93,6 +94,7 @@ export default function VariantWorkbench({
   onAutofillGene,
   onHighlightInTab,
   activeTabUrl,
+  onInstantLookup,
 }: VariantWorkbenchProps) {
   const isLight = activeTheme.isLight;
   const [isSaving, setIsSaving] = useState(false);
@@ -257,6 +259,12 @@ export default function VariantWorkbench({
             type="text"
             value={activeInput}
             onChange={(e) => setActiveInput(e.target.value)}
+            onPaste={(e) => {
+              const text = e.clipboardData.getData('text');
+              if (text && onInstantLookup) {
+                onInstantLookup(text.trim());
+              }
+            }}
             placeholder="Enter genomic or transcript coordinates..."
             maxLength={500}
             autoComplete="off"
@@ -270,13 +278,17 @@ export default function VariantWorkbench({
             onClick={async () => {
               try {
                 const text = await navigator.clipboard.readText();
-                setActiveInput(text.trim());
+                const trimmed = text.trim();
+                setActiveInput(trimmed);
+                if (onInstantLookup) {
+                  onInstantLookup(trimmed);
+                }
                 document.getElementById('variant-input')?.focus();
               } catch {
                 triggerAlert('Paste failed — clipboard access denied.');
               }
             }}
-            className={`ml-2 p-1 px-1.5 rounded-md flex items-center gap-1 cursor-pointer transition-all duration-200 ${isLight ? 'text-slate-400 hover:text-indigo-600 hover:bg-indigo-50' : 'text-slate-500 hover:text-indigo-400 hover:bg-slate-800'}`}
+            className={`ml-2 p-1 px-2.5 rounded-full border shadow-sm flex items-center gap-1 cursor-pointer transition-all duration-200 ${isLight ? 'text-slate-600 border-slate-200 bg-white hover:text-indigo-600 hover:bg-indigo-50 hover:border-indigo-200' : 'text-slate-300 border-slate-700 bg-slate-800 hover:text-indigo-400 hover:bg-slate-700 hover:border-indigo-600'}`}
           >
             <ClipboardPaste className="w-3.5 h-3.5" />
             <span className="text-[10px] font-bold">Paste</span>
@@ -727,68 +739,6 @@ export default function VariantWorkbench({
                   )}
                 </div>
 
-                {/* Active Tab Actions Card */}
-                <div className={`col-span-2 p-3 rounded-xl border flex flex-col gap-2.5 transition-all duration-300 ${
-                  isLight 
-                    ? 'bg-indigo-50/50 border-indigo-100 shadow-sm shadow-indigo-100/30' 
-                    : 'bg-indigo-950/10 border-indigo-500/20 shadow-lg shadow-black/5'
-                }`}>
-                  <span className="text-[10px] font-bold text-indigo-500 uppercase tracking-widest flex items-center gap-1.5 font-display">
-                    <Zap className="w-3.5 h-3.5 animate-pulse text-indigo-500" />
-                    Active Tab Integration
-                  </span>
-                  <p className={`text-[10px] ${isLight ? 'text-slate-500' : 'text-slate-400'} leading-relaxed -mt-1`}>
-                    Interact directly with the currently active genomic portal tab:
-                  </p>
-                  <div className="grid grid-cols-3 gap-2">
-                    <button
-                      type="button"
-                      onClick={onAutofillVariant}
-                      className={`p-2 rounded-lg text-[10px] font-bold flex items-center justify-center gap-1 cursor-pointer transition-all duration-200 ${
-                        isAutofillVariantActive
-                          ? isLight 
-                            ? 'bg-indigo-600 hover:bg-indigo-700 hover:shadow-md text-white shadow-sm' 
-                            : 'bg-indigo-600 hover:bg-indigo-500 hover:shadow-lg text-white'
-                          : isLight
-                          ? 'border border-indigo-200 text-indigo-600 bg-transparent hover:bg-indigo-50/50'
-                          : 'border border-indigo-900/40 text-indigo-400 bg-transparent hover:bg-indigo-950/20'
-                      }`}
-                    >
-                      Autofill Variant
-                    </button>
-                    <button
-                      type="button"
-                      onClick={onAutofillGene}
-                      className={`p-2 rounded-lg text-[10px] font-bold flex items-center justify-center gap-1 cursor-pointer transition-all duration-200 ${
-                        isAutofillGeneActive
-                          ? isLight 
-                            ? 'bg-emerald-600 hover:bg-emerald-700 hover:shadow-md text-white shadow-sm' 
-                            : 'bg-emerald-600 hover:bg-emerald-500 hover:shadow-lg text-white'
-                          : isLight
-                          ? 'border border-emerald-200 text-emerald-600 bg-transparent hover:bg-emerald-50/50'
-                          : 'border border-emerald-900/40 text-emerald-400 bg-transparent hover:bg-emerald-950/20'
-                      }`}
-                    >
-                      Autofill Gene
-                    </button>
-                    <button
-                      type="button"
-                      onClick={onHighlightInTab}
-                      className={`p-2 rounded-lg text-[10px] font-bold flex items-center justify-center gap-1 cursor-pointer transition-all duration-200 ${
-                        isHighlightActive
-                          ? isLight 
-                            ? 'bg-amber-600 hover:bg-amber-700 hover:shadow-md text-white shadow-sm' 
-                            : 'bg-amber-600 hover:bg-amber-500 hover:shadow-lg text-white'
-                          : isLight
-                          ? 'border border-amber-200 text-amber-600 bg-transparent hover:bg-amber-50/50'
-                          : 'border border-amber-900/40 text-amber-400 bg-transparent hover:bg-amber-950/20'
-                      }`}
-                    >
-                      Highlight Tab
-                    </button>
-                  </div>
-                </div>
-
                 {/* Banners */}
                 {enrichment.refMismatch && (
                   <div className={`col-span-2 p-2 rounded-lg border text-[10px] font-semibold flex items-center gap-1.5 ${
@@ -810,6 +760,70 @@ export default function VariantWorkbench({
                 )}
               </>
             ) : null
+          )}
+
+          {/* Active Tab Actions Card */}
+          {parsed.isValid && (
+            <div className={`col-span-2 p-3 rounded-xl border flex flex-col gap-2.5 transition-all duration-300 ${
+              isLight 
+                ? 'bg-indigo-50/50 border-indigo-100 shadow-sm shadow-indigo-100/30' 
+                : 'bg-indigo-950/10 border-indigo-500/20 shadow-lg shadow-black/5'
+            }`}>
+              <span className="text-[10px] font-bold text-indigo-500 uppercase tracking-widest flex items-center gap-1.5 font-display">
+                <Zap className="w-3.5 h-3.5 animate-pulse text-indigo-500" />
+                Active Tab Integration
+              </span>
+              <p className={`text-[10px] ${isLight ? 'text-slate-500' : 'text-slate-400'} leading-relaxed -mt-1`}>
+                Interact directly with the currently active genomic portal tab:
+              </p>
+              <div className="grid grid-cols-3 gap-2">
+                <button
+                  type="button"
+                  onClick={onAutofillVariant}
+                  className={`p-2 rounded-lg text-[10px] font-bold flex items-center justify-center gap-1 cursor-pointer transition-all duration-200 ${
+                    isAutofillVariantActive
+                      ? isLight 
+                        ? 'bg-indigo-600 hover:bg-indigo-700 hover:shadow-md text-white shadow-sm' 
+                        : 'bg-indigo-600 hover:bg-indigo-500 hover:shadow-lg text-white'
+                      : isLight
+                      ? 'border border-indigo-200 text-indigo-600 bg-transparent hover:bg-indigo-50/50'
+                      : 'border border-indigo-900/40 text-indigo-400 bg-transparent hover:bg-indigo-950/20'
+                  }`}
+                >
+                  Autofill Variant
+                </button>
+                <button
+                  type="button"
+                  onClick={onAutofillGene}
+                  className={`p-2 rounded-lg text-[10px] font-bold flex items-center justify-center gap-1 cursor-pointer transition-all duration-200 ${
+                    isAutofillGeneActive
+                      ? isLight 
+                        ? 'bg-emerald-600 hover:bg-emerald-700 hover:shadow-md text-white shadow-sm' 
+                        : 'bg-emerald-600 hover:bg-emerald-500 hover:shadow-lg text-white'
+                      : isLight
+                      ? 'border border-emerald-200 text-emerald-600 bg-transparent hover:bg-indigo-50/50'
+                      : 'border border-emerald-900/40 text-emerald-400 bg-transparent hover:bg-emerald-950/20'
+                  }`}
+                >
+                  Autofill Gene
+                </button>
+                <button
+                  type="button"
+                  onClick={onHighlightInTab}
+                  className={`p-2 rounded-lg text-[10px] font-bold flex items-center justify-center gap-1 cursor-pointer transition-all duration-200 ${
+                    isHighlightActive
+                      ? isLight 
+                        ? 'bg-amber-600 hover:bg-amber-700 hover:shadow-md text-white shadow-sm' 
+                        : 'bg-amber-600 hover:bg-amber-500 hover:shadow-lg text-white'
+                      : isLight
+                      ? 'border border-amber-200 text-amber-600 bg-transparent hover:bg-indigo-50/50'
+                      : 'border border-amber-900/40 text-amber-400 bg-transparent hover:bg-emerald-950/20'
+                  }`}
+                >
+                  Highlight Tab
+                </button>
+              </div>
+            </div>
           )}
         </div>
       </div>

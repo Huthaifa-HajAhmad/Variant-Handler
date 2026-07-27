@@ -217,7 +217,7 @@ export default function BatchQueuePanel({
               type="button"
               title="Paste from clipboard"
               onClick={handlePasteAndMerge}
-              className={`ml-2 p-1 px-1.5 rounded-md flex items-center gap-1 cursor-pointer transition-colors ${isLight ? 'text-slate-400 hover:text-indigo-600 hover:bg-indigo-50' : 'text-slate-500 hover:text-indigo-400 hover:bg-slate-800'}`}
+              className={`ml-2 p-1 px-2.5 rounded-full border shadow-sm flex items-center gap-1 cursor-pointer transition-all duration-200 ${isLight ? 'text-slate-600 border-slate-200 bg-white hover:text-indigo-600 hover:bg-indigo-50 hover:border-indigo-200' : 'text-slate-300 border-slate-700 bg-slate-800 hover:text-indigo-400 hover:bg-slate-700 hover:border-indigo-600'}`}
             >
               <ClipboardPaste className="w-3.5 h-3.5" />
               <span className="text-[10px] font-bold">Paste</span>
