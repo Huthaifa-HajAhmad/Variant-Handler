@@ -54,13 +54,40 @@ export default function SidepanelView() {
   const [microNote,      setMicroNote]      = useState('');
   const [isStorageLoaded, setIsStorageLoaded] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [showWhatsNewBadge, setShowWhatsNewBadge] = useState(() => {
+    return localStorage.getItem('variantstream_whats_new_seen') !== 'true';
+  });
+  const [settingsDefaultTab, setSettingsDefaultTab] = useState<'general' | 'appearance' | 'shortcuts' | 'whatsnew'>('general');
   const [copiedId,       setCopiedId]       = useState<string | null>(null);
   const [alertMsg,       setAlertMsg]       = useState('');
+  const [alertVisible,   setAlertVisible]   = useState(false);
   const alertTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const handleSettingsClick = useCallback((tab: 'general' | 'appearance' | 'shortcuts' | 'whatsnew' = 'general') => {
+    setSettingsDefaultTab(tab);
+    setIsSettingsOpen(true);
+  }, []);
+
+  const handleWhatsNewClick = useCallback(() => {
+    localStorage.setItem('variantstream_whats_new_seen', 'true');
+    setShowWhatsNewBadge(false);
+    handleSettingsClick('whatsnew');
+  }, [handleSettingsClick]);
+  const alertHideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   const triggerAlert = useCallback((msg: string) => {
-    setAlertMsg(msg);
     if (alertTimerRef.current) clearTimeout(alertTimerRef.current);
-    alertTimerRef.current = setTimeout(() => setAlertMsg(''), 3000);
+    if (alertHideTimerRef.current) clearTimeout(alertHideTimerRef.current);
+
+    setAlertMsg(msg);
+    setAlertVisible(true);
+
+    alertTimerRef.current = setTimeout(() => {
+      setAlertVisible(false);
+      alertHideTimerRef.current = setTimeout(() => {
+        setAlertMsg('');
+      }, 300); // Allow transition to end before removing from layout
+    }, 3000);
   }, []);
   const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [activeSec3Tab,  setActiveSec3Tab]  = useState<'queue' | 'history'>('queue');
@@ -116,8 +143,21 @@ export default function SidepanelView() {
   }, [parsed.genomeBuild]); // eslint-disable-line react-hooks/exhaustive-deps -- intentional one-way sync from input
 
   // Sprint 2: live enrichment hook
-  const { enrichment, isLoading: enrichmentLoading, error: enrichmentError, refetch: refetchEnrichment } =
+  const { enrichment, isLoading: enrichmentLoading, error: enrichmentError, refetch: refetchEnrichment, lookupInstantly } =
     useVariantEnrichment(parsed, liveEnrichmentEnabled, genomeBuild);
+
+  const handleInstantLookup = useCallback((text: string) => {
+    const parsedVariant = parseVariant(text);
+    if (parsedVariant.isValid) {
+      const wasLoading = enrichmentLoading;
+      lookupInstantly(parsedVariant, genomeBuild);
+      if (wasLoading) {
+        triggerAlert('Previous query aborted — loading new variant...');
+      } else {
+        triggerAlert('Pasted variant — loading instantly...');
+      }
+    }
+  }, [genomeBuild, lookupInstantly, enrichmentLoading, triggerAlert]);
 
   // Sprint 2: build-aware URL generation
   const platformUrls = useMemo(
@@ -191,6 +231,7 @@ useEffect(() => {
 useEffect(() => {
   return () => {
     if (alertTimerRef.current) clearTimeout(alertTimerRef.current);
+    if (alertHideTimerRef.current) clearTimeout(alertHideTimerRef.current);
     if (reconnectTimerRef.current) clearTimeout(reconnectTimerRef.current);
   };
 }, []);
@@ -507,38 +548,43 @@ useEffect(() => {
     >
       <Header
         activeTheme={activeTheme}
-        onSettingsClick={() => setIsSettingsOpen(true)}
+        onSettingsClick={() => handleSettingsClick('general')}
         onThemeToggle={toggleTheme}
+        showWhatsNewBadge={showWhatsNewBadge}
+        onWhatsNewClick={handleWhatsNewClick}
       />
-
-      {/* Floating toast */}
-      {alertMsg && (() => {
-        const isErrorToast = /fail|error|denied|could not|no active|not found|invalid|missing/i.test(alertMsg);
-        return (
-          <div
-            role="status"
-            aria-live="polite"
-            className={`absolute top-12 left-3 right-3 z-50 flex items-start gap-2.5 px-3.5 py-2.5 rounded-xl text-[11px] font-semibold shadow-xl border-l-4 transition-all duration-300 ${
-              isErrorToast
-                ? isLight
-                  ? 'bg-rose-50 border-l-rose-500 border border-rose-200 text-rose-800 shadow-rose-100'
-                  : 'bg-rose-950/60 border-l-rose-500 border border-rose-900/60 text-rose-200 shadow-black/40'
-                : isLight
-                  ? 'bg-emerald-50 border-l-emerald-500 border border-emerald-200 text-emerald-800 shadow-emerald-100'
-                  : 'bg-emerald-950/60 border-l-emerald-500 border border-emerald-900/60 text-emerald-200 shadow-black/40'
-            }`}
-          >
-            {isErrorToast
-              ? <AlertCircle className="w-3.5 h-3.5 shrink-0 mt-px text-rose-500" />
-              : <Check className="w-3.5 h-3.5 shrink-0 mt-px text-emerald-500" />
-            }
-            <span className="leading-snug">{alertMsg}</span>
-          </div>
-        );
-      })()}
 
       {/* ── Main scrollable content ─────────────────────────────────────── */}
       <div className="flex-grow flex flex-col overflow-y-auto p-4 gap-4">
+        {/* Blended premium alert banner */}
+        {alertMsg && (() => {
+          const isErrorToast = /fail|error|denied|could not|no active|not found|invalid|missing/i.test(alertMsg);
+          return (
+            <div
+              role="status"
+              aria-live="polite"
+              className={`w-full flex items-start gap-2.5 px-3.5 py-2.5 rounded-xl text-[11px] font-semibold border transition-all duration-300 transform origin-top shrink-0 ${
+                alertVisible 
+                  ? 'opacity-100 max-h-16 scale-100 translate-y-0 shadow-sm' 
+                  : 'opacity-0 max-h-0 py-0 border-none scale-95 -translate-y-2 pointer-events-none'
+              } ${
+                isErrorToast
+                  ? isLight
+                    ? 'bg-rose-50 border-rose-200 text-rose-800'
+                    : 'bg-rose-950/20 border-rose-900/40 text-rose-200'
+                  : isLight
+                    ? 'bg-indigo-50 border-indigo-100 text-indigo-800'
+                    : 'bg-indigo-950/10 border-indigo-500/20 text-indigo-300'
+              }`}
+            >
+              {isErrorToast
+                ? <AlertCircle className="w-3.5 h-3.5 shrink-0 mt-px text-rose-500" />
+                : <Check className="w-3.5 h-3.5 shrink-0 mt-px text-indigo-500" />
+              }
+              <span className="leading-snug">{alertMsg}</span>
+            </div>
+          );
+        })()}
         <VariantWorkbench
           activeInput={activeInput}
           setActiveInput={setActiveInput}
@@ -560,6 +606,7 @@ useEffect(() => {
           onAutofillGene={handleAutofillGene}
           onHighlightInTab={handleHighlightInTab}
           activeTabUrl={activeTabUrl}
+          onInstantLookup={handleInstantLookup}
         />
 
         <PlatformLaunchpad
@@ -592,7 +639,6 @@ useEffect(() => {
         />
       </div>
 
-      {/* Settings modal overlay */}
       {isSettingsOpen && (
         <SettingsModal
           activeTheme={activeTheme}
@@ -606,6 +652,8 @@ useEffect(() => {
           onClearAllData={onClearAllData}
           historyCap={cap as HistoryCap}
           onSetHistoryCap={setHistoryCap}
+          triggerAlert={triggerAlert}
+          initialTab={settingsDefaultTab}
         />
       )}
     </div>

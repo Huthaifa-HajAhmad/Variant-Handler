@@ -6,12 +6,16 @@ interface HeaderProps {
   activeTheme: ColorTheme;
   onSettingsClick: () => void;
   onThemeToggle: () => void;
+  showWhatsNewBadge: boolean;
+  onWhatsNewClick: () => void;
 }
 
 export default function Header({
   activeTheme,
   onSettingsClick,
   onThemeToggle,
+  showWhatsNewBadge,
+  onWhatsNewClick,
 }: HeaderProps) {
   const isLight = activeTheme.isLight;
   return (
@@ -20,9 +24,21 @@ export default function Header({
         <div className="w-7 h-7 rounded-lg shadow-sm flex items-center justify-center font-display font-black text-xs text-white" style={{ background: 'linear-gradient(135deg, #4f46e5, #10b981)' }}>
           VH
         </div>
-        <div>
+        <div className="flex items-baseline gap-1.5">
           <h1 className={`text-sm font-display font-bold leading-none ${isLight ? 'text-slate-800' : 'text-white'}`}>Variant Handler</h1>
-          <span className={`text-[9px] font-mono font-medium ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>CLINICAL EDITION</span>
+          <div className="flex flex-col items-center gap-1 relative top-0.5">
+            <span className={`text-[9px] font-mono font-bold px-1.5 py-0.5 rounded-full ${isLight ? 'bg-slate-100 text-slate-500' : 'bg-slate-800 text-slate-400'}`}>v1.3.0</span>
+            {showWhatsNewBadge && (
+              <button
+                type="button"
+                onClick={onWhatsNewClick}
+                title="Show what's new in this version"
+                className="animate-pulse flex items-center gap-0.5 text-[8px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded-full bg-gradient-to-r from-indigo-500 to-purple-500 hover:from-indigo-600 hover:to-purple-600 text-white cursor-pointer active:scale-95 transition-all shadow-sm"
+              >
+                ✨ New
+              </button>
+            )}
+          </div>
         </div>
       </div>
 
