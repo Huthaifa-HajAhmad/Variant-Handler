@@ -506,25 +506,25 @@ export default function SettingsModal({
           {/* TAB: WHATSNEW */}
           {activeTab === 'whatsnew' && (
             <div className="space-y-4">
-              {renderSectionHeader("What's New in v1.3.0")}
+              {renderSectionHeader("What's New in v1.4.0")}
               
               <div className="space-y-3">
                 {[
                   {
-                    title: '✨ Instant Paste Lookup',
-                    desc: 'Pasting variant coordinates using the Paste button or Ctrl+V now fires lookups instantly. Active background requests are aborted immediately, making search transitions zero-latency.'
+                    title: '🚀 Real-Time Progress Tracker',
+                    desc: 'The live lookup indicator now shows specific, real-time status updates (e.g. VEP mapping, MyVariant queries, ClinVar resolution, ALFA frequencies) next to a smooth CSS-independent SVG spinner.'
                   },
                   {
-                    title: '🛠️ Premium Settings Panel',
-                    desc: 'A complete redesign of workspace settings introducing tabs (General, Style, Shortcuts, Updates), visual theme swatches, dynamic cache storage stats, and a visual theme selector card grid.'
+                    title: '🧬 Resilient Protein Variant Lookups',
+                    desc: 'Fixed parsing and query triggers for protein-only transcript variants (such as NM_007294.4:Thr1675del) across both GRCh37 and GRCh38 builds.'
                   },
                   {
-                    title: '🔌 Persistent Autofill Integrations',
-                    desc: 'The Active Tab Actions card remains fully active and interactable during live query fetches ("Live lookup...") and offline error states, enabling faster workflow loops.'
+                    title: '🌐 Smart Cross-Build Suggestions',
+                    desc: 'If a transcript coordinate mismatch is detected on the current genome build, the engine automatically checks the alternative assembly and suggests one-click build switching.'
                   },
                   {
-                    title: '🎨 Layout Polish & Pill Icons',
-                    desc: 'Cleaned up subtitle badges from the header for an elegant inline badge. Paste buttons inside the batch input and coordinate fields are now styled as distinct capsule pills.'
+                    title: '📦 Decomposed Modular Codebase',
+                    desc: 'Cleaned and refactored monolithic files (useVariantEnrichment, VariantWorkbench, parser, and sidepanel) into highly decoupled, single-responsibility sub-modules and custom hooks.'
                   }
                 ].map((item) => (
                   <div key={item.title} className={cardCls}>
@@ -559,7 +559,7 @@ export default function SettingsModal({
             Reset to Defaults
           </button>
           <span className="text-[9px] font-bold font-mono opacity-40">
-            v1.3.0
+            v1.4.0
           </span>
         </div>
       </div>

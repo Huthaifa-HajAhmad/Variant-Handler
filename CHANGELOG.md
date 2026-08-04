@@ -6,6 +6,28 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [1.4.0] — 2026-08-04
+
+### 🚀 New Features & Enhancements
+- **Dynamic Real-Time Progress Tracker** — The live lookup indicator now shows specific, real-time status updates (e.g. VEP mapping, MyVariant queries, ClinVar resolution, ALFA frequencies) next to a smooth CSS-independent SVG spinner.
+- **Resilient Protein Variant Lookups** — Fixed parsing and query triggers for protein-only transcript variants (such as `NM_007294.4:Thr1675del`) across both GRCh37 and GRCh38 builds.
+- **Smart Cross-Build Suggestions** — If a transcript coordinate mismatch is detected on the current genome build, the engine automatically checks the alternative assembly and suggests one-click build switching.
+
+### ⚙️ Refactoring & Code Cleanup
+- **Decomposed Modular Codebase** — Cleaned and refactored monolithic files (`useVariantEnrichment`, `VariantWorkbench`, `parser`, and `sidepanel`) into highly decoupled, single-responsibility sub-modules and custom hooks.
+
+---
+
+## [1.3.0] — 2026-07-28
+
+### 🚀 New Features & Enhancements
+- **Instant Paste Lookup** — Pasting variant coordinates using the Paste button or Ctrl+V now fires lookups instantly. Active background requests are aborted immediately, making search transitions zero-latency.
+- **Premium Settings Panel** — A complete redesign of workspace settings introducing tabs (General, Style, Shortcuts, Updates), visual theme swatches, dynamic cache storage stats, and a visual theme selector card grid.
+- **Persistent Autofill Integrations** — The Active Tab Actions card remains fully active and interactable during live query fetches ("Live lookup...") and offline error states, enabling faster workflow loops.
+- **Layout Polish & Pill Icons** — Cleaned up subtitle badges from the header for an elegant inline badge. Paste buttons inside the batch input and coordinate fields are now styled as distinct capsule pills.
+
+---
+
 ## [1.2.4] — 2026-07-14
 
 ### 🚀 New Features & Enhancements
