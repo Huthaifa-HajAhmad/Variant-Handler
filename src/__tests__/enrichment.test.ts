@@ -39,6 +39,12 @@ describe('deriveQueryKey — build suffix (T12)', () => {
     const parsed = parseVariant('p.Arg408Trp');
     expect(deriveQueryKey(parsed, 'GRCh38')).toBeNull();
   });
+
+  it('appends build suffix to protein transcript variants', () => {
+    const parsed = parseVariant('NM_007294.4:p.Thr1675del');
+    expect(deriveQueryKey(parsed, 'GRCh38')).toBe('NM_007294.4:p.Thr1675del@GRCh38');
+    expect(deriveQueryKey(parsed, 'GRCh37')).toBe('NM_007294.4:p.Thr1675del@GRCh37');
+  });
 });
 
 describe('parseApiResponse — ClinVar RCV ranking (T14)', () => {

@@ -126,6 +126,59 @@ describe('parseVariant — Genomic Coordinate Formats', () => {
     expect(r.alt).toBeUndefined();
   });
 
+  it('parses coordinate-only input with hyphen separator', () => {
+    const r = parseVariant('11-108293336');
+    expect(r.isValid).toBe(true);
+    expect(r.chromosome).toBe('11');
+    expect(r.position).toBe('108293336');
+    expect(r.endPosition).toBeUndefined();
+    expect(r.ref).toBeUndefined();
+    expect(r.alt).toBeUndefined();
+  });
+
+  it('parses coordinate-only range input with hyphen separator', () => {
+    const r = parseVariant('11-108293336-108293338');
+    expect(r.isValid).toBe(true);
+    expect(r.chromosome).toBe('11');
+    expect(r.position).toBe('108293336');
+    expect(r.endPosition).toBe('108293338');
+    expect(r.ref).toBeUndefined();
+    expect(r.alt).toBeUndefined();
+  });
+
+  it('parses coordinate-only structural deletion without g. prefix', () => {
+    const r = parseVariant('Chr17:80108578_80108580del');
+    expect(r.isValid).toBe(true);
+    expect(r.chromosome).toBe('17');
+    expect(r.position).toBe('80108578');
+    expect(r.endPosition).toBe('80108580');
+    expect(r.ref).toBeUndefined();
+    expect(r.alt).toBeUndefined();
+  });
+
+  it('parses cDNA variant without c. prefix', () => {
+    const r = parseVariant('NM_001170535.3:4636-4638del');
+    expect(r.isValid).toBe(true);
+    expect(r.transcript).toBe('NM_001170535.3');
+    expect(r.codingChange).toBe('c.4636-4638del');
+  });
+
+  it('parses protein variant without p. prefix', () => {
+    const r = parseVariant('NM_000051.4:Thr1675del');
+    expect(r.isValid).toBe(true);
+    expect(r.transcript).toBe('NM_000051.4');
+    expect(r.proteinChange).toBe('p.Thr1675del');
+  });
+
+  it('parses genomic variant with slash separator', () => {
+    const r = parseVariant('chr17:80108578A/G');
+    expect(r.isValid).toBe(true);
+    expect(r.chromosome).toBe('17');
+    expect(r.position).toBe('80108578');
+    expect(r.ref).toBe('A');
+    expect(r.alt).toBe('G');
+  });
+
   it('parses HGVSg range deletion with build annotation', () => {
     const r = parseVariant('Chr9(GRCh38):g.38068458_38068460del');
     expect(r.isValid).toBe(true);
@@ -250,6 +303,13 @@ describe('parseVariant — Coding Transcript Formats (HGVS)', () => {
     expect(r.isValid).toBe(true);
     expect(r.transcript).toBe('ENST00000288602');
     expect(r.codingChange).toBe('c.1799T>A');
+  });
+
+  it('parses transcript with parenthesized gene symbol', () => {
+    const r = parseVariant('NM_007294.4(BRCA1):c.5023_5025del');
+    expect(r.isValid).toBe(true);
+    expect(r.transcript).toBe('NM_007294.4');
+    expect(r.codingChange).toBe('c.5023_5025del');
   });
 
   it('parses NR_ non-coding RNA transcript', () => {

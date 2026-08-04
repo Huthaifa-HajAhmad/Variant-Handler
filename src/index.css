@@ -59,4 +59,18 @@ html, body {
   min-width: 400px;
 }
 
+/* Custom keyframes to ensure animate-spin works perfectly in production */
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.animate-spin {
+  animation: spin 1s linear infinite !important;
+}
+
 

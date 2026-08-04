@@ -73,7 +73,24 @@ if (typeof chrome !== 'undefined' && chrome.runtime) {
             if (res.status === 404) {
               return { notfound: true };
             }
-            throw new Error(`API error ${res.status}: ${res.statusText}`);
+            try {
+              const text = await res.text();
+              let parsed: any = null;
+              try {
+                parsed = JSON.parse(text);
+              } catch (_) {
+                if (text && text.length < 200 && !text.includes('<html>')) {
+                  throw new Error(text);
+                }
+              }
+              if (parsed && typeof parsed.error === 'string' && parsed.error) {
+                throw new Error(parsed.error);
+              }
+            } catch (bodyErr: any) {
+              throw bodyErr;
+            }
+            const statusText = res.statusText || (res.status === 400 ? 'Bad Request' : res.status === 404 ? 'Not Found' : 'Error');
+            throw new Error(`API error ${res.status}: ${statusText}`);
           }
           return res.json();
         })

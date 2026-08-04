@@ -115,11 +115,30 @@ export async function searchClinVarByHgvs(hgvs: string): Promise<string | null> 
   const accession = hgvs.slice(0, colonIdx).trim();
   const change = hgvs.slice(colonIdx + 1).trim();
   if (!accession || !change) return null;
+
+  // Try 1: Exact quoted accession:change term (most specific)
   const term = `"${accession}:${change}"`;
   const url = `${EUTILS_BASE}/esearch.fcgi?db=clinvar&term=${encodeURIComponent(term)}&retmode=json&retmax=1`;
-  const data = await fetchViaBackground(url);
-  const ids = data?.esearchresult?.idlist;
-  if (Array.isArray(ids) && ids.length > 0) return String(ids[0]);
+  try {
+    const data = await fetchViaBackground(url);
+    const ids = data?.esearchresult?.idlist;
+    if (Array.isArray(ids) && ids.length > 0) return String(ids[0]);
+  } catch (err) {
+    console.warn('[VariantHandler] ClinVar exact HGVS search failed:', err);
+  }
+
+  // Try 2: Fallback to "Accession" AND "change" (deals with space separators in ClinVar titles)
+  const changeWithoutPrefix = change.replace(/^[cp]\./i, '');
+  const fallbackTerm = `"${accession}" AND "${changeWithoutPrefix}"`;
+  const fallbackUrl = `${EUTILS_BASE}/esearch.fcgi?db=clinvar&term=${encodeURIComponent(fallbackTerm)}&retmode=json&retmax=1`;
+  try {
+    const data = await fetchViaBackground(fallbackUrl);
+    const ids = data?.esearchresult?.idlist;
+    if (Array.isArray(ids) && ids.length > 0) return String(ids[0]);
+  } catch (err) {
+    console.warn('[VariantHandler] ClinVar fallback HGVS search failed:', err);
+  }
+
   return null;
 }
 
