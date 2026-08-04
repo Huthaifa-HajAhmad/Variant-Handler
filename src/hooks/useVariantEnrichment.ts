@@ -1,28 +1,13 @@
 /**
  * Variant Handler — useVariantEnrichment
  *
- * Live variant annotation hook backed by the MyVariant.info public API.
+ * Live variant annotation hook backed by the MyVariant.info public API,
+ * Ensembl VEP, ClinVar direct, gnomAD v4, and NCBI ALFA.
+ *
  * Acts as the L2 enrichment layer: the local parser (L1) runs synchronously
  * and instantly; this hook fires asynchronously after an 800 ms debounce and
  * backfills additional annotation that the local engine cannot derive without
- * reference-genome access:
- *
- *   • dbSNP rs identifier
- *   • gnomAD allele frequency (genome dataset)
- *   • ClinVar clinical significance + review status
- *   • HGNC gene symbol
- *   • HGVSg string (for coordinate backfill when only transcript was given)
- *
- * Cache strategy:
- *   L1: in-memory Map<string, EnrichmentData> — zero-latency for the session
- *   L2: localStorage under 'variantstream_enrichment_cache' — survives refresh,
- *       entries expire after 24 hours (TTL enforced on read and on load)
- *
- * Rate limiting: 800 ms debounce is sufficient for the MyVariant.info
- * anonymous tier (10 req/s, no API key required for a single-user extension).
- *
- * Graceful degradation: any network or API error is caught and exposed as
- * `error` — the hook never throws and the extension remains fully functional.
+ * reference-genome access.
  */
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { ParsedVariant, GenomeBuild, hasRealAllele } from '../lib/parser';
@@ -30,746 +15,28 @@ import { resolveClinVarDirect } from '../lib/clinvarDirect';
 import { resolveGnomadV4 } from '../lib/ucscGnomad';
 import { resolveNcbiAlfa } from '../lib/ncbiAlfa';
 
-const sequenceCache = new Map<string, string>();
-
-function reverseComplement(seq: string): string {
-  const complement: Record<string, string> = {
-    A: 'T', T: 'A', C: 'G', G: 'C',
-    a: 't', t: 'a', c: 'g', g: 'c',
-    N: 'N', n: 'n'
-  };
-  return seq.split('').reverse().map(base => complement[base] || base).join('');
-}
-
-export async function resolveUcscSequence(
-  parsed: ParsedVariant,
-  build: GenomeBuild,
-  performFetch: (url: string) => Promise<any>
-): Promise<{ resolvedPos: number; resolvedRef: string; resolvedAlt: string; resolvedHgvsg: string } | null> {
-  if (!parsed.chromosome || !parsed.position) return null;
-
-  const structMatch = parsed.raw.match(/(delins|del|ins|dup|inv)\s*([ACGTN]*)$/i);
-  if (!structMatch) return null;
-
-  const changeType = structMatch[1].toLowerCase();
-  const seq = (structMatch[2] || '').toUpperCase();
-
-  const pos = parseInt(parsed.position, 10);
-  const endPos = parsed.endPosition ? parseInt(parsed.endPosition, 10) : undefined;
-  if (isNaN(pos)) return null;
-
-  const db = build === 'GRCh37' ? 'hg19' : 'hg38';
-  const endPosComputed = endPos ?? (pos + (changeType === 'del' && seq ? seq.length - 1 : 0));
-
-  let startParam = 0;
-  let endParam = 0;
-
-  if (changeType === 'del' || changeType === 'dup' || changeType === 'delins') {
-    if (pos <= 1) return null;
-    startParam = pos - 2;
-    endParam = endPosComputed;
-  } else if (changeType === 'ins') {
-    startParam = pos - 1;
-    endParam = pos;
-  } else if (changeType === 'inv') {
-    startParam = pos - 1;
-    endParam = endPosComputed;
-  } else {
-    return null;
-  }
-
-  const cacheKey = `${db}:${parsed.chromosome}:${startParam}:${endParam}`;
-  let dna = sequenceCache.get(cacheKey);
-
-  if (!dna) {
-    const ucscUrl = `https://api.genome.ucsc.edu/getData/sequence?genome=${db};chrom=chr${parsed.chromosome};start=${startParam};end=${endParam}`;
-    try {
-      const response = await performFetch(ucscUrl);
-      if (response && typeof response.dna === 'string') {
-        dna = response.dna.toUpperCase();
-        sequenceCache.set(cacheKey, dna);
-      }
-    } catch (err) {
-      console.warn('[VariantHandler] UCSC Sequence fetch failed:', err);
-      return null;
-    }
-  }
-
-  if (!dna) return null;
-
-  let resolvedPos = pos;
-  let resolvedRef = '';
-  let resolvedAlt = '';
-
-  if (changeType === 'del') {
-    resolvedPos = pos - 1;
-    resolvedRef = dna;
-    resolvedAlt = dna[0];
-  } else if (changeType === 'dup') {
-    resolvedPos = pos - 1;
-    resolvedRef = dna[0];
-    resolvedAlt = dna[0] + dna.substring(1);
-  } else if (changeType === 'delins') {
-    resolvedPos = pos - 1;
-    resolvedRef = dna;
-    resolvedAlt = dna[0] + seq;
-  } else if (changeType === 'ins') {
-    resolvedPos = pos;
-    resolvedRef = dna;
-    resolvedAlt = dna + seq;
-  } else if (changeType === 'inv') {
-    resolvedPos = pos;
-    resolvedRef = dna;
-    resolvedAlt = reverseComplement(dna);
-  }
-
-  const resolvedHgvsg = `chr${parsed.chromosome}:g.${resolvedPos}${resolvedRef}>${resolvedAlt}`;
-  return { resolvedPos, resolvedRef, resolvedAlt, resolvedHgvsg };
-}
-
-export async function validateRefAllele(
-  parsed: ParsedVariant,
-  build: GenomeBuild,
-  performFetch: (url: string) => Promise<any>
-): Promise<string | null> {
-  if (!parsed.chromosome || !parsed.position || !parsed.ref) return null;
-  const pos = parseInt(parsed.position, 10);
-  if (isNaN(pos)) return null;
-
-  const db = build === 'GRCh37' ? 'hg19' : 'hg38';
-  const refSeq = parsed.ref.toUpperCase();
-  if (refSeq === '-' || !hasRealAllele(refSeq)) return null;
-
-  const startParam = pos - 1;
-  const endParam = startParam + refSeq.length;
-
-  const cacheKey = `${db}:${parsed.chromosome}:${startParam}:${endParam}`;
-  let dna = sequenceCache.get(cacheKey);
-
-  if (!dna) {
-    try {
-      const url = `https://api.genome.ucsc.edu/getData/sequence?genome=${db}&chrom=chr${parsed.chromosome}&start=${startParam}&end=${endParam}`;
-      const res = await performFetch(url);
-      if (res && res.dna) {
-        dna = res.dna.toUpperCase();
-        sequenceCache.set(cacheKey, dna);
-      }
-    } catch (err) {
-      console.warn('[VariantHandler] UCSC sequence validation query failed:', err);
-      return null;
-    }
-  }
-
-  if (dna && dna !== refSeq) {
-    const otherBuild = build === 'GRCh37' ? 'GRCh38' : 'GRCh37';
-    const otherDb = otherBuild === 'GRCh37' ? 'hg19' : 'hg38';
-    const otherCacheKey = `${otherDb}:${parsed.chromosome}:${startParam}:${endParam}`;
-    let otherDna = sequenceCache.get(otherCacheKey);
-
-    if (!otherDna) {
-      try {
-        const otherUrl = `https://api.genome.ucsc.edu/getData/sequence?genome=${otherDb}&chrom=chr${parsed.chromosome}&start=${startParam}&end=${endParam}`;
-        const otherRes = await performFetch(otherUrl);
-        if (otherRes && otherRes.dna) {
-          otherDna = otherRes.dna.toUpperCase();
-          sequenceCache.set(otherCacheKey, otherDna);
-        }
-      } catch (e) {
-        // Ignore alternative build validation fetch failures
-      }
-    }
-
-    if (otherDna === refSeq) {
-      return `Reference allele mismatch on ${build}: assembly reference is "${dna}", but input specified "${refSeq}". Note: reference matches "${refSeq}" at this position on ${otherBuild}. Did you select the wrong genome build?`;
-    }
-
-    return `Reference allele mismatch: genome reference at chr${parsed.chromosome}:${pos} is "${dna}", but input specified "${refSeq}".`;
-  }
-  return null;
-}
-
-// ── Types ─────────────────────────────────────────────────────────────────────
-
-export interface EnrichmentData {
-  rsId?: string;
-  geneSymbol?: string;
-  gnomadAf?: number;      // allele frequency (0–1)
-  gnomadAc?: number;      // allele count (v2.1)
-  gnomadAn?: number;      // allele number (v2.1)
-  gnomadV4ExomeAf?: number;
-  gnomadV4ExomeAc?: number;
-  gnomadV4ExomeAn?: number;
-  gnomadV4GenomeAf?: number;
-  gnomadV4GenomeAc?: number;
-  gnomadV4GenomeAn?: number;
-  alfaAf?: number;
-  caddPhred?: number;
-  revelScore?: number;
-  amScore?: number;
-  amPred?: string;
-  clinvarSignificance?: string;
-  clinvarReview?: string;
-  rcvAccession?: string;       // RCV accession from ClinVar direct (R2)
-  hgvsg?: string;         // HGVSg from API (may backfill coordinates)
-  proteinChange?: string; // HGVSp resolved live
-  proteinNote?: string;   // Alternative isoform explanation note if canonical has no impact
-  codingChange?: string;  // HGVSc resolved live
-  transcript?: string;    // HGVSc transcript resolved live
-  refMismatch?: string;   // Warning message if reference allele mismatches reference genome
-  source: 'myvariant' | 'ensembl' | 'clinvar' | 'both' | 'none';
-  fetchedAt: number;      // Unix ms — used for 24 h TTL
-}
-
-// ── Cache constants ───────────────────────────────────────────────────────────
-
-const CACHE_STORAGE_KEY = 'variantstream_enrichment_cache_v9';
-const CACHE_TTL_MS      = 24 * 60 * 60 * 1000; // 24 hours
-const DEBOUNCE_MS       = 800;
-const API_BASE          = 'https://myvariant.info/v1/variant';
-const FIELDS = [
-  'dbsnp.rsid',
-  'gnomad_genome.af.af',
-  'clinvar.rcv.clinical_significance',
-  'clinvar.rcv.review_status',
-  'cadd.gene.genename',
-  'dbnsfp.genename',
-  'snpeff.ann.genename',
-  'clinvar.gene',
-  'hgvs.genomic',
-  'hgvsp',
-  'clinvar.hgvs.protein',
-  'dbnsfp.hgvsp',
-  'snpeff.ann.hgvs_p',
-  'evs.hgvs.protein',
-  'clinvar.hgvs.coding',
-  'dbnsfp.hgvsc',
-  'snpeff.ann.hgvs_c',
-  'evs.hgvs.coding',
-  'evs.gene.accession',
-  'cadd.phred',
-  'dbnsfp.revel.score',
-  'dbnsfp.alphamissense.score',
-  'dbnsfp.alphamissense.pred',
-  'dbnsfp.uniprot',
-  'dbnsfp.mutpred.accession',
-].join(',');
-
-// ── In-memory cache (synchronous hot layer) ───────────────────────────────────
-
-const memoryCache = new Map<string, EnrichmentData>();
-
-// ── chrome.storage.session cache helpers (R4) ─────────────────────────────────
-// The enrichment cache (variant strings + annotations) is the most sensitive
-// persisted data, so it is moved from localStorage to chrome.storage.session,
-// which is in-memory and cleared when the browser closes. The synchronous
-// memoryCache remains the hot layer; session storage only seeds/persists it.
-// A cacheReady promise gates the first read so callers don't miss the preload.
-
-const SESSION_CACHE_KEY = 'variantstream_enrichment_cache_v9';
-
-function isSessionStorageAvailable(): boolean {
-  return typeof chrome !== 'undefined' && !!chrome.storage && !!chrome.storage.session;
-}
-
-let cacheReady: Promise<void> = (async () => {
-  if (!isSessionStorageAvailable()) {
-    // Dev / non-chrome fallback: seed from localStorage (kept for the dev path)
-    try {
-      const raw = localStorage.getItem(CACHE_STORAGE_KEY);
-      if (raw) {
-        const obj = JSON.parse(raw) as Record<string, EnrichmentData>;
-        const now = Date.now();
-        const invalidationThreshold = Date.parse("2026-06-19T19:53:00Z");
-        for (const [k, v] of Object.entries(obj)) {
-          if (v && typeof v.fetchedAt === 'number' && now - v.fetchedAt < CACHE_TTL_MS && v.fetchedAt > invalidationThreshold) {
-            memoryCache.set(k, v);
-          }
-        }
-      }
-    } catch { /* ignore */ }
-    return;
-  }
-  // Safe timeout of 500ms to prevent indefinite hangs in chrome.storage.session.get
-  const timeoutPromise = new Promise<void>((resolve) => setTimeout(resolve, 500));
-  const preloadPromise = (async () => {
-    try {
-      const data = await chrome.storage.session.get(SESSION_CACHE_KEY);
-      const raw = data[SESSION_CACHE_KEY] as string | undefined;
-      if (raw) {
-        const obj = JSON.parse(raw) as Record<string, EnrichmentData>;
-        const now = Date.now();
-        for (const [k, v] of Object.entries(obj)) {
-          if (v && typeof v.fetchedAt === 'number' && now - v.fetchedAt < CACHE_TTL_MS) {
-            memoryCache.set(k, v);
-          }
-        }
-      }
-    } catch { /* ignore */ }
-  })();
-
-  await Promise.race([preloadPromise, timeoutPromise]);
-})();
-
-/** Clear the session cache (used by Settings → Clear all stored data + clear-on-close). */
-export async function clearEnrichmentCache(): Promise<void> {
-  memoryCache.clear();
-  if (isSessionStorageAvailable()) {
-    try { await chrome.storage.session.remove(SESSION_CACHE_KEY); } catch { /* ignore */ }
-  }
-  try { localStorage.removeItem(CACHE_STORAGE_KEY); } catch { /* ignore */ }
-}
-
-function savePersistentCache(map: Map<string, EnrichmentData>): void {
-  const obj: Record<string, EnrichmentData> = {};
-  for (const [k, v] of map.entries()) obj[k] = v;
-  const serialized = JSON.stringify(obj);
-  if (isSessionStorageAvailable()) {
-    // Fire-and-forget; session storage writes are async but non-blocking
-    chrome.storage.session.set({ [SESSION_CACHE_KEY]: serialized }).catch(() => { /* quota — ignore */ });
-  } else {
-    try { localStorage.setItem(CACHE_STORAGE_KEY, serialized); } catch { /* quota */ }
-  }
-}
-
-// ── API query key derivation ──────────────────────────────────────────────────
-
-/**
- * Derives the MyVariant.info query key from a ParsedVariant.
- *
- * Priority:
- *   1. HGVSg: chr{chrom}:g.{pos}{ref}>{alt}   (most specific)
- *      — For GRCh38 variants, a build suffix is appended to the cache key
- *        to prevent cross-build collisions (the liftover produces a
- *        different hg19 position that gets stored under the mapped key).
- *   2. HGVSc: {transcript}:{codingChange}       (fallback)
- *   3. null — not enough data to query
- */
-export function deriveQueryKey(parsed: ParsedVariant, build: GenomeBuild): string | null {
-  if (parsed.chromosome && parsed.position) {
-    let base = '';
-    if (parsed.ref && parsed.alt) {
-      if (parsed.ref.length > 1 && parsed.ref !== '-') {
-        const start = parseInt(parsed.position, 10);
-        const end = isNaN(start) ? parsed.position : String(start + parsed.ref.length - 1);
-        base = `chr${parsed.chromosome}:g.${parsed.position}_${end}${parsed.ref}>${parsed.alt}`;
-      } else {
-        base = `chr${parsed.chromosome}:g.${parsed.position}${parsed.ref}>${parsed.alt}`;
-      }
-    } else {
-      // Indel/Structural coordinate range format
-      const match = parsed.raw.match(/(delins|del|ins|dup|inv)\s*([ACGTN]*)$/i);
-      if (match) {
-        const changeType = match[1].toLowerCase();
-        const seq = match[2] || '';
-        base = `chr${parsed.chromosome}:g.${parsed.position}${parsed.endPosition ? `_${parsed.endPosition}` : ''}${changeType}${seq}`;
-      } else {
-        // Coordinate-only or other genomic format
-        base = `chr${parsed.chromosome}:g.${parsed.position}`;
-      }
-    }
-    // Append build to avoid serving a stale GRCh37 cache entry for a GRCh38 input.
-    // Genomic coordinates are build-dependent, so the suffix is required here.
-    return `${base}@${build}`;
-  }
-  if (parsed.transcript && parsed.codingChange) {
-    // N6: HGVS `c.` notation is build-independent — appending a build suffix
-    // here would cache the identical MyVariant response twice and re-fetch on
-    // every build toggle. Return the bare transcript key.
-    return `${parsed.transcript}:${parsed.codingChange}`;
-  }
-  return null;
-}
-
-// ── Response parsing ──────────────────────────────────────────────────────────
-
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-function extractCodingChange(data: any): { codingChange?: string; transcript?: string } | undefined {
-  if (!data) return undefined;
-
-  const parseHgvscString = (str: any) => {
-    if (typeof str !== 'string') return null;
-    const parts = str.split(':');
-    if (parts.length > 1) {
-      const transcript = parts[0];
-      const codingChange = parts[1];
-      if (codingChange.startsWith('c.')) {
-        return { transcript, codingChange };
-      }
-    } else if (str.startsWith('c.')) {
-      return { codingChange: str };
-    }
-    return null;
-  };
-
-  // 1. clinvar.hgvs.coding
-  const clinvarCoding = data.clinvar?.hgvs?.coding;
-  if (Array.isArray(clinvarCoding)) {
-    const nmItem = clinvarCoding.find(item => typeof item === 'string' && item.startsWith('NM_'));
-    if (nmItem) {
-      const res = parseHgvscString(nmItem);
-      if (res) return res;
-    }
-    for (const item of clinvarCoding) {
-      const res = parseHgvscString(item);
-      if (res) return res;
-    }
-  } else if (typeof clinvarCoding === 'string') {
-    const res = parseHgvscString(clinvarCoding);
-    if (res) return res;
-  }
-
-  // 2. snpeff.ann
-  const snpeffAnn = data.snpeff?.ann;
-  if (Array.isArray(snpeffAnn)) {
-    const nmAnn = snpeffAnn.find(ann => typeof ann?.feature_id === 'string' && ann.feature_id.startsWith('NM_'));
-    if (nmAnn && typeof nmAnn.hgvs_c === 'string' && nmAnn.hgvs_c.startsWith('c.')) {
-      return { transcript: nmAnn.feature_id, codingChange: nmAnn.hgvs_c };
-    }
-    for (const ann of snpeffAnn) {
-      if (ann && typeof ann.hgvs_c === 'string' && ann.hgvs_c.startsWith('c.')) {
-        return { transcript: ann.feature_id, codingChange: ann.hgvs_c };
-      }
-    }
-  } else if (snpeffAnn && typeof snpeffAnn === 'object') {
-    const ann = snpeffAnn as any;
-    if (typeof ann.hgvs_c === 'string' && ann.hgvs_c.startsWith('c.')) {
-      return { transcript: ann.feature_id, codingChange: ann.hgvs_c };
-    }
-  }
-
-  // 3. dbnsfp.hgvsc
-  const dbnsfp = data.dbnsfp?.hgvsc;
-  if (Array.isArray(dbnsfp)) {
-    const found = dbnsfp.find(c => typeof c === 'string' && c.startsWith('c.'));
-    if (found) return { codingChange: found };
-  } else if (typeof dbnsfp === 'string' && dbnsfp.startsWith('c.')) {
-    return { codingChange: dbnsfp };
-  }
-
-  // 4. evs.hgvs.coding
-  const evsCoding = data.evs?.hgvs?.coding;
-  if (typeof evsCoding === 'string' && evsCoding.startsWith('c.')) {
-    return { codingChange: evsCoding, transcript: data.evs?.gene?.accession };
-  }
-
-  return undefined;
-}
-
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-function extractProteinChange(data: any): string | undefined {
-  if (!data) return undefined;
-
-  const extractFromClinvarString = (str: any): string | null => {
-    if (typeof str !== 'string') return null;
-    const parts = str.split(':');
-    const pPart = parts.length > 1 ? parts[1] : parts[0];
-    if (pPart.startsWith('p.')) return pPart;
-    return null;
-  };
-
-  // 1. Direct hgvsp field
-  const direct = data.hgvsp;
-  if (Array.isArray(direct)) {
-    const found = direct.find(p => typeof p === 'string' && p.startsWith('p.'));
-    if (found) return found;
-  } else if (typeof direct === 'string' && direct.startsWith('p.')) {
-    return direct;
-  }
-
-  // 2. clinvar.hgvs.protein
-  const clinvarProt = data.clinvar?.hgvs?.protein;
-  if (Array.isArray(clinvarProt)) {
-    for (const item of clinvarProt) {
-      const res = extractFromClinvarString(item);
-      if (res) return res;
-    }
-  } else if (typeof clinvarProt === 'string') {
-    const res = extractFromClinvarString(clinvarProt);
-    if (res) return res;
-  }
-
-  // 3. snpeff.ann
-  const snpeffAnn = data.snpeff?.ann;
-  if (Array.isArray(snpeffAnn)) {
-    for (const ann of snpeffAnn) {
-      const p = ann?.hgvs_p;
-      if (typeof p === 'string' && p.startsWith('p.')) return p;
-    }
-  } else if (snpeffAnn && typeof snpeffAnn === 'object') {
-    const p = (snpeffAnn as any).hgvs_p;
-    if (typeof p === 'string' && p.startsWith('p.')) return p;
-  }
-
-  // 4. dbnsfp.hgvsp
-  const dbnsfp = data.dbnsfp?.hgvsp;
-  if (Array.isArray(dbnsfp)) {
-    const threeLetter = dbnsfp.find(p => typeof p === 'string' && /^p\.[A-Z][a-z]{2}\d+[A-Z][a-z]{2}$/i.test(p));
-    if (threeLetter) return threeLetter;
-    
-    const anyP = dbnsfp.find(p => typeof p === 'string' && p.startsWith('p.'));
-    if (anyP) return anyP;
-  } else if (typeof dbnsfp === 'string' && dbnsfp.startsWith('p.')) {
-    return dbnsfp;
-  }
-
-  // 5. evs.hgvs.protein
-  const evs = data.evs?.hgvs?.protein;
-  if (typeof evs === 'string') {
-    const cleaned = evs.replace(/[\(\)]/g, '');
-    if (cleaned.startsWith('p.')) return cleaned;
-  }
-
-  return undefined;
-}
-
-function getReviewStars(review?: string): number {
-  if (!review) return 0;
-  const r = review.toLowerCase();
-  if (r.includes('practice guideline'))                        return 4;
-  if (r.includes('expert panel'))                              return 3;
-  if (r.includes('criteria provided') && r.includes('conflicting')) return 1;
-  if (r.includes('criteria provided'))                         return 2;
-  if (r.includes('no assertion') || r.includes('no criteria'))  return 0;
-  return 0;
-}
-
-export function parseApiResponse(data: any, queryKey: string): EnrichmentData {
-  // dbSNP rs ID
-  const rsId: string | undefined =
-    typeof data?.dbsnp?.rsid === 'string'
-      ? data.dbsnp.rsid
-      : typeof data?.dbsnp?.rsid === 'number'
-      ? `rs${data.dbsnp.rsid}`
-      : undefined;
-
-  // gnomAD allele frequency (falls back to exomes if genomes is missing)
-  const gnomadAf: number | undefined =
-    typeof data?.gnomad_genome?.af?.af === 'number'
-      ? data.gnomad_genome.af.af
-      : typeof data?.gnomad_exome?.af?.af === 'number'
-      ? data.gnomad_exome.af.af
-      : undefined;
-
-  // gnomAD allele count (falls back to exomes if genomes is missing)
-  const gnomadAc: number | undefined =
-    typeof data?.gnomad_genome?.ac?.ac === 'number'
-      ? data.gnomad_genome.ac.ac
-      : typeof data?.gnomad_exome?.ac?.ac === 'number'
-      ? data.gnomad_exome.ac.ac
-      : undefined;
-
-  // gnomAD allele number (falls back to exomes if genomes is missing)
-  const gnomadAn: number | undefined =
-    typeof data?.gnomad_genome?.an?.an === 'number'
-      ? data.gnomad_genome.an.an
-      : typeof data?.gnomad_exome?.an?.an === 'number'
-      ? data.gnomad_exome.an.an
-      : undefined;
-
-  // CADD PHRED score
-  const caddPhred: number | undefined =
-    typeof data?.cadd?.phred === 'number'
-      ? data.cadd.phred
-      : typeof data?.cadd?.phred === 'string'
-      ? parseFloat(data.cadd.phred)
-      : undefined;
-
-  // REVEL score
-  const revelScore: number | undefined =
-    typeof data?.dbnsfp?.revel?.score === 'number'
-      ? data.dbnsfp.revel.score
-      : typeof data?.dbnsfp?.revel?.score === 'string'
-      ? parseFloat(data.dbnsfp.revel.score)
-      : undefined;
-
-  // AlphaMissense score
-  const amScore: number | undefined = (() => {
-    const am = data?.dbnsfp?.alphamissense;
-    if (!am) return undefined;
-    const scoreVal = am.score;
-    if (typeof scoreVal === 'number') return scoreVal;
-    if (typeof scoreVal === 'string') return parseFloat(scoreVal);
-    if (Array.isArray(scoreVal) && scoreVal.length > 0) {
-      const uniprotAccs = data?.dbnsfp?.uniprot || data?.dbnsfp?.uniprot_acc || data?.dbnsfp?.mutpred?.accession;
-      let canonicalIdx = 0;
-      if (Array.isArray(uniprotAccs)) {
-        const foundIdx = uniprotAccs.findIndex((u: any) => {
-          const acc = typeof u === 'string' ? u : u?.acc || u?.acc_id;
-          return typeof acc === 'string' && !acc.includes('-');
-        });
-        if (foundIdx !== -1 && foundIdx < scoreVal.length) {
-          canonicalIdx = foundIdx;
-        }
-      }
-      const parsedVal = typeof scoreVal[canonicalIdx] === 'number' ? scoreVal[canonicalIdx] : parseFloat(scoreVal[canonicalIdx]);
-      console.log('[VariantHandler] amScore resolved:', {
-        uniprot: uniprotAccs,
-        score: scoreVal,
-        canonicalIdx,
-        result: parsedVal
-      });
-      return isNaN(parsedVal) ? undefined : parsedVal;
-    }
-    return undefined;
-  })();
-
-  const amPred: string | undefined = (() => {
-    const am = data?.dbnsfp?.alphamissense;
-    if (!am) return undefined;
-    const predVal = am.pred;
-    if (typeof predVal === 'string') return predVal;
-    if (Array.isArray(predVal) && predVal.length > 0) {
-      const uniprotAccs = data?.dbnsfp?.uniprot || data?.dbnsfp?.uniprot_acc || data?.dbnsfp?.mutpred?.accession;
-      let canonicalIdx = 0;
-      if (Array.isArray(uniprotAccs)) {
-        const foundIdx = uniprotAccs.findIndex((u: any) => {
-          const acc = typeof u === 'string' ? u : u?.acc || u?.acc_id;
-          return typeof acc === 'string' && !acc.includes('-');
-        });
-        if (foundIdx !== -1 && foundIdx < predVal.length) {
-          canonicalIdx = foundIdx;
-        }
-      }
-      return String(predVal[canonicalIdx]);
-    }
-    return undefined;
-  })();
-
-  // ClinVar (may be array of RCV entries — sort by star status first)
-  const rcv = Array.isArray(data?.clinvar?.rcv)
-    ? [...data.clinvar.rcv].sort((a: any, b: any) => getReviewStars(b?.review_status) - getReviewStars(a?.review_status))[0]
-    : data?.clinvar?.rcv;
-  const clinvarSignificance: string | undefined =
-    typeof rcv?.clinical_significance === 'string' ? rcv.clinical_significance : undefined;
-  const clinvarReview: string | undefined =
-    typeof rcv?.review_status === 'string' ? rcv.review_status : undefined;
-
-  // Gene symbol fallback extraction
-  const geneSymbol: string | undefined = (() => {
-    // 1. CADD genename
-    const caddGene = data?.cadd?.gene;
-    if (caddGene) {
-      if (typeof caddGene.genename === 'string') return caddGene.genename;
-      if (Array.isArray(caddGene)) {
-        const first = caddGene.find((g: any) => typeof g?.genename === 'string');
-        if (first?.genename) return first.genename;
-      }
-    }
-
-    // 2. dbNSFP genename
-    const dbnsfpGene = data?.dbnsfp?.genename;
-    if (dbnsfpGene) {
-      if (typeof dbnsfpGene === 'string') return dbnsfpGene;
-      if (Array.isArray(dbnsfpGene)) {
-        const first = dbnsfpGene.find((g: any) => typeof g === 'string');
-        if (first) return first;
-      }
-    }
-
-    // 3. SnpEff genename
-    const snpeffAnn = data?.snpeff?.ann;
-    if (snpeffAnn) {
-      if (Array.isArray(snpeffAnn)) {
-        const first = snpeffAnn.find((g: any) => g && typeof g.genename === 'string');
-        if (first?.genename) return first.genename;
-      } else if (typeof snpeffAnn === 'object') {
-        const ann = snpeffAnn as any;
-        if (typeof ann.genename === 'string') return ann.genename;
-      }
-    }
-
-    // 4. ClinVar gene
-    const clinvarGene = data?.clinvar?.gene;
-    if (clinvarGene) {
-      if (typeof clinvarGene === 'string') return clinvarGene;
-      if (typeof clinvarGene === 'object' && clinvarGene !== null) {
-        const symbol = (clinvarGene as any).symbol;
-        if (typeof symbol === 'string') return symbol;
-      }
-    }
-
-    return undefined;
-  })();
-
-  // HGVSg string (first in array if present)
-  const hgvsGenomicRaw = data?.hgvs?.genomic;
-  const hgvsg: string | undefined = Array.isArray(hgvsGenomicRaw)
-    ? hgvsGenomicRaw[0]
-    : typeof hgvsGenomicRaw === 'string'
-    ? hgvsGenomicRaw
-    : undefined;
-
-  // HGVSp protein change (starts with p.)
-  const proteinChange = extractProteinChange(data);
-
-  // HGVSc coding change and transcript
-  const resolvedCoding = extractCodingChange(data);
-  const codingChange = resolvedCoding?.codingChange;
-  const transcript = resolvedCoding?.transcript;
-
-  // If we got a 'notfound' response body, return a minimal record
-  if (data?.notfound === true || data?._id === undefined) {
-    return { source: 'none', fetchedAt: Date.now() };
-  }
-
-  return {
-    rsId,
-    geneSymbol,
-    gnomadAf,
-    gnomadAc,
-    gnomadAn,
-    caddPhred,
-    revelScore,
-    amScore,
-    amPred,
-    clinvarSignificance,
-    clinvarReview,
-    hgvsg,
-    proteinChange,
-    codingChange,
-    transcript,
-    source: 'myvariant',
-    fetchedAt: Date.now(),
-  };
-}
-
-// ── Hook ──────────────────────────────────────────────────────────────────────
-
-interface UseVariantEnrichmentResult {
-  enrichment: EnrichmentData | null;
-  isLoading: boolean;
-  error: string | null;
-  refetch: () => void;
-  lookupInstantly: (targetParsed: ParsedVariant, targetBuild: GenomeBuild) => void;
-}
+import { EnrichmentData, UseVariantEnrichmentResult } from '../lib/enrichment/types';
+import {
+  memoryCache,
+  cacheReady,
+  clearEnrichmentCache,
+  savePersistentCache,
+  deriveQueryKey,
+  CACHE_TTL_MS,
+  DEBOUNCE_MS
+} from '../lib/enrichment/cache';
+import { resolveUcscSequence, validateRefAllele } from '../lib/enrichment/ucscSequence';
+import { parseApiResponse, API_BASE, FIELDS } from '../lib/enrichment/responseParsers';
+import { abortableSleep, fetchAlternativeSuggestions } from '../lib/enrichment/networkServices';
+
+// Re-export public utilities & types for backward compatibility & testing
+export type { EnrichmentData, UseVariantEnrichmentResult } from '../lib/enrichment/types';
+export { deriveQueryKey, clearEnrichmentCache } from '../lib/enrichment/cache';
+export { resolveUcscSequence, validateRefAllele } from '../lib/enrichment/ucscSequence';
+export { parseApiResponse } from '../lib/enrichment/responseParsers';
 
 const inFlightRequests = new Map<string, { promise: Promise<any>; abortController: AbortController }>();
 let rateLimitResetTime = 0;
-
-/**
- * Returns a Promise that resolves after `ms` milliseconds, or rejects with an
- * AbortError when the supplied AbortController's signal aborts. Used to make the
- * 429 backoff sleep interruptible (N4): without this, a backoff loop keeps
- * issuing background fetches whose results are discarded after the user changes
- * variant or closes the panel.
- */
-function abortableSleep(ms: number, signal: AbortSignal): Promise<void> {
-  return new Promise((resolve, reject) => {
-    if (signal.aborted) {
-      reject(new DOMException('Aborted', 'AbortError'));
-      return;
-    }
-    const timer = setTimeout(() => {
-      signal.removeEventListener('abort', onAbort);
-      resolve();
-    }, ms);
-    const onAbort = () => {
-      clearTimeout(timer);
-      reject(new DOMException('Aborted', 'AbortError'));
-    };
-    signal.addEventListener('abort', onAbort, { once: true });
-  });
-}
 
 export function useVariantEnrichment(
   parsed: ParsedVariant,
@@ -778,6 +45,7 @@ export function useVariantEnrichment(
 ): UseVariantEnrichmentResult {
   const [enrichment, setEnrichment] = useState<EnrichmentData | null>(null);
   const [isLoading, setIsLoading]   = useState(false);
+  const [progress, setProgress]     = useState<string | null>(null);
   const [error, setError]           = useState<string | null>(null);
 
   const debounceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -786,9 +54,11 @@ export function useVariantEnrichment(
 
   const fetchEnrichment = useCallback(async (queryKey: string, build: string | undefined, forceFresh = false, currentParsed = parsed) => {
     const parsed = currentParsed;
-    // R4: ensure the session-storage preload has completed before the first
-    // cache read, so entries seeded from chrome.storage.session aren't missed.
+    let versionWarning: string | undefined = undefined;
+
+    // Ensure session-storage preload has completed before the first cache read
     await cacheReady;
+
     // Check in-memory cache first (zero network cost)
     if (!forceFresh) {
       const cached = memoryCache.get(queryKey);
@@ -801,6 +71,7 @@ export function useVariantEnrichment(
           if (currentQueryKeyRef.current === queryKey) {
             setEnrichment(cached);
             setIsLoading(false);
+            setProgress(null);
           }
           return;
         }
@@ -813,14 +84,8 @@ export function useVariantEnrichment(
       savePersistentCache(memoryCache);
     }
 
-    // N3: use a per-queryKey AbortController stored alongside the in-flight
-    // promise. Aborting one variant's lookup must not abort a different
-    // queryKey's still-running (and deduped) fetch. The shared `abortRef` is
-    // kept only to support the legacy direct-fetch dev path and unmount cleanup.
     const existing = inFlightRequests.get(queryKey);
     if (existing) {
-      // If a fresh fetch was requested but an in-flight one exists, abort the
-      // old one for THIS queryKey only and start a new one.
       if (forceFresh) {
         existing.abortController.abort();
         inFlightRequests.delete(queryKey);
@@ -828,6 +93,7 @@ export function useVariantEnrichment(
     }
 
     setIsLoading(true);
+    setProgress(forceFresh ? 'Refreshing annotations...' : 'Querying coordinates...');
     setError(null);
 
     let entry = inFlightRequests.get(queryKey);
@@ -838,8 +104,7 @@ export function useVariantEnrichment(
         while (attempts < 3) {
           if (Date.now() < rateLimitResetTime) {
             const waitMs = rateLimitResetTime - Date.now();
-            // N4: abortable backoff sleep — stops the loop when the queryKey's
-            // controller aborts (variant changed / panel closed).
+            setProgress(`Rate limited. Waiting ${Math.ceil(waitMs / 1000)}s before retry...`);
             await abortableSleep(waitMs, abortController.signal);
           }
           try {
@@ -882,7 +147,24 @@ export function useVariantEnrichment(
                   if (res.status === 404) {
                     return { notfound: true };
                   } else {
-                    throw new Error(`API error ${res.status}: ${res.statusText}`);
+                    try {
+                      const text = await res.text();
+                      let parsedJson: any = null;
+                      try {
+                        parsedJson = JSON.parse(text);
+                      } catch (_) {
+                        if (text && text.length < 200 && !text.includes('<html>')) {
+                          throw new Error(text);
+                        }
+                      }
+                      if (parsedJson && typeof parsedJson.error === 'string' && parsedJson.error) {
+                        throw new Error(parsedJson.error);
+                      }
+                    } catch (bodyErr: any) {
+                      throw bodyErr;
+                    }
+                    const statusText = res.statusText || (res.status === 400 ? 'Bad Request' : res.status === 404 ? 'Not Found' : 'Error');
+                    throw new Error(`API error ${res.status}: ${statusText}`);
                   }
                 }
                 return await res.json();
@@ -891,15 +173,17 @@ export function useVariantEnrichment(
 
             let activeQueryKey = queryKey;
             let mappedPos = '';
-            // Strip the @build suffix we append to cache keys to prevent cross-build collisions
             let rawQueryKey = queryKey.replace(/@(GRCh38|GRCh37)$/, '');
             let genomicMatch = rawQueryKey.match(/^chr(2[0-2]|1[0-9]|[1-9]|X|Y|MT|M):g\.([0-9]+)(?:[_-]([0-9]+))?(?:([ACGTN\-]+)>([ACGTN\-]+)|(delins|del|ins|dup|inv)([ACGTN]*))$/i);
 
-            // 0. If it's a coding/transcript variant, try to resolve its genomic coordinates using Ensembl VEP HGVS endpoint first
-            if (!genomicMatch && parsed.transcript && parsed.codingChange) {
+            // 0. If it's a transcript variant (coding or protein), try to resolve its genomic coordinates using Ensembl VEP HGVS endpoint first
+            if (!genomicMatch && parsed.transcript && (parsed.codingChange || parsed.proteinChange)) {
               try {
+                setProgress('Mapping transcript coordinates via VEP...');
                 const serverBase = build === 'GRCh37' ? 'https://grch37.rest.ensembl.org' : 'https://rest.ensembl.org';
-                const hgvsNotation = `${parsed.transcript}:${parsed.codingChange}`;
+                const hgvsNotation = parsed.codingChange
+                  ? `${parsed.transcript}:${parsed.codingChange}`
+                  : `${parsed.transcript}:${parsed.proteinChange}`;
                 const vepUrl = `${serverBase}/vep/homo_sapiens/hgvs/${encodeURIComponent(hgvsNotation)}?content-type=application/json&hgvs=1&mane=1`;
                 const vepData = await performFetch(vepUrl);
                 if (Array.isArray(vepData) && vepData.length > 0) {
@@ -924,11 +208,110 @@ export function useVariantEnrichment(
               } catch (vepErr: any) {
                 if (vepErr.is429) throw vepErr;
                 console.warn('[VariantHandler] VEP HGVS lookup failed during initial resolution:', vepErr);
+
+                const errMsg = vepErr.message || '';
+                const missingTxMatch = errMsg.match(/Could not get a Transcript object for\s+['"]?((?:ENST|NM_|NR_|XM_|XR_|NP_|LRG_)\d+)(?:\.(\d+))?['"]?/i);
+                let versionRetrySuccess = false;
+                const changeNotation = parsed.codingChange || parsed.proteinChange;
+                if (missingTxMatch && changeNotation) {
+                  const baseAccession = missingTxMatch[1];
+                  const version = missingTxMatch[2];
+                  if (version) {
+                    try {
+                      setProgress('Retrying with corrected transcript version...');
+                      const serverBase = build === 'GRCh37' ? 'https://grch37.rest.ensembl.org' : 'https://rest.ensembl.org';
+                      const vepUrl = `${serverBase}/vep/homo_sapiens/hgvs/${encodeURIComponent(baseAccession)}:${encodeURIComponent(changeNotation)}?content-type=application/json&hgvs=1&mane=1`;
+                      const vepData = await performFetch(vepUrl);
+                      if (Array.isArray(vepData) && vepData.length > 0) {
+                        const v = vepData[0];
+                        const chrom = v.seq_region_name;
+                        const start = v.start;
+                        const end = v.end;
+                        const alleleString = v.allele_string;
+                        if (chrom && start && alleleString) {
+                          const parts = alleleString.split('/');
+                          if (parts.length >= 2) {
+                            const refAllele = parts[0];
+                            const altAllele = parts[1];
+                            const range = end > start ? `${start}_${end}` : start;
+                            const genomicActiveKey = `chr${chrom}:g.${range}${refAllele}>${altAllele}`;
+                            activeQueryKey = genomicActiveKey;
+                            rawQueryKey = genomicActiveKey;
+                            genomicMatch = genomicActiveKey.match(/^chr(2[0-2]|1[0-9]|[1-9]|X|Y|MT|M):g\.([0-9]+)(?:[_-]([0-9]+))?(?:([ACGTN\-]+)>([ACGTN\-]+)|(delins|del|ins|dup|inv)([ACGTN]*))$/i);
+                            
+                            versionWarning = `Transcript version ${baseAccession}.${version} not found. Auto-resolved to latest sequence.`;
+                            versionRetrySuccess = true;
+                          }
+                        }
+                      }
+                    } catch (retryErr: any) {
+                      console.warn('[VariantHandler] VEP version retry failed:', retryErr);
+                      const retryErrMsg = retryErr.message || '';
+                      const boundsMatch = retryErrMsg.match(/Unable to map the cDNA coordinates\s+([0-9+-\s*]+) to genomic coordinates for Transcript\s+(?:rna-)?([A-Za-z0-9_.-]+)/i);
+                      if (boundsMatch) {
+                        const pos = boundsMatch[1].trim();
+                        const tx = boundsMatch[2].trim();
+                        let clearMsg = `No annotations found. A potential transcript-coordinate mismatch was detected: c.${pos} is out of bounds for ${tx}.`;
+                        
+                        const otherBuild = build === 'GRCh37' ? 'GRCh38' : 'GRCh37';
+                        const otherServerBase = otherBuild === 'GRCh37' ? 'https://grch37.rest.ensembl.org' : 'https://rest.ensembl.org';
+                        const otherVepUrl = `${otherServerBase}/vep/homo_sapiens/hgvs/${encodeURIComponent(baseAccession)}:${encodeURIComponent(changeNotation)}?content-type=application/json&hgvs=1&mane=1`;
+                        let isValidOnOther = false;
+                        try {
+                          const otherVepData = await performFetch(otherVepUrl);
+                          if (Array.isArray(otherVepData) && otherVepData.length > 0) {
+                            isValidOnOther = true;
+                          }
+                        } catch (e) {}
+
+                        if (isValidOnOther) {
+                          clearMsg += ` Switch build to ${otherBuild}?`;
+                        } else {
+                          const alternatives = await fetchAlternativeSuggestions(changeNotation, performFetch);
+                          if (alternatives.length > 0) {
+                            clearMsg += ` Did you mean: ${alternatives.join(' or ')}?`;
+                          }
+                        }
+                        throw new Error(clearMsg);
+                      }
+                    }
+                  }
+                }
+
+                if (!versionRetrySuccess) {
+                  const boundsMatch = errMsg.match(/Unable to map the cDNA coordinates\s+([0-9+-\s*]+) to genomic coordinates for Transcript\s+(?:rna-)?([A-Za-z0-9_.-]+)/i);
+                  if (boundsMatch && changeNotation) {
+                    const pos = boundsMatch[1].trim();
+                    const tx = boundsMatch[2].trim();
+                    let clearMsg = `No annotations found. A potential transcript-coordinate mismatch was detected: c.${pos} is out of bounds for ${tx}.`;
+                    
+                    const otherBuild = build === 'GRCh37' ? 'GRCh38' : 'GRCh37';
+                    const otherServerBase = otherBuild === 'GRCh37' ? 'https://grch37.rest.ensembl.org' : 'https://rest.ensembl.org';
+                    const otherVepUrl = `${otherServerBase}/vep/homo_sapiens/hgvs/${encodeURIComponent(parsed.transcript)}:${encodeURIComponent(changeNotation)}?content-type=application/json&hgvs=1&mane=1`;
+                    let isValidOnOther = false;
+                    try {
+                      const otherVepData = await performFetch(otherVepUrl);
+                      if (Array.isArray(otherVepData) && otherVepData.length > 0) {
+                        isValidOnOther = true;
+                      }
+                    } catch (e) {}
+
+                    if (isValidOnOther) {
+                      clearMsg += ` Switch build to ${otherBuild}?`;
+                    } else {
+                      const alternatives = await fetchAlternativeSuggestions(changeNotation, performFetch);
+                      if (alternatives.length > 0) {
+                        clearMsg += ` Did you mean: ${alternatives.join(' or ')}?`;
+                      }
+                    }
+                    throw new Error(clearMsg);
+                  } else {
+                    throw vepErr;
+                  }
+                }
               }
             }
 
-            // Preserve the original GRCh38 match before any liftover mutation so
-            // the VEP query always uses the correct build coordinates.
             const originalGenomicMatch = genomicMatch;
 
             // 1. Resolve UCSC sequence for structural variants lacking alleles
@@ -942,7 +325,6 @@ export function useVariantEnrichment(
                   resolvedHgvsg = ucscRes.resolvedHgvsg;
                   activeQueryKey = resolvedHgvsg;
                   rawQueryKey = resolvedHgvsg;
-                  // Re-evaluate genomicMatch for the resolved coordinates
                   genomicMatch = resolvedHgvsg.match(/^chr(2[0-2]|1[0-9]|[1-9]|X|Y|MT|M):g\.([0-9]+)(?:_([0-9]+))?(?:([ACGTN\-]+)>([ACGTN\-]+)|(delins|del|ins|dup|inv)([ACGTN]*))$/i);
                 }
               }
@@ -968,7 +350,6 @@ export function useVariantEnrichment(
               }
             }
 
-            // Ensure activeQueryKey uses the raw (no-suffix) key for actual API calls
             if (!resolvedHgvsg && queryKey !== rawQueryKey) {
               activeQueryKey = rawQueryKey;
             }
@@ -984,8 +365,7 @@ export function useVariantEnrichment(
               
               try {
                 const mapUrl = `https://rest.ensembl.org/map/human/GRCh38/${chrom}:${pos}..${endPos}/GRCh37?content-type=application/json`;
-                let mapData: any;
-                mapData = await performFetch(mapUrl);
+                const mapData = await performFetch(mapUrl);
                 
                 if (mapData && Array.isArray(mapData.mappings) && mapData.mappings.length > 0) {
                   const mappedStart = mapData.mappings[0].mapped?.start;
@@ -1001,7 +381,6 @@ export function useVariantEnrichment(
                       activeQueryKey = `chr${chrom}:g.${mappedStart}`;
                     }
                     
-                    // Check mapped cache
                     if (!forceFresh) {
                       const cachedMapped = memoryCache.get(activeQueryKey);
                       if (cachedMapped) {
@@ -1011,7 +390,6 @@ export function useVariantEnrichment(
                         if (age < CACHE_TTL_MS && !(isGenomic && isEmpty)) {
                           return cachedMapped;
                         }
-                        // Expired or empty genomic — remove and re-fetch
                         memoryCache.delete(activeQueryKey);
                         savePersistentCache(memoryCache);
                       }
@@ -1027,12 +405,17 @@ export function useVariantEnrichment(
               }
             }
 
-            // First try direct lookup by ID (extremely robust for GRCh37 or successfully mapped GRCh38)
+            setProgress('Querying MyVariant.info annotations...');
             const url = `${API_BASE}/${encodeURIComponent(activeQueryKey)}?fields=${FIELDS}`;
             let data: any;
-            data = await performFetch(url);
+            try {
+              data = await performFetch(url);
+            } catch (mvErr: any) {
+              if (mvErr.is429) throw mvErr;
+              console.warn('[VariantHandler] MyVariant direct ID lookup failed:', mvErr);
+              data = { notfound: true };
+            }
 
-            // If direct ID lookup returned notfound or error, fall back to genomic search query (if it was a genomic match)
             if ((!data || data.notfound || data.error) && genomicMatch) {
               const chrom = genomicMatch[1];
               const pos = genomicMatch[2];
@@ -1075,31 +458,27 @@ export function useVariantEnrichment(
             }
             if (refMismatch) {
               enrichmentData.refMismatch = refMismatch;
+            } else if (versionWarning) {
+              enrichmentData.refMismatch = versionWarning;
             }
 
-            // R2: ClinVar E-utilities direct layer. Runs when MyVariant did not
-            // supply ClinVar significance/review, the rsID, or build-correct
-            // coordinates. Provides CURRENT ClinVar data (no MyVariant lag) and
-            // coordinates for BOTH builds (ClinVar variation_loc carries both).
-            // Does NOT supply alleles (ClinVar variation_loc ref/alt are empty) —
-            // Ensembl VEP hgvsg remains the allele resolver below.
-            // ClinVar E-utilities direct layer: always query to get the live Clinical Significance and Review Status
             const hgvsForClinVar =
               enrichmentData.transcript && enrichmentData.codingChange
                 ? `${enrichmentData.transcript}:${enrichmentData.codingChange}`
                 : (parsed.transcript && parsed.codingChange
                     ? `${parsed.transcript}:${parsed.codingChange}`
-                    : '');
+                    : (parsed.transcript && parsed.proteinChange
+                        ? `${parsed.transcript}:${parsed.proteinChange}`
+                        : ''));
             if (hgvsForClinVar) {
               try {
+                setProgress('Resolving ClinVar significance...');
                 const clinvarDirect = await resolveClinVarDirect(hgvsForClinVar, (build as GenomeBuild) || 'GRCh38');
                 if (clinvarDirect.clinvarSignificance) enrichmentData.clinvarSignificance = clinvarDirect.clinvarSignificance;
                 if (clinvarDirect.clinvarReview) enrichmentData.clinvarReview = clinvarDirect.clinvarReview;
                 if (clinvarDirect.rcvAccession) enrichmentData.rcvAccession = clinvarDirect.rcvAccession;
                 if (clinvarDirect.rsId) enrichmentData.rsId = clinvarDirect.rsId;
-                // Coordinates: ClinVar direct gives build-correct coords. Only
-                // override when MyVariant didn't resolve a position for this build
-                // (avoids clobbering a VEP/MyVariant hgvsg that carries alleles).
+
                 if (clinvarDirect.chromosome && clinvarDirect.position && !enrichmentData.hgvsg) {
                   enrichmentData.hgvsg = `chr${clinvarDirect.chromosome}:g.${clinvarDirect.position}`;
                 }
@@ -1108,12 +487,12 @@ export function useVariantEnrichment(
                   else if (enrichmentData.source === 'myvariant') enrichmentData.source = 'both';
                 }
 
-                // If rsId is resolved, fetch ALFA frequency from NCBI
                 const altAllele = enrichmentData.hgvsg
                   ? enrichmentData.hgvsg.split('>')[1] || parsed.alt
                   : parsed.alt;
                 if (enrichmentData.rsId && altAllele) {
                   try {
+                    setProgress('Fetching ALFA population frequencies...');
                     const alfaRes = await resolveNcbiAlfa(enrichmentData.rsId, altAllele, performFetch);
                     if (alfaRes.alfaAf !== undefined) {
                       enrichmentData.alfaAf = alfaRes.alfaAf;
@@ -1129,10 +508,8 @@ export function useVariantEnrichment(
               }
             }
 
-            // Query Ensembl VEP to resolve/verify the canonical transcript annotations.
-            // IMPORTANT: always use the original build coordinates (pre-liftover) so the
-            // correct assembly REST endpoint receives matching positions.
             if (originalGenomicMatch) {
+              setProgress('Fetching VEP transcript consequences...');
               const chrom = originalGenomicMatch[1];
               const pos = originalGenomicMatch[2];
               const endPos = originalGenomicMatch[3] || pos;
@@ -1165,7 +542,6 @@ export function useVariantEnrichment(
               try {
                 const vepData = await performFetch(vepUrl);
                 if (Array.isArray(vepData) && vepData.length > 0) {
-                  // Extract resolved normalized genomic HGVSg coordinates from VEP if present
                   const v = vepData[0];
                   const rawHgvsg = v.hgvsg || (Array.isArray(v.colocated_variants) ? v.colocated_variants.find((cv: any) => cv.id?.startsWith('chr'))?.id : undefined);
                   if (rawHgvsg && !enrichmentData.hgvsg) {
@@ -1241,8 +617,6 @@ export function useVariantEnrichment(
                       const parts = bestCons.hgvsp.split(':');
                       enrichmentData.proteinChange = parts.length > 1 ? parts[1] : parts[0];
                     } else {
-                      // If the canonical transcript has no protein change, clear alternative protein changes
-                      // and missense-specific predictors. Store a note explaining the discrepancy.
                       if (enrichmentData.proteinChange) {
                         enrichmentData.proteinNote = `${enrichmentData.proteinChange} in alternative transcript`;
                       }
@@ -1252,7 +626,6 @@ export function useVariantEnrichment(
                       enrichmentData.revelScore = undefined;
                     }
                     
-                    // If we succeeded in resolving any new fields, update source
                     if (enrichmentData.geneSymbol || enrichmentData.codingChange) {
                       if (enrichmentData.source === 'none') {
                         enrichmentData.source = 'ensembl';
@@ -1268,7 +641,6 @@ export function useVariantEnrichment(
               }
             }
 
-            // Query gnomAD v4 from UCSC Genome Browser track API (always uses GRCh38)
             let hgvsForGnomad = '';
             if (build === 'GRCh38' && originalGenomicMatch) {
               const chrom = originalGenomicMatch[1];
@@ -1312,7 +684,6 @@ export function useVariantEnrichment(
               }
             }
 
-            // Store in both cache layers
             memoryCache.set(queryKey, enrichmentData);
             if (activeQueryKey !== queryKey) {
               memoryCache.set(activeQueryKey, enrichmentData);
@@ -1327,9 +698,6 @@ export function useVariantEnrichment(
               console.warn(`[VariantHandler] Rate limit 429 reset in ${retrySec}s. Attempt ${attempts}/3.`);
               continue;
             }
-            // N3/N4: an AbortError from the per-queryKey controller means the
-            // fetch was superseded (variant changed) or force-refreshed. Propagate
-            // it so the outer handler can swallow it; do not retry.
             throw err;
           }
         }
@@ -1345,32 +713,29 @@ export function useVariantEnrichment(
         setEnrichment(data);
       }
     } catch (err: unknown) {
-      if (err instanceof Error && err.name === 'AbortError') return; // Cancelled — ignore
+      if (err instanceof Error && err.name === 'AbortError') return;
       const msg = err instanceof Error ? err.message : String(err);
       console.warn('[VariantHandler] Enrichment fetch failed:', msg);
       if (currentQueryKeyRef.current === queryKey) {
         setError(msg);
       }
     } finally {
-      // Only clear the in-flight slot if it still refers to our entry (a
-      // force-refresh may have replaced it with a new controller).
       if (inFlightRequests.get(queryKey) === entry) {
         inFlightRequests.delete(queryKey);
       }
       if (currentQueryKeyRef.current === queryKey) {
         setIsLoading(false);
+        setProgress(null);
       }
     }
   }, []);
 
   useEffect(() => {
-    // Clear results when disabled or variant is invalid
     if (!enabled || !parsed.isValid) {
       setEnrichment(null);
       setIsLoading(false);
+      setProgress(null);
       setError(null);
-      // N3: abort the in-flight controller for any pending queryKey and clear
-      // the dedup map so a stale promise can't be reused after re-enabling.
       if (abortRef.current) abortRef.current.abort();
       for (const { abortController } of inFlightRequests.values()) {
         abortController.abort();
@@ -1387,17 +752,16 @@ export function useVariantEnrichment(
     }
 
     if (currentQueryKeyRef.current === queryKey) {
-      // Already running or fetched via instant lookup
       return;
     }
 
     currentQueryKeyRef.current = queryKey;
 
-    // Clear previous enrichment results immediately when queryKey changes to avoid UI leakage
     setEnrichment(null);
     setError(null);
+    setIsLoading(true);
+    setProgress('Initializing lookup...');
 
-    // Debounce: wait for the user to finish typing
     if (debounceTimer.current) clearTimeout(debounceTimer.current);
     debounceTimer.current = setTimeout(() => {
       fetchEnrichment(queryKey, build, false, parsed);
@@ -1407,11 +771,9 @@ export function useVariantEnrichment(
       if (debounceTimer.current) clearTimeout(debounceTimer.current);
     };
   }, [parsed.chromosome, parsed.position, parsed.ref, parsed.alt,
-      parsed.transcript, parsed.codingChange, parsed.isValid,
+      parsed.transcript, parsed.codingChange, parsed.proteinChange, parsed.isValid,
       build, enabled, fetchEnrichment]);
 
-  // Cleanup on unmount: abort every in-flight per-queryKey controller (N3/N4)
-  // so background fetches stop when the panel closes, and clear the dedup map.
   useEffect(() => {
     return () => {
       if (abortRef.current) abortRef.current.abort();
@@ -1424,18 +786,15 @@ export function useVariantEnrichment(
   }, []);
 
   const lookupInstantly = useCallback((targetParsed: ParsedVariant, targetBuild: GenomeBuild) => {
-    // 1. Abort any currently in-flight requests
     for (const { abortController } of inFlightRequests.values()) {
       abortController.abort();
     }
     inFlightRequests.clear();
 
-    // 2. Clear any pending debounce timer
     if (debounceTimer.current) {
       clearTimeout(debounceTimer.current);
     }
 
-    // 3. Derive queryKey
     const queryKey = deriveQueryKey(targetParsed, targetBuild);
     if (!queryKey) {
       setEnrichment(null);
@@ -1446,8 +805,9 @@ export function useVariantEnrichment(
     currentQueryKeyRef.current = queryKey;
     setEnrichment(null);
     setError(null);
+    setIsLoading(true);
+    setProgress('Querying coordinates...');
 
-    // 4. Fetch immediately without debounce
     fetchEnrichment(queryKey, targetBuild, false, targetParsed);
   }, [fetchEnrichment]);
 
@@ -1455,8 +815,10 @@ export function useVariantEnrichment(
     const queryKey = deriveQueryKey(parsed, build);
     if (!queryKey) return;
     currentQueryKeyRef.current = queryKey;
+    setIsLoading(true);
+    setProgress('Refreshing annotations...');
     fetchEnrichment(queryKey, build, true, parsed);
   }, [parsed, build, fetchEnrichment]);
 
-  return { enrichment, isLoading, error, refetch, lookupInstantly };
+  return { enrichment, isLoading, progress, error, refetch, lookupInstantly };
 }
