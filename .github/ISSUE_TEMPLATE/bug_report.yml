@@ -1,0 +1,60 @@
+name: "🐛 Bug Report"
+description: File a bug report or parsing error for Variant Handler
+title: "[Bug]: "
+labels: ["bug", "needs triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you for reporting an issue! Please check existing issues before submitting to avoid duplicates.
+  - type: input
+    id: variant_input
+    attributes:
+      label: Variant Input String
+      description: The exact coordinate or HGVS string that produced unexpected behavior (e.g. `chr7:g.140753336A>T`, `NM_000277.3:c.1222C>T`).
+      placeholder: "e.g., 7-140753336-A-T or NM_000492.4:c.1521_1523delCTT"
+    validations:
+      required: false
+  - type: dropdown
+    id: genome_build
+    attributes:
+      label: Selected Genome Build
+      options:
+        - "GRCh38 / hg38"
+        - "GRCh37 / hg19"
+        - "N/A (Offline/UI only)"
+    validations:
+      required: true
+  - type: textarea
+    id: description
+    attributes:
+      label: Description of the Bug
+      description: A clear and concise description of what happened vs what you expected to happen.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction_steps
+    attributes:
+      label: Steps To Reproduce
+      description: Steps to reproduce the behavior.
+      placeholder: |
+        1. Open side panel
+        2. Paste input '...' into the search box
+        3. Click Launchpad platform 'gnomAD'
+        4. See error or malformed URL
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: Browser & OS Environment
+      description: e.g. Chrome 124 on macOS 14.4 / Windows 11 / Linux
+      placeholder: "Chrome 124 on macOS Sonoma"
+    validations:
+      required: true
+  - type: textarea
+    id: console_logs
+    attributes:
+      label: Console Logs / Diagnostics
+      description: Any errors visible in the Chrome extension developer console or side panel diagnostics.
+      render: shell

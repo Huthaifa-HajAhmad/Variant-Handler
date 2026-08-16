@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: 💬 GitHub Discussions
+    url: https://github.com/Huthaifa-HajAhmad/Variant-Handler/discussions
+    about: Ask questions, share ideas, and discuss clinical workflows with the community.
+  - name: 🔒 Security Vulnerability Reporting
+    url: https://github.com/Huthaifa-HajAhmad/Variant-Handler/security/advisories/new
+    about: Please report security vulnerabilities privately via GitHub Security Advisories or email.

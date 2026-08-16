@@ -1,0 +1,35 @@
+name: "💡 Feature Request / Platform Adapter"
+description: Suggest an idea, genomic notation parser enhancement, or new database platform adapter
+title: "[Feature]: "
+labels: ["enhancement", "needs triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you for suggesting a feature for Variant Handler! Please review [LIMITATIONS.md](../../doc/LIMITATIONS.md) and [ROADMAP.md](../../ROADMAP.md) before submitting to check project scope.
+  - type: textarea
+    id: problem_statement
+    attributes:
+      label: Is your feature request related to a specific workflow problem?
+      description: A clear and concise description of what clinical or research workflow problem this solves.
+    validations:
+      required: true
+  - type: textarea
+    id: proposed_solution
+    attributes:
+      label: Proposed Solution / Feature Behavior
+      description: Describe the solution you'd like to see. If proposing a new portal adapter, include the target URL format and expected query structure.
+    validations:
+      required: true
+  - type: textarea
+    id: clinical_context
+    attributes:
+      label: Clinical / Genomic Context
+      description: What variant classes (SNVs, indels, transcripts) or databases are involved?
+    validations:
+      required: false
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives Considered
+      description: Any alternative solutions or workarounds you've considered.

@@ -6,12 +6,18 @@
 
 **A stateful Chrome sidebar extension for clinical genomic coordinate parsing, and cross-portal navigation.**
 
+[![CI](https://github.com/Huthaifa-HajAhmad/Variant-Handler/actions/workflows/ci.yml/badge.svg)](https://github.com/Huthaifa-HajAhmad/Variant-Handler/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.8-3178c6?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
 [![React](https://img.shields.io/badge/React-19-61dafb?logo=react&logoColor=black)](https://react.dev/)
 [![Manifest V3](https://img.shields.io/badge/Chrome_Extension-MV3-4285F4?logo=googlechrome&logoColor=white)](https://developer.chrome.com/docs/extensions/mv3/intro/)
 [![Tests](https://img.shields.io/badge/Tests-140%20passing-10b981)](./src/__tests__/parser.test.ts)
 
 </div>
+
+> [!IMPORTANT]
+> **Research & Academic Use Disclaimer:**
+> Variant Handler is developed for research, educational, and workflow efficiency purposes. It is **not certified as a clinical diagnostic device** and must **not be used as the sole basis for clinical diagnosis or treatment decisions**. All coordinates, transcript alignments, and annotations should be independently validated against authoritative primary databases (e.g., NCBI ClinVar, Ensembl VEP, gnomAD). For full technical caveats, see [`doc/LIMITATIONS.md`](./doc/LIMITATIONS.md).
 
 ---
 
@@ -354,12 +360,18 @@ This project was developed with AI assistance and validated against a comprehens
 
 ---
 
-## Contributing
+## Contributing & Governance
 
-Contributions are welcome! Please read [`CONTRIBUTING.md`](./CONTRIBUTING.md) to get started with setting up the project locally, running tests, and submitting changes.
+We welcome community contributions! Please review our project documentation to get started:
+- 📖 [Contributing Guide](./CONTRIBUTING.md) — Local setup, testing instructions, and pull request guidelines.
+- 🤝 [Code of Conduct](./CODE_OF_CONDUCT.md) — Community standards and enforcement guidelines.
+- 🔒 [Security Policy](./.github/SECURITY.md) — Responsible vulnerability disclosure procedures.
+- 🗺️ [Project Roadmap](./ROADMAP.md) — Near-term feature plans and out-of-scope boundaries.
+- 📋 [Technical Scope & Limitations](./doc/LIMITATIONS.md) — Detailed engineering constraints and genomic specifications.
 
 ---
 
 ## License
 
-This project is licensed under the MIT License - see the [`LICENSE`](./LICENSE) file for details.
+This project is licensed under the **MIT License** — see the [`LICENSE`](./LICENSE) file for details.
+

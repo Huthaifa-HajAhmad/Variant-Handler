@@ -1,0 +1,356 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Variant Handler — GitHub Showcase (Light)</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700;800&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap');
+
+:root{
+  --bg:#F5F3EE;
+  --panel:#FFFFFF;
+  --rule:#E2E0D6;
+  --ink:#14161B;
+  --muted:#6B7078;
+  --muted-2:#9A9E9E;
+
+  --purple:#6E62D9;
+  --teal:#159A79;
+  --pink:#C93D80;
+  --amber:#B9861C;
+  --clay:#A6602F;
+  --red:#C63C43;
+}
+
+*{box-sizing:border-box; margin:0; padding:0;}
+
+
+      body { 
+        background: transparent; 
+        margin: 0; 
+        padding: 20px; 
+        display: inline-flex; 
+        align-items: center; 
+        justify-content: center; 
+      }
+      .banner { 
+        width: 1200px; 
+        border-radius: 14px; 
+        border: 1px solid #DCD8CD; 
+        box-shadow: 0 10px 30px rgba(20, 22, 27, 0.07); 
+        overflow: hidden; 
+      }
+      .grid { 
+        display: grid; 
+        grid-template-columns: 630px 440px; 
+        gap: 36px; 
+        padding: 40px 42px 34px 42px; 
+        align-items: start; 
+      }
+      .window { 
+        width: 440px; 
+      }
+      .mockup-wrap { 
+        padding-top: 0; 
+        justify-content: flex-end; 
+      }
+    
+
+.banner{
+  width:1200px;
+  background:var(--bg);
+  color:var(--ink);
+  font-family:'IBM Plex Sans', sans-serif;
+  position:relative;
+  overflow:hidden;
+  border-radius:4px;
+  background-image:
+    radial-gradient(ellipse 900px 500px at 78% 6%, rgba(110,98,217,0.06), transparent 60%),
+    radial-gradient(ellipse 700px 500px at 12% 96%, rgba(21,154,121,0.05), transparent 60%);
+}
+
+.ideogram{ height:6px; width:100%; display:flex; }
+.ideogram span{ height:100%; display:block; }
+
+.grid{ display:grid; grid-template-columns:630px 440px; gap:48px; padding:52px 56px 40px 56px; }
+
+.eyebrow{
+  font-family:'JetBrains Mono', monospace; font-size:12.5px; font-weight:600; letter-spacing:0.13em;
+  color:var(--purple); display:flex; align-items:center; gap:9px; margin-bottom:26px;
+}
+.eyebrow::before{ content:""; width:7px; height:7px; border-radius:2px; background:var(--purple); display:inline-block; }
+
+.field-label{
+  font-family:'JetBrains Mono', monospace; font-size:11.5px; font-weight:700; letter-spacing:0.12em;
+  color:var(--pink); margin-bottom:9px;
+}
+h1{
+  font-family:'JetBrains Mono', monospace; font-size:58px; font-weight:700; line-height:0.98;
+  letter-spacing:-0.02em; color:var(--ink); margin-bottom:18px;
+}
+h1 .dim{ color:var(--muted-2); font-weight:500; }
+
+.subhead{ font-size:18.5px; font-weight:500; color:#33363D; line-height:1.4; margin-bottom:12px; max-width:560px; }
+.body-copy{ font-size:13.5px; color:var(--muted); line-height:1.6; max-width:560px; margin-bottom:26px; }
+.body-copy b{ color:#3D4048; font-weight:600; }
+
+.field-grid{ display:grid; grid-template-columns:1fr 1fr; gap:11px; margin-bottom:28px; }
+.field-card{ background:var(--panel); border:1px solid var(--rule); border-radius:10px; padding:13px 15px; box-shadow:0 1px 2px rgba(20,22,27,0.03); }
+.field-card-top{ display:flex; align-items:center; justify-content:space-between; margin-bottom:7px; }
+.field-tag{ font-family:'JetBrains Mono', monospace; font-size:10px; font-weight:700; letter-spacing:0.1em; }
+.field-badge{ font-family:'JetBrains Mono', monospace; font-size:9.5px; font-weight:600; padding:2px 6px; border-radius:5px; }
+.field-title{ font-size:14px; font-weight:600; color:var(--ink); margin-bottom:4px; }
+.field-desc{ font-size:11.5px; color:var(--muted); line-height:1.45; }
+
+.fc-purple .field-tag{ color:var(--purple); }
+.fc-purple .field-badge{ background:rgba(110,98,217,0.10); color:var(--purple); border:1px solid rgba(110,98,217,0.25); }
+.fc-teal .field-tag{ color:var(--teal); }
+.fc-teal .field-badge{ background:rgba(21,154,121,0.10); color:var(--teal); border:1px solid rgba(21,154,121,0.25); }
+.fc-amber .field-tag{ color:var(--amber); }
+.fc-amber .field-badge{ background:rgba(185,134,28,0.10); color:var(--amber); border:1px solid rgba(185,134,28,0.25); }
+.fc-clay .field-tag{ color:var(--clay); }
+.fc-clay .field-badge{ background:rgba(166,96,47,0.10); color:var(--clay); border:1px solid rgba(166,96,47,0.25); }
+
+.footer-meta{ border-top:1px solid var(--rule); padding-top:16px; display:flex; flex-direction:column; gap:7px; }
+.meta-line{ font-family:'JetBrains Mono', monospace; font-size:11.5px; color:var(--muted-2); letter-spacing:0.02em; }
+.meta-line span{ color:var(--muted); }
+.repo-line{ font-family:'JetBrains Mono', monospace; font-size:13px; font-weight:600; color:var(--purple); }
+
+.mockup-wrap{ position:relative; display:flex; align-items:flex-start; justify-content:center; padding-top:4px; }
+.window{
+  width:430px; background:#FFFFFF; border-radius:13px; overflow:hidden;
+  border:1px solid var(--rule);
+  box-shadow:0 28px 56px -20px rgba(20,22,27,0.18);
+  font-family:'IBM Plex Sans', sans-serif;
+}
+.window-bar{ background:#F1EFE8; padding:10px 14px; display:flex; align-items:center; gap:10px; border-bottom:1px solid var(--rule); }
+.window-bar .url{
+  font-family:'JetBrains Mono', monospace; font-size:10.5px; color:#6B7078; background:#FFFFFF;
+  border:1px solid var(--rule); padding:5px 11px; border-radius:6px; flex:1; letter-spacing:0.01em;
+}
+.window-bar .url b{ color:#33363D; font-weight:500; }
+
+.panel{ padding:15px 15px 11px 15px; color:#1B1D22; }
+
+.p-header{ display:flex; align-items:center; gap:10px; margin-bottom:14px; }
+.p-logo{
+  width:30px; height:30px; border-radius:7px; background:linear-gradient(135deg,#8B7FF5,#6E62D9);
+  color:#fff; font-family:'JetBrains Mono', monospace; font-weight:700; font-size:11.5px;
+  display:flex; align-items:center; justify-content:center;
+}
+.p-title{ font-size:13px; font-weight:700; color:#14161B; }
+.p-sub{ font-size:9.5px; color:#8B909A; margin-top:1px; }
+.p-tags{ margin-left:auto; }
+.p-tag{
+  font-family:'JetBrains Mono', monospace; font-size:9px; font-weight:600;
+  padding:3px 7px; border-radius:10px; background:#F1EFE8; color:#6E7280;
+}
+
+.p-section-label{
+  font-family:'JetBrains Mono', monospace; font-size:9.5px; font-weight:700; letter-spacing:0.08em;
+  color:#6E62D9; display:flex; align-items:center; justify-content:space-between; margin-bottom:7px;
+}
+.p-assembly{ display:flex; gap:5px; }
+.p-assembly span{
+  font-family:'JetBrains Mono', monospace; font-size:8.5px; font-weight:600;
+  padding:3px 7px; border-radius:6px; background:#F1EFE8; color:#9498A1;
+}
+.p-assembly span.active{ background:#1B1D22; color:#fff; }
+
+.p-search{
+  background:#FAFAF7; border:1px solid #E4E2DA; border-radius:9px; padding:9px 11px;
+  font-family:'JetBrains Mono', monospace; font-size:11px; color:#2A2D34; margin-bottom:12px;
+  display:flex; align-items:center; justify-content:space-between;
+}
+.p-search .paste{ font-family:'IBM Plex Sans',sans-serif; font-size:10px; color:#8B909A; font-weight:600; }
+
+.p-card{ background:#FFFFFF; border:1px solid #E4E2DA; border-radius:11px; padding:12px; margin-bottom:9px; }
+.p-card-head{ display:flex; align-items:center; justify-content:space-between; margin-bottom:9px; }
+.p-card-head .lbl{ font-family:'JetBrains Mono', monospace; font-size:9.5px; font-weight:700; letter-spacing:0.07em; color:#6E62D9; }
+.p-card-head .chip{ font-family:'JetBrains Mono', monospace; font-size:8.5px; font-weight:600; color:#8B909A; background:#F3F2ED; padding:2px 7px; border-radius:9px; }
+
+.p-hgvs{
+  font-family:'JetBrains Mono', monospace; font-size:11px; color:#2A2D34; background:#FAFAF7;
+  border-radius:7px; padding:8px 9px; text-align:center; margin-bottom:9px;
+}
+.p-hgvs b{ color:#6E62D9; }
+
+.p-grid2{ display:grid; grid-template-columns:1fr 1fr; gap:7px; }
+.p-field{ background:#FAFAF7; border-radius:8px; padding:8px 9px; }
+.p-field .flbl{
+  font-family:'JetBrains Mono', monospace; font-size:8px; font-weight:700; letter-spacing:0.05em;
+  display:flex; align-items:center; justify-content:space-between; margin-bottom:3px;
+}
+.p-field .fval{ font-family:'JetBrains Mono', monospace; font-size:11px; font-weight:600; color:#1B1D22; }
+.p-field .fsub{ font-family:'JetBrains Mono', monospace; font-size:8px; color:#A2A6AE; margin-top:2px; }
+.p-live{ font-size:7px; font-weight:700; color:#159A79; background:#E4F6F1; padding:1px 4px; border-radius:5px; }
+
+.c-purple{ color:#6E62D9; } .c-teal{ color:#159A79; } .c-pink{ color:#D63E85; }
+.c-clay{ color:#B36A38; } .c-red{ color:#C63C43; }
+
+.p-badge-amber{ font-size:9.5px; font-weight:700; color:#8A6512; background:#FBEACB; padding:3px 8px; border-radius:6px; display:inline-block; }
+
+.p-automation{ border-top:1px solid #ECEAE3; margin-top:1px; padding-top:11px; }
+.p-automation .note{ font-size:9.5px; color:#8B909A; margin-bottom:8px; line-height:1.45; }
+.p-buttons{ display:flex; gap:6px; }
+.p-btn{ flex:1; text-align:center; font-size:9.5px; font-weight:600; padding:7px 5px; border-radius:8px; background:#F3F2ED; color:#4A4D55; border:1px solid #E4E2DA; }
+.p-btn.primary{ background:#EFEBFF; color:#6E62D9; border-color:#D9D2FA; }
+
+.p-nav{ display:flex; justify-content:space-around; border-top:1px solid #ECEAE3; padding:9px 0 3px 0; margin-top:12px; }
+.p-nav div{ font-size:8px; text-align:center; color:#A2A6AE; font-weight:600; }
+.p-nav div.active{ color:#6E62D9; }
+</style>
+</head>
+<body>
+
+<div class="banner">
+
+  <div class="ideogram" id="ideogram"></div>
+
+  <div class="grid">
+
+    <div class="hero">
+      <div class="eyebrow">CHROME &amp; EDGE SIDEPANEL — RARE DISEASE CURATION</div>
+
+      <div class="field-label">PROTEIN ALTERATION</div>
+      <h1>Variant<br>Handler<span class="dim">.</span></h1>
+
+      <p class="subhead">Enter any variant format — get curated, organized coordinates, ready for any database.</p>
+
+      <p class="body-copy">
+        Resolves live across <b>ClinVar</b>, <b>Ensembl VEP</b>, <b>gnomAD v4</b>, <b>UCSC</b>,
+        and other clinical databases — then writes it straight back into the portal you're already working in.
+      </p>
+
+      <div class="field-grid">
+        <div class="field-card fc-purple">
+          <div class="field-card-top"><span class="field-tag">PARSING</span><span class="field-badge">6 formats</span></div>
+          <div class="field-title">Multi-format HGVS &amp; VCF</div>
+          <div class="field-desc">HGVSg/c/p, VCF dash &amp; colon, hybrid notation — resolved instantly.</div>
+        </div>
+        <div class="field-card fc-teal">
+          <div class="field-card-top"><span class="field-tag">LIFTOVER</span><span class="field-badge">Live</span></div>
+          <div class="field-title">ClinVar &amp; VEP liftover</div>
+          <div class="field-desc">Genomic backfill with patch-assembly matching, GRCh38.p14.</div>
+        </div>
+        <div class="field-card fc-amber">
+          <div class="field-card-top"><span class="field-tag">AUTOMATION</span><span class="field-badge">1-click</span></div>
+          <div class="field-title">In-page tab injection</div>
+          <div class="field-desc">Autofill coordinates and highlight matching rows in the active portal.</div>
+        </div>
+        <div class="field-card fc-clay">
+          <div class="field-card-top"><span class="field-tag">EXPORT</span><span class="field-badge">3 formats</span></div>
+          <div class="field-title">Standardized export suite</div>
+          <div class="field-desc">Formatted TSV, styled Excel workbooks, and MDT-ready slide decks.</div>
+        </div>
+      </div>
+
+      <div class="footer-meta">
+        <div class="meta-line"><span>Manifest V3</span> · <span>TypeScript &amp; React 19</span> · <span>Local-first, no server</span> · <span>MIT License</span></div>
+        <div class="repo-line">github.com/Huthaifa-HajAhmad/Variant-Handler</div>
+      </div>
+    </div>
+
+    <div class="mockup-wrap">
+      <div class="window">
+        <div class="window-bar">
+          <div class="url">Chrome &amp; Edge Side Panel  //  <b>Variant Handler</b></div>
+        </div>
+
+        <div class="panel">
+          <div class="p-header">
+            <div class="p-logo">VH</div>
+            <div>
+              <div class="p-title">Variant Handler</div>
+              <div class="p-sub">Clinical genomic companion</div>
+            </div>
+            <div class="p-tags"><div class="p-tag">What's new</div></div>
+          </div>
+
+          <div class="p-section-label">
+            GENOMIC COORDINATES
+            <div class="p-assembly"><span>GRCh38</span><span class="active">GRCh37</span></div>
+          </div>
+          <div class="p-search">
+            <span>NM_007294.4:Thr1675del</span>
+            <span class="paste">⌘ Paste</span>
+          </div>
+
+          <div class="p-card">
+            <div class="p-card-head"><span class="lbl">PARSED COORDINATES</span><span class="chip">ClinVar direct</span></div>
+            <div class="p-hgvs"><b>NM_007294.4</b>:Thr1675del</div>
+
+            <div class="p-grid2" style="margin-bottom:7px;">
+              <div class="p-field">
+                <div class="flbl c-purple">GENOMIC COORDINATE <span class="p-live">Live</span></div>
+                <div class="fval">chr17:41219674</div>
+              </div>
+              <div class="p-field">
+                <div class="flbl c-teal">CODING SEQUENCE <span class="p-live">Live</span></div>
+                <div class="fval">c.4135_4137del</div>
+                <div class="fsub">ENST00000309486.4</div>
+              </div>
+            </div>
+
+            <div class="p-field" style="margin-bottom:7px;">
+              <div class="flbl c-pink">PROTEIN ALTERATION</div>
+              <div class="fval">p.Thr1379del</div>
+            </div>
+
+            <div class="p-grid2">
+              <div class="p-field">
+                <div class="flbl c-teal">GENE SYMBOL <span class="p-live">Live</span></div>
+                <div class="fval">BRCA1</div>
+              </div>
+              <div class="p-field">
+                <div class="flbl c-purple">DBSNP ID</div>
+                <div class="fval">—</div>
+              </div>
+              <div class="p-field">
+                <div class="flbl c-clay">GNOMAD (AC/AN)</div>
+                <div class="fsub" style="margin-top:0;">Not found in gnomAD</div>
+              </div>
+              <div class="p-field">
+                <div class="flbl c-red">CLINVAR STATUS</div>
+                <span class="p-badge-amber">Uncertain Significance</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="p-automation">
+            <div style="font-family:'JetBrains Mono',monospace;font-size:9.5px;font-weight:700;letter-spacing:0.07em;color:#6E62D9;margin-bottom:7px;">ACTIVE TAB AUTOMATION</div>
+            <div class="note">Inject coordinates or query terms directly into the active browser portal.</div>
+            <div class="p-buttons">
+              <div class="p-btn primary">Autofill Variant</div>
+              <div class="p-btn">Autofill Gene</div>
+              <div class="p-btn">Highlight</div>
+            </div>
+          </div>
+
+          <div class="p-nav">
+            <div class="active">Workbench</div>
+            <div>Launchpad</div>
+            <div>Worklist</div>
+            <div>Export</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<script>
+const bands = [2.4,1.1,3.6,0.8,2.0,4.2,1.4,2.8,0.9,3.1,1.7,2.3,5.0,1.0,2.6,1.9,3.4,0.7,2.1,4.6,1.3,2.9,1.6,3.8,1.1,2.4,0.9,3.0,1.8,2.5];
+const colors = ['#E9E7DE','#DFDDD2','#F0EEE6','#E4E2D8'];
+let html = '';
+bands.forEach((w,i)=>{
+  const isLocus = i===13;
+  const bg = isLocus ? 'linear-gradient(90deg,#8B7FF5,#6E62D9)' : colors[i % colors.length];
+  html += `<span style="width:${w}%; background:${bg};"></span>`;
+});
+document.getElementById('ideogram').innerHTML = html;
+</script>
+
+</body>
+</html>

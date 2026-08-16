@@ -83,9 +83,43 @@ Before submitting a Pull Request, please ensure:
 
 ---
 
-## Submission Process
+## Submission Process & Pull Requests
 
-1. Create a descriptive feature branch from the `main` branch.
-2. Commit your changes with clear, descriptive commit messages.
-3. Push your branch to your fork and submit a Pull Request.
-4. Ensure all CI status checks (build, test, lint) pass successfully.
+1. **Create a Branch**: Create a descriptive feature branch from `main`:
+   ```bash
+   git checkout -b feat/my-new-platform-adapter
+   ```
+
+2. **Commit Message Format**: Follow the [Conventional Commits](https://www.conventionalcommits.org/) specification:
+   - `feat(parser): add mitochondrial variant support`
+   - `fix(export): sanitize special characters in TSV output`
+   - `docs(readme): update quickstart guide`
+   - `test(enrichment): add edge case tests for indels`
+
+3. **Developer Certificate of Origin (DCO)**:
+   All commits must include a `Signed-off-by` line indicating agreement with the [Developer Certificate of Origin](https://developercertificate.org/):
+   ```bash
+   git commit -s -m "feat(parser): add support for range deletions"
+   ```
+
+4. **Run Verification**:
+   Before pushing, verify that all checks pass locally:
+   ```bash
+   npm run lint
+   npm test
+   npm run build
+   ```
+
+5. **Submit a Pull Request**:
+   - Push your branch to your fork and submit a PR against `main`.
+   - Complete the checklist in the PR template.
+   - Ensure all automated CI checks pass.
+
+---
+
+## Community & Policies
+
+- **Code of Conduct**: All contributors must adhere to our [Code of Conduct](./CODE_OF_CONDUCT.md).
+- **Security**: For security vulnerabilities, follow the private disclosure process in [SECURITY.md](./.github/SECURITY.md).
+- **Project Roadmap**: See [ROADMAP.md](./ROADMAP.md) for current feature plans and out-of-scope boundaries.
+
