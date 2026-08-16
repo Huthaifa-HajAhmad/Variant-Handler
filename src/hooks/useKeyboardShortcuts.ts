@@ -47,7 +47,7 @@ export function useKeyboardShortcuts(handlers: ShortcutHandlers) {
           e.preventDefault();
           handlersRef.current.onToggleSettings();
           break;
-        case 'v':
+        case 'f':
         case 'n':
           e.preventDefault();
           handlersRef.current.onFocusInput();

@@ -434,7 +434,7 @@ export default function SettingsModal({
               
               <div className="space-y-1.5">
                 {[
-                  { label: 'Focus Variant Search Input', keys: ['Alt', 'V'] },
+                  { label: 'Focus Variant Search Input', keys: ['Alt', 'F'] },
                   { label: 'Switch to Workbench Tab', keys: ['Alt', '1'] },
                   { label: 'Switch to Launchpad Tab', keys: ['Alt', '2'] },
                   { label: 'Switch to Worklist Tab', keys: ['Alt', '3'] },

@@ -268,13 +268,18 @@ Host Page Input Field
 ## Keyboard Shortcuts
 
 All panel shortcuts use `Alt` + key and are disabled when a text field has focus.
-Optionally: you can configure your own combination in panel settings!
+System-wide shortcuts can also be customized directly in Chrome's extension shortcut settings (`chrome://extensions/shortcuts`).
 
-| Shortcut | Action |
-|----------|--------|
-| `Alt + S` | Toggle Settings modal |
-| `Alt + N` | Focus the analysis notes textarea |
-| `Alt + V` | Open the Variant Handler side panel (global Chrome command) |
+| Shortcut | Scope | Action |
+|:---|:---|:---|
+| **`Alt + V`** | Global (any tab) | Open / Toggle the Variant Handler Side Panel |
+| **`Alt + F`** | Sidepanel | Focus Variant Search Input |
+| **`Alt + 1`** | Sidepanel | Jump to **Workbench** tab |
+| **`Alt + 2`** | Sidepanel | Jump to **Launchpad** tab |
+| **`Alt + 3`** | Sidepanel | Jump to **Worklist** tab |
+| **`Alt + 4`** | Sidepanel | Jump to **Export** tab |
+| **`Alt + S`** | Sidepanel | Toggle Settings modal |
+| **`Esc`** | Sidepanel | Close open modals and dialogs |
 
 ---
 
