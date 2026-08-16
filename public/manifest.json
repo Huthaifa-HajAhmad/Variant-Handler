@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Variant Handler",
-  "version": "1.4.0",
+  "version": "1.5.0",
   "description": "Stateful sidebar companion for rare disease genomic coordinate parsing and navigation.",
   "permissions": [
     "sidePanel",
