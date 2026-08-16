@@ -49,25 +49,38 @@ export default function CoordinateBreakdownCard({
   proteinValue,
   isSplicingOrIntronic,
 }: CoordinateBreakdownCardProps) {
-  const rowValCls   = `font-mono text-xs break-all select-text font-semibold ${isLight ? 'text-slate-900' : 'text-white'}`;
-  const rowLabelCls = `text-xs font-medium ${isLight ? 'text-slate-500' : 'text-slate-400'}`;
+  const cellBaseCls = `p-2.5 rounded-xl border transition-all flex flex-col justify-between ${
+    isLight
+      ? 'bg-slate-50/80 border-slate-200 hover:border-slate-300 hover:bg-white'
+      : 'bg-slate-900/50 border-slate-800 hover:border-slate-700'
+  }`;
+
+  const rowValCls = `font-mono text-xs break-all select-text font-semibold ${isLight ? 'text-slate-900' : 'text-slate-100'}`;
 
   return (
-    <>
-      {/* Smart coordinate highlight */}
-      <div className={`rounded-lg border px-2 py-1.5 mb-4 flex items-center justify-center min-h-[32px] break-all ${isLight ? 'bg-slate-50 border-slate-200/60' : 'bg-slate-900/40 border-slate-800'}`}>
+    <div className="space-y-2">
+      {/* Smart coordinate highlight banner */}
+      <div className={`rounded-xl border px-3 py-2 flex items-center justify-center min-h-[34px] break-all ${
+        isLight ? 'bg-slate-50/60 border-slate-200' : 'bg-slate-900/40 border-slate-800'
+      }`}>
         <HighlightedCoordinate input={activeInput || '—'} isLight={isLight} />
       </div>
 
-      {/* Coordinate breakdown */}
+      {/* Coordinate breakdown grid */}
       <div className="grid grid-cols-2 gap-2">
-        {/* g. coord */}
-        <div className={`p-1.5 px-2 rounded-lg border flex flex-col justify-between ${isLight ? 'bg-sky-50 border-sky-100' : 'bg-sky-950/30 border-sky-900/50'}`}>
+        {/* 1. Genomic Coordinate */}
+        <div className={cellBaseCls}>
           <div className="flex items-center justify-between">
-            <span className={rowLabelCls}>Genomic Coordinate</span>
+            <span className={`text-[10px] uppercase font-bold tracking-wider font-sans ${
+              isLight ? 'text-indigo-600' : 'text-indigo-400'
+            }`}>
+              Genomic Coordinate
+            </span>
             <div className="flex items-center gap-1">
               {isGenomicLiveResolved && (
-                <span className={`text-[8px] px-1 rounded border font-semibold ${isLight ? 'text-emerald-700 border-emerald-200 bg-emerald-50' : 'text-emerald-400 border-emerald-900 bg-emerald-950/40'}`}>
+                <span className={`text-[8px] font-mono px-1 rounded border font-semibold ${
+                  isLight ? 'text-emerald-700 border-emerald-200 bg-emerald-50' : 'text-emerald-400 border-emerald-900 bg-emerald-950/40'
+                }`}>
                   Live
                 </span>
               )}
@@ -76,12 +89,12 @@ export default function CoordinateBreakdownCard({
                   type="button"
                   title="Copy Genomic Notation"
                   onClick={() => handleCopyValue(genomicValue, 'copy-g')}
-                  className={`p-1 rounded transition-colors ${
+                  className={`p-1 rounded transition-colors cursor-pointer ${
                     copiedId === 'copy-g'
                       ? 'text-emerald-600 bg-emerald-50 dark:bg-emerald-500/10 dark:text-emerald-400'
                       : isLight
-                      ? 'text-slate-400 hover:text-indigo-600 hover:bg-indigo-50'
-                      : 'text-slate-500 hover:text-indigo-400 hover:bg-slate-800'
+                      ? 'text-slate-400 hover:text-slate-700 hover:bg-slate-200/60'
+                      : 'text-slate-500 hover:text-slate-200 hover:bg-slate-800'
                   }`}
                 >
                   {copiedId === 'copy-g' ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
@@ -91,23 +104,29 @@ export default function CoordinateBreakdownCard({
           </div>
           <div className="mt-1">
             <span className={rowValCls}>
-              {chromosome ? `chr${chromosome}:${position}` : '—'}
+              {chromosome && position ? `chr${chromosome}:${position}` : (chromosome ? `chr${chromosome}` : '—')}
             </span>
             {ref && alt && (
-              <span className={`text-[11px] font-mono break-all block mt-0.5 ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>
+              <span className={`text-[10.5px] font-mono break-all block mt-0.5 ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>
                 {ref} → {alt}
               </span>
             )}
           </div>
         </div>
 
-        {/* c. coding */}
-        <div className={`p-1.5 px-2 rounded-lg border flex flex-col justify-between ${isLight ? 'bg-indigo-50 border-indigo-100' : 'bg-indigo-950/30 border-indigo-900/50'}`}>
+        {/* 2. Coding Sequence */}
+        <div className={cellBaseCls}>
           <div className="flex items-center justify-between">
-            <span className={rowLabelCls}>Coding Sequence</span>
+            <span className={`text-[10px] uppercase font-bold tracking-wider font-sans ${
+              isLight ? 'text-teal-600' : 'text-teal-400'
+            }`}>
+              Coding Sequence
+            </span>
             <div className="flex items-center gap-1">
               {isCodingLiveResolved && (
-                <span className={`text-[8px] px-1 rounded border font-semibold ${isLight ? 'text-emerald-700 border-emerald-200 bg-emerald-50' : 'text-emerald-400 border-emerald-900 bg-emerald-950/40'}`}>
+                <span className={`text-[8px] font-mono px-1 rounded border font-semibold ${
+                  isLight ? 'text-emerald-700 border-emerald-200 bg-emerald-50' : 'text-emerald-400 border-emerald-900 bg-emerald-950/40'
+                }`}>
                   Live
                 </span>
               )}
@@ -116,12 +135,12 @@ export default function CoordinateBreakdownCard({
                   type="button"
                   title="Copy Coding Notation"
                   onClick={() => handleCopyValue(codingValue, 'copy-c')}
-                  className={`p-1 rounded transition-colors ${
+                  className={`p-1 rounded transition-colors cursor-pointer ${
                     copiedId === 'copy-c'
                       ? 'text-emerald-600 bg-emerald-50 dark:bg-emerald-500/10 dark:text-emerald-400'
                       : isLight
-                      ? 'text-slate-400 hover:text-indigo-600 hover:bg-indigo-50'
-                      : 'text-slate-500 hover:text-indigo-400 hover:bg-slate-800'
+                      ? 'text-slate-400 hover:text-slate-700 hover:bg-slate-200/60'
+                      : 'text-slate-500 hover:text-slate-200 hover:bg-slate-800'
                   }`}
                 >
                   {copiedId === 'copy-c' ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
@@ -132,20 +151,26 @@ export default function CoordinateBreakdownCard({
           <div className="mt-1">
             <span className={rowValCls}>{codingChange || '—'}</span>
             {transcript && (
-              <span className={`text-[11px] font-mono break-all block mt-0.5 ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>
+              <span className={`text-[10.5px] font-mono break-all block mt-0.5 ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>
                 {transcript}
               </span>
             )}
           </div>
         </div>
 
-        {/* p. protein (full width) */}
-        <div className={`col-span-2 p-1.5 px-2 rounded-lg border flex flex-col justify-between ${isLight ? 'bg-pink-50 border-pink-100' : 'bg-pink-950/30 border-pink-900/50'}`}>
+        {/* 3. Protein Alteration (Full Width) */}
+        <div className={`col-span-2 ${cellBaseCls}`}>
           <div className="flex items-center justify-between">
-            <span className={rowLabelCls}>Protein Alteration</span>
+            <span className={`text-[10px] uppercase font-bold tracking-wider font-sans ${
+              isLight ? 'text-violet-600' : 'text-violet-400'
+            }`}>
+              Protein Alteration
+            </span>
             <div className="flex items-center gap-1">
               {isProteinLiveResolved && (
-                <span className={`text-[8px] px-1 rounded border font-semibold ${isLight ? 'text-emerald-700 border-emerald-200 bg-emerald-50' : 'text-emerald-400 border-emerald-900 bg-emerald-950/40'}`}>
+                <span className={`text-[8px] font-mono px-1 rounded border font-semibold ${
+                  isLight ? 'text-emerald-700 border-emerald-200 bg-emerald-50' : 'text-emerald-400 border-emerald-900 bg-emerald-950/40'
+                }`}>
                   Live
                 </span>
               )}
@@ -154,12 +179,12 @@ export default function CoordinateBreakdownCard({
                   type="button"
                   title="Copy Protein Notation"
                   onClick={() => handleCopyValue(proteinValue, 'copy-p')}
-                  className={`p-1 rounded transition-colors ${
+                  className={`p-1 rounded transition-colors cursor-pointer ${
                     copiedId === 'copy-p'
                       ? 'text-emerald-600 bg-emerald-50 dark:bg-emerald-500/10 dark:text-emerald-400'
                       : isLight
-                      ? 'text-slate-400 hover:text-indigo-600 hover:bg-indigo-50'
-                      : 'text-slate-500 hover:text-indigo-400 hover:bg-slate-800'
+                      ? 'text-slate-400 hover:text-slate-700 hover:bg-slate-200/60'
+                      : 'text-slate-500 hover:text-slate-200 hover:bg-slate-800'
                   }`}
                 >
                   {copiedId === 'copy-p' ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
@@ -179,6 +204,6 @@ export default function CoordinateBreakdownCard({
           </div>
         </div>
       </div>
-    </>
+    </div>
   );
 }

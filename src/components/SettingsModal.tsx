@@ -7,6 +7,7 @@ import { Settings, X, Check, Globe, AlertCircle, Sliders, Palette, Keyboard, Rot
 import { ColorTheme, THEMES } from '../lib/themes';
 import { HistoryCap } from '../hooks/useHistory';
 import { clearEnrichmentCache } from '../hooks/useVariantEnrichment';
+import { APP_VERSION, LATEST_RELEASE } from '../lib/version';
 
 interface SettingsModalProps {
   activeTheme: ColorTheme;
@@ -506,27 +507,10 @@ export default function SettingsModal({
           {/* TAB: WHATSNEW */}
           {activeTab === 'whatsnew' && (
             <div className="space-y-4">
-              {renderSectionHeader("What's New in v1.4.0")}
+              {renderSectionHeader(`What's New in v${LATEST_RELEASE.version}`)}
               
               <div className="space-y-3">
-                {[
-                  {
-                    title: '🚀 Real-Time Progress Tracker',
-                    desc: 'The live lookup indicator now shows specific, real-time status updates (e.g. VEP mapping, MyVariant queries, ClinVar resolution, ALFA frequencies) next to a smooth CSS-independent SVG spinner.'
-                  },
-                  {
-                    title: '🧬 Resilient Protein Variant Lookups',
-                    desc: 'Fixed parsing and query triggers for protein-only transcript variants (such as NM_007294.4:Thr1675del) across both GRCh37 and GRCh38 builds.'
-                  },
-                  {
-                    title: '🌐 Smart Cross-Build Suggestions',
-                    desc: 'If a transcript coordinate mismatch is detected on the current genome build, the engine automatically checks the alternative assembly and suggests one-click build switching.'
-                  },
-                  {
-                    title: '📦 Decomposed Modular Codebase',
-                    desc: 'Cleaned and refactored monolithic files (useVariantEnrichment, VariantWorkbench, parser, and sidepanel) into highly decoupled, single-responsibility sub-modules and custom hooks.'
-                  }
-                ].map((item) => (
+                {LATEST_RELEASE.highlights.map((item) => (
                   <div key={item.title} className={cardCls}>
                     <div className={cardHeaderCls}>
                       <h3 className="text-[11px] font-bold text-indigo-500 leading-tight">
@@ -559,7 +543,7 @@ export default function SettingsModal({
             Reset to Defaults
           </button>
           <span className="text-[9px] font-bold font-mono opacity-40">
-            v1.4.0
+            v{APP_VERSION}
           </span>
         </div>
       </div>

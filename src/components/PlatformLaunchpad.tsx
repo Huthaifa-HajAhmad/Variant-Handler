@@ -24,9 +24,7 @@ export default function PlatformLaunchpad({
   // maximum (a likely build mismatch — e.g. GRCh38 coords with GRCh37 selected).
   const buildWarning = boundsWarning(parsed.chromosome, parsed.position, genomeBuild);
 
-  const sectionTitleCls = `text-xs font-extrabold uppercase tracking-wider ${
-    isLight ? 'text-slate-650' : 'text-slate-350'
-  }`;
+  const sectionTitleCls = `text-xs font-bold uppercase tracking-wider ${activeTheme.accentText}`;
 
   // Active (non-disabled) platforms
   const activePlatforms = platformUrls.filter((item) => item.url !== null);
@@ -49,14 +47,14 @@ export default function PlatformLaunchpad({
 
   return (
     <div
-      className={`p-4 rounded-xl border shadow-sm transition-all duration-300 relative ${
+      className={`p-4 rounded-2xl border transition-all duration-300 relative ${
         isLight
-          ? 'bg-white border-slate-200'
-          : `${activeTheme.cardBg} ${activeTheme.border}`
+          ? 'bg-white border-slate-200/80 shadow-[0_2px_8px_rgba(0,0,0,0.03)]'
+          : `${activeTheme.cardBg} ${activeTheme.border} shadow-[0_4px_12px_rgba(0,0,0,0.2)]`
       }`}
     >
       {/* Header Container */}
-      <div className={`flex items-center justify-between gap-2 mb-3 pb-2.5 border-b ${isLight ? 'border-slate-100' : 'border-slate-800/60'}`}>
+      <div className="flex items-center justify-between gap-2 mb-3">
         <h2 className={sectionTitleCls}>Clinical Databases</h2>
 
         {activePlatforms.length > 0 && (

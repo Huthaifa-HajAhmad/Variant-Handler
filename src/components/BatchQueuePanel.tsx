@@ -166,7 +166,7 @@ export default function BatchQueuePanel({
   const filterActive = historyFilter.trim().length > 0;
 
   return (
-    <div className={`p-4 rounded-xl border shadow-sm transition-all flex flex-col gap-4 ${isLight ? 'bg-white border-slate-200' : `${activeTheme.cardBg} ${activeTheme.border}`}`}>
+    <div className={`p-4 rounded-2xl border transition-all flex flex-col gap-4 ${isLight ? 'bg-white border-slate-200/80 shadow-[0_2px_8px_rgba(0,0,0,0.03)]' : `${activeTheme.cardBg} ${activeTheme.border} shadow-[0_4px_12px_rgba(0,0,0,0.2)]`}`}>
 
       {/* Segmented Control Tabs */}
       <div className={`flex items-center p-1 rounded-lg ${isLight ? 'bg-slate-100' : 'bg-slate-900'}`}>
