@@ -8,20 +8,9 @@
  *
  * Field coverage (verified live 2026-06-21 against esummary):
  *   - clinical significance + review status  (current — no MyVariant lag)
- *   - genomic coordinates (GRCh38 + GRCh37)  — but ref/alt alleles are EMPTY,
- *     so Ensembl VEP `hgvsg` remains the allele resolver for dash-format platforms
+ *   - genomic coordinates (GRCh38 + GRCh37)  — supports patch releases (e.g. GRCh38.p14)
  *   - dbSNP rsID (via variation_xrefs.db_source === 'dbSNP')
- *   - ClinGen / OMIM xrefs (bonus, currently unused)
- *
- * What ClinVar direct does NOT provide:
- *   - gnomAD allele frequency (no public gnomAD API; MyVariant retained for AF)
- *   - ref/alt alleles (use Ensembl VEP hgvsg)
- *   - HGVSc/HGVSp (the esummary `title` carries one, but MyVariant/VEP are richer)
- *
- * Rate limiting: NCBI E-utilities allow 3 req/sec anonymous. The enrichment hook
- * sequences esearch → esummary (never parallel) and the 800ms debounce + in-flight
- * dedup keep a single user under the limit. An optional NCBI API key (Phase 2)
- * would raise this to 10 req/sec.
+ *   - coding and protein canonical HGVS notations (extracted from record title)
  *
  * All fetches are routed through the background service worker
  * (FETCH_VARIANT_ENRICHMENT message) so they benefit from the domain allowlist
@@ -42,6 +31,10 @@ export interface ClinVarDirectResult {
   rsId?: string;
   /** True when a ClinVar record exists but has no germline classification. */
   foundUnclassified?: boolean;
+  /** Extracted canonical c. coding sequence change (e.g. c.4135_4137del). */
+  codingChange?: string;
+  /** Extracted canonical p. protein alteration (e.g. p.Thr1379del). */
+  proteinChange?: string;
 }
 
 interface ClinVarEsSummaryRecord {
@@ -104,12 +97,8 @@ async function fetchViaBackground(url: string): Promise<any> {
 /**
  * Search ClinVar for a variant by HGVS notation. Returns the first ClinVar
  * variation ID (VCV uid), or null if no match.
- *
- * Strategy: esearch with the transcript accession AND the c./p. change quoted.
- * ClinVar's term parser is finicky; we quote both halves to force phrase match.
  */
 export async function searchClinVarByHgvs(hgvs: string): Promise<string | null> {
-  // hgvs is expected in "NM_xxx:c.change" or "NM_xxx:p.change" form.
   const colonIdx = hgvs.indexOf(':');
   if (colonIdx < 0) return null;
   const accession = hgvs.slice(0, colonIdx).trim();
@@ -127,7 +116,7 @@ export async function searchClinVarByHgvs(hgvs: string): Promise<string | null> 
     console.warn('[VariantHandler] ClinVar exact HGVS search failed:', err);
   }
 
-  // Try 2: Fallback to "Accession" AND "change" (deals with space separators in ClinVar titles)
+  // Try 2: Fallback to "Accession" AND "change"
   const changeWithoutPrefix = change.replace(/^[cp]\./i, '');
   const fallbackTerm = `"${accession}" AND "${changeWithoutPrefix}"`;
   const fallbackUrl = `${EUTILS_BASE}/esearch.fcgi?db=clinvar&term=${encodeURIComponent(fallbackTerm)}&retmode=json&retmax=1`;
@@ -154,6 +143,18 @@ export async function fetchClinVarSummary(vcvId: string, build: GenomeBuild): Pr
 
   const result: ClinVarDirectResult = {};
 
+  // Extract c. coding change and p. protein alteration from title if present
+  if (typeof rec.title === 'string' && rec.title) {
+    const cMatch = rec.title.match(/:(c\.[0-9+-_*]+(?:delins|del|ins|dup|inv|>)[A-Za-z0-9_]*)/i);
+    if (cMatch) {
+      result.codingChange = cMatch[1];
+    }
+    const pMatch = rec.title.match(/\((p\.[A-Za-z0-9_]+)\)/i);
+    if (pMatch) {
+      result.proteinChange = pMatch[1];
+    }
+  }
+
   // Clinical significance + review status (prefer germline; fall back to clinical-impact)
   const gc = rec.germline_classification;
   if (gc) {
@@ -167,7 +168,6 @@ export async function fetchClinVarSummary(vcvId: string, build: GenomeBuild): Pr
   if (!result.clinvarSignificance && rec.clinical_impact_classification?.description) {
     result.clinvarSignificance = rec.clinical_impact_classification.description;
   }
-  // "no interpretation" / empty classification → flag so callers can surface it
   if (!result.clinvarSignificance) {
     result.foundUnclassified = true;
   }
@@ -181,7 +181,7 @@ export async function fetchClinVarSummary(vcvId: string, build: GenomeBuild): Pr
   // Genomic coordinates for the requested build + dbSNP rsID
   const targetAssembly = build === 'GRCh37' ? 'GRCh37' : 'GRCh38';
   for (const vs of rec.variation_set ?? []) {
-    // dbSNP rsID (any variation_xref with db_source dbSNP)
+    // dbSNP rsID
     if (!result.rsId) {
       for (const xr of vs.variation_xrefs ?? []) {
         if (xr.db_source === 'dbSNP' && typeof xr.db_id === 'string') {
@@ -190,11 +190,12 @@ export async function fetchClinVarSummary(vcvId: string, build: GenomeBuild): Pr
         }
       }
     }
-    // Coordinates for the requested build
+    // Coordinates for the requested build (relaxed to match patch releases e.g. GRCh38.p14)
     if (!result.position) {
       for (const loc of vs.variation_loc ?? []) {
-        if (loc.assembly_name === targetAssembly && loc.chr && loc.start) {
-          result.chromosome = loc.chr;
+        const assembly = loc.assembly_name || '';
+        if ((assembly === targetAssembly || assembly.startsWith(targetAssembly) || assembly.includes(targetAssembly)) && loc.chr && loc.start) {
+          result.chromosome = loc.chr.replace(/^chr/i, '');
           result.position = loc.start;
           break;
         }
@@ -207,9 +208,7 @@ export async function fetchClinVarSummary(vcvId: string, build: GenomeBuild): Pr
 }
 
 /**
- * One-shot helper: search by HGVS then fetch the summary. Returns an empty
- * object (no throw) when no ClinVar record is found — callers merge whatever
- * fields are present.
+ * One-shot helper: search by HGVS then fetch the summary.
  */
 export async function resolveClinVarDirect(hgvs: string, build: GenomeBuild): Promise<ClinVarDirectResult> {
   try {
@@ -217,7 +216,6 @@ export async function resolveClinVarDirect(hgvs: string, build: GenomeBuild): Pr
     if (!vcvId) return {};
     return await fetchClinVarSummary(vcvId, build);
   } catch (err: any) {
-    // Re-throw 429 so the hook's backoff loop can handle it.
     if (err.is429) throw err;
     console.warn('[VariantHandler] ClinVar direct resolution failed:', err);
     return {};

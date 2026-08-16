@@ -8,10 +8,10 @@
 import { ParsedVariant, GenomeBuild } from '../parser';
 import { EnrichmentData } from './types';
 
-export const CACHE_STORAGE_KEY = 'variantstream_enrichment_cache_v9';
+export const CACHE_STORAGE_KEY = 'variantstream_enrichment_cache_v10';
 export const CACHE_TTL_MS      = 24 * 60 * 60 * 1000; // 24 hours
 export const DEBOUNCE_MS       = 800;
-export const SESSION_CACHE_KEY = 'variantstream_enrichment_cache_v9';
+export const SESSION_CACHE_KEY = 'variantstream_enrichment_cache_v10';
 
 // ── In-memory cache (synchronous hot layer) ───────────────────────────────────
 export const memoryCache = new Map<string, EnrichmentData>();

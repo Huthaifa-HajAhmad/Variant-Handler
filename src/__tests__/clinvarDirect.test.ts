@@ -97,6 +97,37 @@ describe('fetchClinVarSummary', () => {
     expect(result.chromosome).toBe('7');
     expect(result.position).toBe('117559590');
     expect(result.rsId).toBe('rs113993960');
+    expect(result.codingChange).toBe('c.1521_1523del');
+    expect(result.proteinChange).toBe('p.Phe508del');
+  });
+
+  it('matches patch assemblies such as GRCh38.p14', async () => {
+    const patchFixture = {
+      result: {
+        '2': {
+          title: 'NM_007294.4(BRCA1):c.4135_4137del (p.Thr1379del)',
+          variation_set: [
+            {
+              variation_loc: [
+                { assembly_name: 'GRCh38.p14', chr: '17', start: '43070940', stop: '43070942', ref: '', alt: '' },
+              ],
+              variation_xrefs: [
+                { db_source: 'dbSNP', db_id: 'rs2550305285' },
+              ],
+            },
+          ],
+        },
+      },
+    };
+    sendMessageMock.mockImplementation((_msg: any, _cb: any) => {
+      _cb({ success: true, data: patchFixture });
+    });
+    const result = await fetchClinVarSummary('2', 'GRCh38');
+    expect(result.chromosome).toBe('17');
+    expect(result.position).toBe('43070940');
+    expect(result.rsId).toBe('rs2550305285');
+    expect(result.codingChange).toBe('c.4135_4137del');
+    expect(result.proteinChange).toBe('p.Thr1379del');
   });
 
   it('returns GRCh37 coordinates when the GRCh37 build is requested', async () => {

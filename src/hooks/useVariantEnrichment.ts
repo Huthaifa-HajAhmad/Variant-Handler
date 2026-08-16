@@ -477,11 +477,45 @@ export function useVariantEnrichment(
                 if (clinvarDirect.clinvarSignificance) enrichmentData.clinvarSignificance = clinvarDirect.clinvarSignificance;
                 if (clinvarDirect.clinvarReview) enrichmentData.clinvarReview = clinvarDirect.clinvarReview;
                 if (clinvarDirect.rcvAccession) enrichmentData.rcvAccession = clinvarDirect.rcvAccession;
-                if (clinvarDirect.rsId) enrichmentData.rsId = clinvarDirect.rsId;
+                if (clinvarDirect.codingChange && !enrichmentData.codingChange) {
+                  enrichmentData.codingChange = clinvarDirect.codingChange;
+                }
+                if (clinvarDirect.proteinChange && !enrichmentData.proteinChange) {
+                  enrichmentData.proteinChange = clinvarDirect.proteinChange;
+                }
 
                 if (clinvarDirect.chromosome && clinvarDirect.position && !enrichmentData.hgvsg) {
                   enrichmentData.hgvsg = `chr${clinvarDirect.chromosome}:g.${clinvarDirect.position}`;
                 }
+
+                // Second-Pass VEP Liftover: if initial input lacked full genomic notation and ClinVar yielded c. notation
+                if ((!enrichmentData.hgvsg || !enrichmentData.hgvsg.includes('>')) && clinvarDirect.codingChange && (parsed.transcript || enrichmentData.transcript)) {
+                  try {
+                    const tx = parsed.transcript || enrichmentData.transcript;
+                    const serverBase = build === 'GRCh37' ? 'https://grch37.rest.ensembl.org' : 'https://rest.ensembl.org';
+                    const vepUrl = `${serverBase}/vep/homo_sapiens/hgvs/${encodeURIComponent(tx)}:${encodeURIComponent(clinvarDirect.codingChange)}?content-type=application/json&hgvs=1&mane=1`;
+                    const secondVepData = await performFetch(vepUrl);
+                    if (Array.isArray(secondVepData) && secondVepData.length > 0) {
+                      const v = secondVepData[0];
+                      const chrom = v.seq_region_name;
+                      const start = v.start;
+                      const end = v.end;
+                      const alleleString = v.allele_string;
+                      if (chrom && start && alleleString) {
+                        const parts = alleleString.split('/');
+                        if (parts.length >= 2) {
+                          const refAllele = parts[0];
+                          const altAllele = parts[1];
+                          const range = end > start ? `${start}_${end}` : start;
+                          enrichmentData.hgvsg = `chr${chrom}:g.${range}${refAllele}>${altAllele}`;
+                        }
+                      }
+                    }
+                  } catch (secondVepErr) {
+                    console.warn('[VariantHandler] Second-pass VEP liftover failed:', secondVepErr);
+                  }
+                }
+
                 if (clinvarDirect.clinvarSignificance || clinvarDirect.rsId) {
                   if (enrichmentData.source === 'none') enrichmentData.source = 'clinvar';
                   else if (enrichmentData.source === 'myvariant') enrichmentData.source = 'both';
