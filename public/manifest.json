@@ -47,8 +47,8 @@
   "commands": {
     "_execute_action": {
       "suggested_key": {
-        "default": "Ctrl+Shift+G",
-        "mac": "Command+Shift+G"
+        "default": "Alt+V",
+        "mac": "Alt+V"
       },
       "description": "Open Variant Handler Side Panel"
     }

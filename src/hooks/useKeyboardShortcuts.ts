@@ -1,37 +1,35 @@
 /**
  * Variant Handler — useKeyboardShortcuts
- * Registers global Alt-key shortcuts for the sidepanel.
+ * Registers global Alt-key and Esc shortcuts for the sidepanel.
  *
- * Fixes applied:
- *  - The original useEffect had [classification, activeInput, microNote,
- *    batchQueue] as dependencies, causing the event listener to be torn
- *    down and re-registered on every queue change (implicit re-subscription
- *    on every keystroke).
- *  - Now uses a mutable ref pattern: the handlers object is stored in a ref
- *    that is refreshed via useLayoutEffect on every render, but the actual
- *    addEventListener/removeEventListener pair only fires once (empty deps).
+ * Uses a mutable ref pattern so handlers are always up to date without
+ * re-subscribing listeners on every render.
  */
 import { useEffect, useLayoutEffect, useRef } from 'react';
 
-interface ShortcutHandlers {
+export interface ShortcutHandlers {
   onToggleSettings: () => void;
-  onFocusNote: () => void;
+  onFocusInput: () => void;
+  onSwitchTab?: (tabIndex: number) => void;
+  onCloseModals?: () => void;
 }
 
 export function useKeyboardShortcuts(handlers: ShortcutHandlers) {
-  // Always holds the latest handlers without triggering a new event
-  // listener registration.
   const handlersRef = useRef<ShortcutHandlers>(handlers);
 
-  // useLayoutEffect runs synchronously after each render — the ref is
-  // always up-to-date before the next event can fire.
   useLayoutEffect(() => {
     handlersRef.current = handlers;
   });
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      // Do not intercept when focus is inside a form field
+      // Escape closes modals even if inside an input
+      if (e.key === 'Escape') {
+        handlersRef.current.onCloseModals?.();
+        return;
+      }
+
+      // Do not intercept other shortcuts when focus is inside a form field
       const el = document.activeElement;
       if (
         el &&
@@ -49,14 +47,31 @@ export function useKeyboardShortcuts(handlers: ShortcutHandlers) {
           e.preventDefault();
           handlersRef.current.onToggleSettings();
           break;
+        case 'v':
         case 'n':
           e.preventDefault();
-          handlersRef.current.onFocusNote();
+          handlersRef.current.onFocusInput();
+          break;
+        case '1':
+          e.preventDefault();
+          handlersRef.current.onSwitchTab?.(0);
+          break;
+        case '2':
+          e.preventDefault();
+          handlersRef.current.onSwitchTab?.(1);
+          break;
+        case '3':
+          e.preventDefault();
+          handlersRef.current.onSwitchTab?.(2);
+          break;
+        case '4':
+          e.preventDefault();
+          handlersRef.current.onSwitchTab?.(3);
           break;
       }
     };
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, []); // Registered exactly once — handlers accessed via ref
+  }, []);
 }

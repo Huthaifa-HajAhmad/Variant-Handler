@@ -7,6 +7,7 @@ import { Settings, X, Check, Globe, AlertCircle, Sliders, Palette, Keyboard, Rot
 import { ColorTheme, THEMES } from '../lib/themes';
 import { HistoryCap } from '../hooks/useHistory';
 import { clearEnrichmentCache } from '../hooks/useVariantEnrichment';
+import { CACHE_STORAGE_KEY } from '../lib/enrichment/cache';
 import { APP_VERSION, LATEST_RELEASE } from '../lib/version';
 
 interface SettingsModalProps {
@@ -47,12 +48,12 @@ export default function SettingsModal({
   const isLight = activeTheme.isLight;
 
   const [activeTab, setActiveTab] = React.useState<'general' | 'appearance' | 'shortcuts' | 'whatsnew'>(initialTab || 'general');
-  const [extensionShortcut, setExtensionShortcut] = React.useState('Ctrl+Shift+G');
+  const [extensionShortcut, setExtensionShortcut] = React.useState('Alt+V');
   const [cacheCount, setCacheCount] = React.useState(0);
 
   const updateCacheCount = React.useCallback(() => {
     try {
-      const raw = localStorage.getItem('variantstream_enrichment_cache_v9');
+      const raw = localStorage.getItem(CACHE_STORAGE_KEY);
       if (raw) {
         const parsed = JSON.parse(raw);
         if (parsed && typeof parsed === 'object') {
@@ -431,14 +432,19 @@ export default function SettingsModal({
             <div className="space-y-3">
               {renderSectionHeader('Keyboard Shortcuts')}
               
-              <div className="space-y-2">
+              <div className="space-y-1.5">
                 {[
+                  { label: 'Focus Variant Search Input', keys: ['Alt', 'V'] },
+                  { label: 'Switch to Workbench Tab', keys: ['Alt', '1'] },
+                  { label: 'Switch to Launchpad Tab', keys: ['Alt', '2'] },
+                  { label: 'Switch to Worklist Tab', keys: ['Alt', '3'] },
+                  { label: 'Switch to Export Tab', keys: ['Alt', '4'] },
                   { label: 'Toggle Settings Panel', keys: ['Alt', 'S'] },
-                  { label: 'Focus Add-Note Field', keys: ['Alt', 'N'] }
+                  { label: 'Close Modal / Dialog', keys: ['Esc'] },
                 ].map(({ label, keys }) => (
                   <div
                     key={label}
-                    className={`flex items-center justify-between p-2.5 rounded-xl border ${
+                    className={`flex items-center justify-between py-2 px-2.5 rounded-xl border ${
                       isLight 
                         ? 'bg-slate-50 border-slate-200/80 text-slate-700' 
                         : 'bg-slate-900/40 border-slate-800 text-slate-300'
@@ -463,15 +469,15 @@ export default function SettingsModal({
                 ))}
 
                 {/* Extension open command */}
-                <div className={`mt-2 flex flex-col gap-2.5 p-3 rounded-xl border transition-all duration-300 ${
+                <div className={`mt-2.5 flex flex-col gap-2 p-3 rounded-xl border transition-all duration-300 ${
                   isLight 
                     ? 'bg-indigo-50/40 border-indigo-100 text-slate-700 shadow-sm' 
                     : 'bg-slate-950/20 border-slate-800/80 text-slate-300'
                 }`}>
-                  <div className={`flex items-center justify-between pb-2 border-b ${isLight ? 'border-indigo-100/40' : 'border-slate-800/60'}`}>
+                  <div className={`flex items-center justify-between pb-1.5 border-b ${isLight ? 'border-indigo-100/40' : 'border-slate-800/60'}`}>
                     <span className="text-[11px] font-bold leading-tight">Open Extension Side Panel</span>
                     <div className="flex items-center gap-1">
-                      {(extensionShortcut || 'Not Assigned').split('+').map((k, idx) => (
+                      {(extensionShortcut || 'Alt+V').split('+').map((k, idx) => (
                         <React.Fragment key={k}>
                           {idx > 0 && <span className="text-[9px] opacity-40 font-bold">+</span>}
                           <kbd className={`${

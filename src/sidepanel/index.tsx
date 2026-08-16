@@ -160,12 +160,21 @@ export default function SidepanelView() {
     triggerAlert,
   });
 
-  // Keyboard shortcuts (Alt+S, Alt+N)
+  // Keyboard shortcuts (Alt+V, Alt+1..4, Alt+S, Esc)
+  const navTabsOrder: NavTabId[] = ['workbench', 'launchpad', 'worklist', 'tools'];
   useKeyboardShortcuts({
-    onToggleSettings: () => handleSettingsClick('general'),
-    onFocusNote: () => {
+    onToggleSettings: () => setIsSettingsOpen((prev) => !prev),
+    onFocusInput: () => {
       setActiveNavTab('workbench');
       setTimeout(() => document.getElementById('variant-input')?.focus(), 50);
+    },
+    onSwitchTab: (idx) => {
+      if (navTabsOrder[idx]) {
+        setActiveNavTab(navTabsOrder[idx]);
+      }
+    },
+    onCloseModals: () => {
+      setIsSettingsOpen(false);
     },
   });
 
