@@ -3,7 +3,7 @@
  * Single source of truth for all frontend UI components and badge notifications.
  */
 
-export const APP_VERSION = '1.5.0';
+export const APP_VERSION = '1.6.0';
 
 /**
  * Version-scoped localStorage key so every release automatically
@@ -24,23 +24,23 @@ export interface ReleaseNote {
 
 export const LATEST_RELEASE: ReleaseNote = {
   version: APP_VERSION,
-  date: '2026-08-16',
+  date: '2026-10-21',
   highlights: [
     {
-      title: '🧬 Dual Genomic Coordinate Liftover',
-      desc: 'Automatic genomic coordinate resolution for hybrid transcript/protein shorthand (e.g. NM_007294.4:Thr1675del) via relaxed ClinVar patch assembly matching (GRCh38.p14) and second-pass Ensembl VEP liftover.',
+      title: '🩺 Franklin & OncoKB Launchpad',
+      desc: 'Franklin (Genoox) follows the variant\'s assembly (hg=38 / hg=19). OncoKB uses HGVSg coordinate lookups with the correct refGenome for genomic input, and gene/alteration pages for protein input (e.g. V600E). Both fall back to the gene page.',
     },
     {
-      title: '🎯 Bottom Navigation & Medical-Grade UI',
-      desc: 'Redesigned 4-tab bottom navigation (Workbench, Launchpad, Worklist, Export), eliminated harsh divider lines, and introduced semantic high-contrast color chips for all coordinate and enrichment fields.',
+      title: '🧪 Oncology Report Parsing',
+      desc: 'Trailing report annotations such as (VAF 32%) and (AF 0.45, T/N) are extracted instead of breaking the parser, and GENE amplification / deletion shorthand is recognised as a copy-number change.',
     },
     {
-      title: '🔀 Anchored Assembly Switcher',
-      desc: 'Redesigned the assembly switcher outside the search bar into an anchored header capsule with automatic genome build mismatch detection and one-click switching.',
+      title: '🏷️ VAF & Copy-Number Chips',
+      desc: 'Parsed allele fractions and amplification/deletion keywords appear as compact chips in the Parsed Coordinates header, alongside long live-resolved indel sequences truncated to a readable preview.',
     },
     {
-      title: '📊 Standardized Clinical Export Suite',
-      desc: 'Export structured clinical data across TSV spreadsheets, formatted Excel clinical workbooks with ClinVar color tags, and standalone MDT HTML slide decks with live queue diagnostics.',
+      title: '🔔 Inline Notice Banner & Assembly Sync',
+      desc: 'Cleaner, semantically coloured notices now sit below the Active Tab Automation card, report live autofill progress, and Franklin\'s reference-build dropdown switches automatically with the variant.',
     },
   ],
 };

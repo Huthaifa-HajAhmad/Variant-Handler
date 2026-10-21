@@ -58,3 +58,15 @@ export function gnomadDataset(build: GenomeBuild): string {
 export function spliceAiAssembly(build: GenomeBuild): string {
   return build === 'GRCh37' ? 'hg19' : 'hg38';
 }
+
+/**
+ * Returns the Franklin (Genoox) `hg` query parameter for the given build.
+ *   GRCh38 → '38'
+ *   GRCh37 → '19'
+ *
+ * Note: Franklin uses a bare build number, unlike UCSC/SpliceAI which expect
+ * the `hg38`/`hg19` prefix — do not reuse `{{assembly}}` for Franklin URLs.
+ */
+export function franklinHg(build: GenomeBuild): string {
+  return build === 'GRCh37' ? '19' : '38';
+}

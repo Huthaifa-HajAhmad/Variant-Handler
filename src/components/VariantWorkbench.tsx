@@ -16,6 +16,7 @@ import CoordinateBreakdownCard from './workbench/CoordinateBreakdownCard';
 import LiveEnrichmentDetailsCard from './workbench/LiveEnrichmentDetailsCard';
 import InSilicoPredictorsCard from './workbench/InSilicoPredictorsCard';
 import ActiveTabIntegrationCard from './workbench/ActiveTabIntegrationCard';
+import SidepanelAlertBanner from './SidepanelAlertBanner';
 
 interface VariantWorkbenchProps {
   activeInput: string;
@@ -38,6 +39,11 @@ interface VariantWorkbenchProps {
   onHighlightInTab?: () => void;
   activeTabUrl?: string;
   onInstantLookup?: (text: string) => void;
+  /** Notice-banner state — rendered in the space below the Active Tab card. */
+  alertMsg?: string;
+  alertVisible?: boolean;
+  onDismissAlert?: () => void;
+  onSelectSuggestion?: (sug: string) => void;
 }
 
 export default function VariantWorkbench({
@@ -61,6 +67,10 @@ export default function VariantWorkbench({
   onHighlightInTab,
   activeTabUrl,
   onInstantLookup,
+  alertMsg,
+  alertVisible,
+  onDismissAlert,
+  onSelectSuggestion,
 }: VariantWorkbenchProps) {
   const isLight = activeTheme.isLight;
   const [isPredictorsExpanded, setIsPredictorsExpanded] = useState(false);
@@ -132,6 +142,30 @@ export default function VariantWorkbench({
             <span className={`text-[11px] font-bold uppercase tracking-wider ${activeTheme.accentText}`}>
               Parsed Coordinates
             </span>
+            {parsed.copyNumberChange && (
+              <span
+                className={`text-[9px] font-semibold px-1.5 py-0.5 rounded-full border font-mono ${
+                  isLight
+                    ? 'text-orange-700 border-orange-200 bg-orange-50/80'
+                    : 'text-orange-300 border-orange-800 bg-orange-950/40'
+                }`}
+                title={`Copy-number change: ${parsed.copyNumberChange}`}
+              >
+                {parsed.copyNumberChange.toUpperCase()}
+              </span>
+            )}
+            {parsed.vaf !== undefined && (
+              <span
+                className={`text-[9px] font-semibold px-1.5 py-0.5 rounded-full border font-mono ${
+                  isLight
+                    ? 'text-rose-700 border-rose-200 bg-rose-50/80'
+                    : 'text-rose-300 border-rose-800 bg-rose-950/40'
+                }`}
+                title={parsed.annotationText ? `Report annotation: ${parsed.annotationText}` : 'Allele fraction from report annotation'}
+              >
+                VAF {(parsed.vaf * 100).toFixed(1).replace(/\.0$/, '')}%
+              </span>
+            )}
           </div>
 
           {liveEnrichmentEnabled && parsed.isValid && (
@@ -270,6 +304,19 @@ export default function VariantWorkbench({
           onAutofillVariant={onAutofillVariant}
           onAutofillGene={onAutofillGene}
           onHighlightInTab={onHighlightInTab}
+        />
+      )}
+
+      {/* 4. Notice banner — occupies the free space below the Active Tab card */}
+      {alertMsg && onDismissAlert && onSelectSuggestion && (
+        <SidepanelAlertBanner
+          alertMsg={alertMsg}
+          alertVisible={!!alertVisible}
+          isLight={isLight}
+          onDismiss={onDismissAlert}
+          onSelectSuggestion={onSelectSuggestion}
+          onGenomeBuildChange={onGenomeBuildChange}
+          triggerAlert={triggerAlert}
         />
       )}
     </div>

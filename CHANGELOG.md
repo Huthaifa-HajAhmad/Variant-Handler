@@ -6,6 +6,20 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [1.6.0] — 2026-10-21
+
+### 🚀 New Features & Enhancements
+- **Franklin (Genoox) and OncoKB launch buttons** — the Platform Launchpad now ships 10 databases. Franklin builds build-aware SNP URLs (`?hg=38` / `?hg=19`) with gene-page fallback; OncoKB builds `gene/alteration` URLs from normalised single-letter protein changes for missense and in-frame changes, plus `gene/Amplification` pages. Truncating changes and deletions route to the gene page, since OncoKB's alteration slugs for those vary by gene.
+- **Report-annotation tolerant parsing** — trailing oncology annotations such as `(VAF 32%)` or `(AF 0.45, T/N)` are extracted and stripped before parsing, with the allele fraction shown as a `VAF` chip instead of failing the input.
+- **Copy-number shorthand** — `ERBB2 amplification` / `EGFR deletion` resolve to a gene plus copy-number keyword for OncoKB lookups.
+- **Franklin reference-build auto-select** — autofilling a variant or gene on Franklin now also switches the site's REFERENCE dropdown (`hg19`/`hg38`) to the variant's genome build, in-page and via `localStorage`.
+- **Deterministic OncoKB autofill** — OncoKB's search widget could not be scripted reliably (react-select with no `type`/`placeholder` attributes), so the sidepanel tries the in-page search box first and otherwise navigates the active OncoKB tab to the canonical URL. Coordinate inputs use OncoKB's HGVSg route (`/hgvsg/{chrom}:g.…?refGenome=GRCh37|GRCh38`) so lookup reflects the user's coordinates rather than a protein prediction; protein/coding inputs use `gene/alteration` pages. If the variant's gene is still being resolved, it waits briefly instead of failing.
+
+### ⚙️ Refactoring & Code Cleanup
+- **Declarative platform data requirements** — `PlatformAdapter.dataRequirements` (`coordsOrGene`, `gene`) lets a platform declare what it needs (coordinates or gene, gene only) instead of relying on `requiredFormat` alone.
+- **`franklinHg()` build helper** — Franklin's bare `hg=38/19` parameter is computed from the build directly, not from the `hg38`/`hg19` assembly placeholder used by UCSC and SpliceAI.
+- **Legacy Franklin preset removed** from `CLINICAL_PRESETS`; `INITIAL_PLATFORMS` is now the single source of truth.
+
 ## [1.4.0] — 2026-08-04
 
 ### 🚀 New Features & Enhancements

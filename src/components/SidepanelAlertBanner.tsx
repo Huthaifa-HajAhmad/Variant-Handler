@@ -1,6 +1,6 @@
 import React from 'react';
-import { AlertCircle, Check, X } from 'lucide-react';
-import { GenomeBuild } from '../../utils/genomeBuild';
+import { AlertCircle, CheckCircle2, Info, X } from 'lucide-react';
+import { GenomeBuild } from '../utils/genomeBuild';
 
 interface SidepanelAlertBannerProps {
   alertMsg: string;
@@ -11,6 +11,26 @@ interface SidepanelAlertBannerProps {
   onGenomeBuildChange: (build: GenomeBuild) => void;
   triggerAlert: (msg: string) => void;
 }
+
+type Tone = 'error' | 'success' | 'info';
+
+const TONE_STYLES: Record<Tone, { box: [string, string]; icon: string; Icon: typeof Info }> = {
+  error: {
+    box: ['bg-rose-50 border-rose-200 text-rose-800', 'bg-rose-950/20 border-rose-900/40 text-rose-200'],
+    icon: 'text-rose-500',
+    Icon: AlertCircle,
+  },
+  success: {
+    box: ['bg-emerald-50 border-emerald-200 text-emerald-800', 'bg-emerald-950/20 border-emerald-900/40 text-emerald-200'],
+    icon: 'text-emerald-500',
+    Icon: CheckCircle2,
+  },
+  info: {
+    box: ['bg-indigo-50 border-indigo-100 text-indigo-800', 'bg-indigo-950/10 border-indigo-500/20 text-indigo-300'],
+    icon: 'text-indigo-500',
+    Icon: Info,
+  },
+};
 
 export default function SidepanelAlertBanner({
   alertMsg,
@@ -24,6 +44,10 @@ export default function SidepanelAlertBanner({
   if (!alertMsg) return null;
 
   const isErrorToast = /fail|error|denied|could not|no active|not found|invalid|missing|mismatch/i.test(alertMsg);
+  // Success notices end with "!" (e.g. "Variant autofilled in tab search box!").
+  const tone: Tone = isErrorToast ? 'error' : /!\s*$/.test(alertMsg) ? 'success' : 'info';
+  const { box, icon: iconCls, Icon } = TONE_STYLES[tone];
+
   const buildSwitchMatch = alertMsg.match(/Switch build to (GRCh37|GRCh38)/i);
   const targetBuild = buildSwitchMatch ? buildSwitchMatch[1] : null;
 
@@ -42,24 +66,13 @@ export default function SidepanelAlertBanner({
     <div
       role="status"
       aria-live="polite"
-      className={`w-full flex items-start gap-2.5 px-3.5 py-2.5 rounded-xl text-[11px] font-semibold border transition-all duration-300 transform origin-top shrink-0 ${
-        alertVisible 
-          ? 'opacity-100 max-h-[140px] scale-100 translate-y-0 shadow-sm' 
-          : 'opacity-0 max-h-0 py-0 border-none scale-95 -translate-y-2 pointer-events-none'
-      } ${
-        isErrorToast
-          ? isLight
-            ? 'bg-rose-50 border-rose-200 text-rose-800'
-            : 'bg-rose-950/20 border-rose-900/40 text-rose-200'
-          : isLight
-            ? 'bg-indigo-50 border-indigo-100 text-indigo-800'
-            : 'bg-indigo-950/10 border-indigo-500/20 text-indigo-300'
-      }`}
+      className={`w-full flex items-start gap-2.5 px-3.5 py-2.5 rounded-lg text-[11px] font-semibold border transition-all duration-300 transform origin-top shrink-0 ${
+        alertVisible
+          ? 'opacity-100 max-h-[160px] scale-100 translate-y-0 shadow-sm'
+          : 'opacity-0 max-h-0 py-0 border-none scale-95 -translate-y-1 pointer-events-none overflow-hidden'
+      } ${isLight ? box[0] : box[1]}`}
     >
-      {isErrorToast
-        ? <AlertCircle className="w-3.5 h-3.5 shrink-0 mt-px text-rose-500" />
-        : <Check className="w-3.5 h-3.5 shrink-0 mt-px text-indigo-500" />
-      }
+      <Icon className={`w-3.5 h-3.5 shrink-0 mt-px ${iconCls}`} />
       <div className="flex-grow flex flex-col gap-1">
         <span className="leading-snug">
           {mainMsg}{' '}

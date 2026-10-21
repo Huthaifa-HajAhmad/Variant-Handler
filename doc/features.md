@@ -5,7 +5,7 @@
 > For architecture internals, see [`ARCHITECTURE.md`](./ARCHITECTURE.md).
 > For setup instructions, see the main [`README.md`](../README.md).
 
-> **Scope:** Rare-disease (germline) genomics. The parser handles **SNVs** and **small indels** (`del`/`ins`/`dup`/`delins`/`inv` with explicit positions/sequence). It does **not** support CNVs, translocations, RNA-level notation, or somatic/oncology workflows. Oncology genes in the bundled symbol table support hereditary cancer-predisposition (germline) panels only.
+> **Scope:** Rare-disease (germline) genomics. The parser handles **SNVs** and **small indels** (`del`/`ins`/`dup`/`delins`/`inv` with explicit positions/sequence). It does **not** support cytogenetic/structural CNVs, translocations, RNA-level notation, or somatic/oncology workflows. Oncology genes in the bundled symbol table support hereditary cancer-predisposition (germline) panels only.
 
 ---
 
@@ -71,6 +71,17 @@ The parser (`src/lib/parser.ts`) is entirely client-side. It accepts a raw strin
 
 The protein regex is intentionally permissive; downstream validators (Mutalyzer, VariantValidator) are the authority for strict syntax.
 
+#### Oncology Report Annotations & Copy-Number Shorthand
+
+| Example | Behaviour |
+|---------|-----------|
+| `NM_004333.4:c.1799T>A (VAF 32%)` | Trailing annotation stripped; `vaf: 0.32`; coding notation parsed normally |
+| `BRAF V600E (AF 0.45, T/N)` | `vaf: 0.45`; `annotationText` preserved for display |
+| `ERBB2 amplification` | Gene + `Amplification` keyword → OncoKB `/gene/ERBB2/Amplification` |
+| `EGFR deletion` | Gene + `Deletion` keyword → OncoKB `/gene/EGFR` (deletion naming varies by gene) |
+
+Only trailing parentheses containing report keywords (`VAF`, `AF`, `VF`, `MAF`, allele fraction, tumour/T-N) are stripped — predicted changes such as `p.(Arg408Trp)` and build tokens such as `(GRCh38)` are preserved. The copy-number shorthand accepts the curated `CNV_SHORTHAND_GENES` set (ERBB2, MET, ALK, IDH1/2, PIK3CA, …) plus any gene with a default transcript. Fusions (`EML4-ALK`) and cytogenetic CNVs remain unsupported.
+
 ---
 
 ### 1.2 Live Coordinate Resolution (R1/R2 — no static hotspot table)
@@ -93,7 +104,7 @@ Gene-prefixed inputs (`PAH:c.1222C>T`) still backfill a default transcript via `
 interface ParsedVariant {
   raw:           string;        // Original input, untouched
   isValid:       boolean;       // True if any stage matched
-  type:          'genomic' | 'coding' | 'protein' | 'hybrid' | 'unknown';
+  type:          'genomic' | 'coding' | 'protein' | 'hybrid' | 'cnv' | 'unknown';
   chromosome?:   string;        // e.g. "7", "X", "MT"
   position?:     string;        // Start position string
   ref?:          string;        // Reference allele (uppercase)
@@ -101,6 +112,11 @@ interface ParsedVariant {
   transcript?:   string;        // e.g. "NM_000492.4"
   codingChange?: string;        // e.g. "c.1521_1523delCTT"
   proteinChange?:string;        // e.g. "p.Phe508del"
+  copyNumberChange?: 'Amplification' | 'Deletion'; // from "ERBB2 amplification" shorthand
+  genomeBuild?:  'GRCh38' | 'GRCh37';
+  geneSymbol?:   string;        // e.g. "BRAF"
+  vaf?:          number;        // 0–1, parsed from a trailing "(VAF 32%)"
+  annotationText?: string;      // Raw stripped annotation, e.g. "VAF 32%"
   diagnostics?:  string[];      // Step-by-step resolution log
 }
 ```
@@ -111,7 +127,7 @@ interface ParsedVariant {
 
 ### 2.1 Default Platforms (`INITIAL_PLATFORMS`)
 
-Eight platforms are active by default. Each has a `requiredFormat` that determines which variant fields are needed before its button is enabled.
+Ten platforms are active by default. Each has a `requiredFormat` that determines which variant fields are needed before its button is enabled; platforms may additionally declare `dataRequirements` (see §2.3).
 
 | ID | Name | Domain | Format Required | Fields Needed |
 |----|------|--------|----------------|---------------|
@@ -123,16 +139,17 @@ Eight platforms are active by default. Each has a `requiredFormat` that determin
 | `dbsnp` | dbSNP (NCBI) | `ncbi.nlm.nih.gov/snp` | `custom` | none (raw input) |
 | `mutalyzer` | Mutalyzer | `mutalyzer.nl` | `custom` | none (raw input) |
 | `variantvalidator` | Variant Validator | `variantvalidator.org` | `hgvs_c` | transcript + codingChange |
+| `franklin` | Franklin (Genoox) | `franklin.genoox.com` | `custom` | coords (chrom+pos+ref+alt) **or** gene |
+| `oncokb` | OncoKB | `oncokb.org` | `custom` | coords (chrom+pos+ref+alt) **or** gene |
 
 ### 2.2 Optional Clinical Presets (`CLINICAL_PRESETS`)
 
-Three additional portals available as opt-in add-ons (wired to Settings in a future release):
+Two additional portals available as opt-in add-ons (wired to Settings in a future release):
 
 | Name | Domain | Format |
 |------|--------|--------|
 | GE PanelApp | `panelapp.genomicsengland.co.uk` | `custom` |
 | DECIPHER Genomics | `deciphergenomics.org` | `custom` |
-| Franklin Genoox | `franklin.genoox.com` | `hgvs_c` |
 
 ### 2.3 Missing-Data Validation
 
@@ -144,6 +161,8 @@ Before any URL is built, `getMissingDataReason()` checks format requirements:
 | `coordinate` | chromosome + position must be present |
 | `hgvs_c` | transcript + codingChange must be present |
 | `custom` | No data required (raw input passed through) |
+
+Platforms may additionally declare `dataRequirements`, which is evaluated before the format table: `coordsOrGene` (Franklin and OncoKB — real coordinates or a gene symbol; OncoKB sets `allelesOptional` so structural shorthand such as `16:g.5145601_5151200del` qualifies without explicit ref/alt). OncoKB builds its HGVSg route (`/hgvsg/{chrom}:g.…?refGenome=…`) when the input is genomic, and falls back to gene/alteration pages for protein or coding inputs.
 
 If the check fails, `buildPlatformUrl()` returns `null` and the button is disabled with a tooltip explaining what is missing.
 
@@ -162,6 +181,11 @@ If the check fails, `buildPlatformUrl()` returns `null` and the button is disabl
 | `{{c}}` | Full HGVSc string (`transcript:c.change`) |
 | `{{p}}` | Protein change (`p.XxxNNYyy`) |
 | `{{transcript}}` | Transcript accession |
+| `{{gene}}` | Resolved gene symbol (input or enrichment) |
+| `{{hg}}` | Franklin build parameter: `38` or `19` |
+| `{{db}}` | UCSC build (`hg38` / `hg19`) |
+| `{{dataset}}` | gnomAD dataset (`gnomad_r4` / `gnomad_r2_1`) |
+| `{{assembly}}` | SpliceAI assembly (`hg38` / `hg19`) |
 
 All user-derived placeholder values are percent-encoded via `encodeURIComponent`.
 
@@ -237,6 +261,8 @@ Security: same as XLS — all values escaped via `escapeHtml()`.
 | `spliceailookup.broadinstitute.org` | `input[id="search-box"]` |
 | `alphamissense.hegelab.org` | `input[id="search_input"]` |
 | `ncbi.nlm.nih.gov` | `input[name="term"]` or `input[id="term"]` |
+| `franklin.genoox.com` | First visible `input[placeholder*="Search"]`, `variant`, or `gene` |
+| `oncokb.org` | First visible `input[placeholder*="Search"]`, `gene`, or `alteration` |
 | Generic fallback | First visible `text` or `search` input |
 
 ### 5.2 SPA Compatibility

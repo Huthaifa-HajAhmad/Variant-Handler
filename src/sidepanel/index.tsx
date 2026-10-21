@@ -34,7 +34,7 @@ import HighlightedCoordinate from '../components/HighlightedCoordinate';
 
 import { useSidepanelStateSync } from './hooks/useSidepanelStateSync';
 import { useActiveTabIntegration } from './hooks/useActiveTabIntegration';
-import SidepanelAlertBanner from './components/SidepanelAlertBanner';
+import SidepanelAlertBanner from '../components/SidepanelAlertBanner';
 
 const ENRICHMENT_ENABLED_KEY = 'variantstream_live_enrichment_enabled';
 const GENOME_BUILD_KEY       = 'variantstream_genome_build';
@@ -78,7 +78,7 @@ export default function SidepanelView() {
     return localStorage.getItem('variantstream_clear_on_close') === 'true';
   });
 
-  const triggerAlert = useCallback((msg: string) => {
+  const triggerAlert = useCallback((msg: string, durationMs?: number) => {
     if (alertTimerRef.current) clearTimeout(alertTimerRef.current);
     if (alertHideTimerRef.current) clearTimeout(alertHideTimerRef.current);
 
@@ -86,7 +86,7 @@ export default function SidepanelView() {
     setAlertVisible(true);
 
     const isActionable = msg.includes('mismatch') || msg.includes('Did you mean:');
-    const duration = isActionable ? 30000 : 3000;
+    const duration = durationMs ?? (isActionable ? 30000 : 3000);
 
     alertTimerRef.current = setTimeout(() => {
       setAlertVisible(false);
@@ -158,6 +158,7 @@ export default function SidepanelView() {
     activeInput,
     enrichment,
     triggerAlert,
+    genomeBuild,
   });
 
   // Keyboard shortcuts (Alt+V, Alt+1..4, Alt+S, Esc)
@@ -291,22 +292,26 @@ export default function SidepanelView() {
 
       {/* Main View Area */}
       <main className="flex-grow flex flex-col overflow-y-auto p-3.5 gap-3">
-        <SidepanelAlertBanner
-          alertMsg={alertMsg}
-          alertVisible={alertVisible}
-          isLight={isLight}
-          onDismiss={() => {
-            setAlertVisible(false);
-            setTimeout(() => setAlertMsg(''), 300);
-          }}
-          onSelectSuggestion={(sug) => {
-            setActiveInput(sug);
-            setAlertVisible(false);
-            setTimeout(() => setAlertMsg(''), 300);
-          }}
-          onGenomeBuildChange={onGenomeBuildChange}
-          triggerAlert={triggerAlert}
-        />
+        {/* Notice banner — non-workbench tabs keep it at the top; the workbench
+            renders it in the free space below the Active Tab Automation card. */}
+        {activeNavTab !== 'workbench' && (
+          <SidepanelAlertBanner
+            alertMsg={alertMsg}
+            alertVisible={alertVisible}
+            isLight={isLight}
+            onDismiss={() => {
+              setAlertVisible(false);
+              setTimeout(() => setAlertMsg(''), 300);
+            }}
+            onSelectSuggestion={(sug) => {
+              setActiveInput(sug);
+              setAlertVisible(false);
+              setTimeout(() => setAlertMsg(''), 300);
+            }}
+            onGenomeBuildChange={onGenomeBuildChange}
+            triggerAlert={triggerAlert}
+          />
+        )}
 
         {/* TAB 1: WORKBENCH */}
         {activeNavTab === 'workbench' && (
@@ -331,6 +336,17 @@ export default function SidepanelView() {
             onHighlightInTab={handleHighlightInTab}
             activeTabUrl={activeTabUrl}
             onInstantLookup={handleInstantLookup}
+            alertMsg={alertMsg}
+            alertVisible={alertVisible}
+            onDismissAlert={() => {
+              setAlertVisible(false);
+              setTimeout(() => setAlertMsg(''), 300);
+            }}
+            onSelectSuggestion={(sug) => {
+              setActiveInput(sug);
+              setAlertVisible(false);
+              setTimeout(() => setAlertMsg(''), 300);
+            }}
           />
         )}
 

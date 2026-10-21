@@ -6,13 +6,14 @@
  */
 
 import { GenomeBuild, detectGenomeBuild } from '../utils/genomeBuild';
-import { lookupGeneSymbol, TRANSCRIPT_TO_GENE, GENE_TO_DEFAULT_TRANSCRIPT } from './geneSymbols';
+import { lookupGeneSymbol, TRANSCRIPT_TO_GENE, GENE_TO_DEFAULT_TRANSCRIPT, isCnvGeneSymbol } from './geneSymbols';
 import { PlatformAdapter, INITIAL_PLATFORMS, hasRealAllele, getMissingDataReason } from './platforms';
 import { buildPlatformUrl } from './urlBuilders';
 
 import { ParsedVariant, GenomicCoordinate } from './parsers/types';
 import { GENOMIC_REGEXES, CODING_TRANSCRIPT_REGEX, PROTEIN_REGEX } from './parsers/regexes';
 import { cleanChrom, computeEndPos, getFormattedVariant } from './parsers/formatters';
+import { extractTrailingAnnotation } from './parsers/annotations';
 
 export type { GenomeBuild };
 export type { PlatformAdapter };
@@ -44,6 +45,18 @@ export function parseVariant(input: string): ParsedVariant {
     return { raw, isValid: false, type: 'unknown', diagnostics: ['Empty input provided.'] };
   }
 
+  // ── 0. Trailing report annotations (VAF / allele fraction) ───────────────
+  // Oncology reports append context such as "(VAF 32%)". Strip it before the
+  // anchored notation batteries run, keeping the original in `raw`.
+  const annotation = extractTrailingAnnotation(raw);
+  const notation = annotation?.stripped ?? raw;
+  if (annotation) {
+    diagnostics.push(
+      `Extracted report annotation "${annotation.text}"` +
+      (annotation.vaf !== undefined ? ` (VAF ${annotation.vaf})` : ''),
+    );
+  }
+
   let isValid = false;
   let type: ParsedVariant['type'] = 'unknown';
   let chromosome: string | undefined;
@@ -54,6 +67,7 @@ export function parseVariant(input: string): ParsedVariant {
   let transcript: string | undefined;
   let codingChange: string | undefined;
   let proteinChange: string | undefined;
+  let copyNumberChange: 'Amplification' | 'Deletion' | undefined;
   let geneSymbol: string | undefined;
 
   const genomeBuild: GenomeBuild | undefined = detectGenomeBuild(raw) ?? undefined;
@@ -61,7 +75,7 @@ export function parseVariant(input: string): ParsedVariant {
 
   // ── 1. Genomic coordinate battery ────────────────────────────────────────
   for (let idx = 0; idx < GENOMIC_REGEXES.length; idx++) {
-    const match = raw.match(GENOMIC_REGEXES[idx]);
+    const match = notation.match(GENOMIC_REGEXES[idx]);
     if (match) {
       chromosome = cleanChrom(match[1]);
       position   = match[2];
@@ -121,7 +135,7 @@ export function parseVariant(input: string): ParsedVariant {
 
   // ── 2. HGVSc coding transcript ───────────────────────────────────────────
   if (!isValid) {
-    const codingMatch = raw.match(CODING_TRANSCRIPT_REGEX);
+    const codingMatch = notation.match(CODING_TRANSCRIPT_REGEX);
     if (codingMatch) {
       if (codingMatch[1]) {
         transcript = codingMatch[1];
@@ -204,7 +218,7 @@ export function parseVariant(input: string): ParsedVariant {
 
   // ── 3. HGVSp protein-only ────────────────────────────────────────────────
   if (!isValid) {
-    const pMatch = raw.match(PROTEIN_REGEX);
+    const pMatch = notation.match(PROTEIN_REGEX);
     if (pMatch) {
       if (pMatch[1]) {
         transcript = pMatch[1];
@@ -222,6 +236,24 @@ export function parseVariant(input: string): ParsedVariant {
       type    = transcript ? 'hybrid' : 'protein';
       diagnostics.push('Matched protein coordinate signature');
       diagnostics.push(`Extracted protein change: ${proteinChange}${transcript ? `, linked transcript: ${transcript}` : ''}`);
+    }
+  }
+
+  // ── 4. Copy-number shorthand (oncology) ─────────────────────────────────
+  // "ERBB2 amplification" / "MET deletion" → gene + OncoKB copy-number keyword.
+  if (!isValid) {
+    const cnvMatch = notation.match(/^([A-Za-z0-9_-]+)\s+(amplification|amplified|deletion|deleted)$/i);
+    if (cnvMatch) {
+      const candidate = cnvMatch[1].toUpperCase();
+      if (isCnvGeneSymbol(candidate)) {
+        geneSymbol = candidate;
+        const defaultTx = GENE_TO_DEFAULT_TRANSCRIPT[candidate];
+        if (defaultTx) transcript = defaultTx;
+        copyNumberChange = cnvMatch[2].toLowerCase().startsWith('amp') ? 'Amplification' : 'Deletion';
+        isValid = true;
+        type    = 'cnv';
+        diagnostics.push(`Matched copy-number shorthand: ${copyNumberChange} for gene ${geneSymbol}`);
+      }
     }
   }
 
@@ -246,8 +278,11 @@ export function parseVariant(input: string): ParsedVariant {
   return {
     raw, isValid, type, chromosome, position, endPosition, ref, alt,
     transcript, codingChange, proteinChange,
+    copyNumberChange,
     genomeBuild: genomeBuild,
     geneSymbol,
+    vaf: annotation?.vaf,
+    annotationText: annotation?.text,
     diagnostics,
   };
 }

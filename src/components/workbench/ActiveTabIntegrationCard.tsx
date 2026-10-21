@@ -1,6 +1,9 @@
 import React from 'react';
 import { Zap, Sparkles, Crosshair, FileInput } from 'lucide-react';
 
+/** Matches the domain itself or any subdomain, so `evil-oncokb.org` does not pass as `oncokb.org`. */
+const hostIs = (host: string, domain: string) => host === domain || host.endsWith(`.${domain}`);
+
 interface ActiveTabIntegrationCardProps {
   isLight: boolean;
   activeTabUrl?: string;
@@ -26,22 +29,31 @@ export default function ActiveTabIntegrationCard({
       const host = parsedUrl.hostname;
       const path = parsedUrl.pathname + parsedUrl.search;
 
-      if (host.includes('ncbi.nlm.nih.gov')) {
+      if (hostIs(host, 'franklin.genoox.com')) {
+        // Franklin's primary search is variant-first; gene pages switch to gene autofill.
+        if (path.includes('/gene/')) {
+          isAutofillGeneActive = true;
+        } else {
+          isAutofillVariantActive = true;
+        }
+      } else if (hostIs(host, 'oncokb.org')) {
         isAutofillGeneActive = true;
-      } else if (host.includes('alphamissense.hegelab.org')) {
+      } else if (hostIs(host, 'ncbi.nlm.nih.gov')) {
+        isAutofillGeneActive = true;
+      } else if (hostIs(host, 'alphamissense.hegelab.org')) {
         if (path.includes('/results') || path.includes('/hotspot')) {
           isHighlightActive = true;
         } else {
           isAutofillGeneActive = true;
         }
-      } else if (host.includes('gnomad.broadinstitute.org')) {
+      } else if (hostIs(host, 'gnomad.broadinstitute.org')) {
         const isTableContext = path.includes('/gene/') || path.includes('/variant/') || path.includes('/transcript/') || path.includes('/search');
         if (isTableContext) {
           isHighlightActive = true;
         } else {
           isAutofillVariantActive = true;
         }
-      } else if (host.includes('genome.ucsc.edu') || host.includes('spliceailookup.broadinstitute.org')) {
+      } else if (hostIs(host, 'genome.ucsc.edu') || hostIs(host, 'spliceailookup.broadinstitute.org')) {
         isAutofillVariantActive = true;
       }
     } catch (e) {

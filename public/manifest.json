@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Variant Handler",
-  "version": "1.5.0",
+  "version": "1.6.0",
   "description": "Stateful sidebar companion for rare disease genomic coordinate parsing and navigation.",
   "permissions": [
     "sidePanel",
@@ -17,6 +17,8 @@
     "*://*.ncbi.nlm.nih.gov/*",
     "*://mutalyzer.nl/*",
     "*://variantvalidator.org/*",
+    "*://franklin.genoox.com/*",
+    "*://*.oncokb.org/*",
     "*://myvariant.info/*",
     "*://rest.ensembl.org/*",
     "*://grch37.rest.ensembl.org/*",
@@ -62,7 +64,9 @@
         "*://alphamissense.hegelab.org/*",
         "*://*.ncbi.nlm.nih.gov/*",
         "*://mutalyzer.nl/*",
-        "*://variantvalidator.org/*"
+        "*://variantvalidator.org/*",
+        "*://franklin.genoox.com/*",
+        "*://*.oncokb.org/*"
       ],
       "js": [
         "assets/content.js"

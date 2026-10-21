@@ -9,6 +9,7 @@ This document outlines the development direction, upcoming features, and archite
 - [x] Multi-notation genomic parser (HGVSg, HGVSc, HGVSp, VCF dash/colon, hybrid strings).
 - [x] Layered live enrichment pipeline: UCSC Sequence API, MyVariant.info, NCBI ClinVar E-utilities direct, and Ensembl VEP.
 - [x] 8-platform launchpad with format translation (gnomAD, UCSC, SpliceAI, AlphaMissense, ClinVar, dbSNP, Mutalyzer, VariantValidator).
+- [x] Franklin (Genoox) and OncoKB integration — 10-platform launchpad, build-aware Franklin `hg` parameter, OncoKB alteration normalisation, VAF report-annotation parsing, and `GENE amplification/deletion` shorthand.
 - [x] In-page content script autofill on supported clinical portals.
 - [x] Multi-format export engine (TSV, styled Excel/XLS, HTML presentation deck).
 - [x] Session-scoped annotation caching and privacy controls.
@@ -38,7 +39,7 @@ This document outlines the development direction, upcoming features, and archite
 To keep the extension lightweight, secure, and maintainable, the following domains are explicitly **out of scope**:
 
 1. **Somatic / Oncology Workflows**:
-   - Variant Allele Frequency (VAF) calculations, tumor purity modeling, and somatic database integrations (e.g. COSMIC, OncoKB, cIViC) are not supported.
+   - VAF-driven interpretation, tumor purity modeling, and somatic database integrations (e.g. COSMIC, cIViC) remain unsupported. OncoKB and Franklin are supported as **launch targets**, trailing VAF annotations are parsed for display only, and `GENE amplification/deletion` resolves to an OncoKB lookup.
 2. **Direct Electronic Health Record (EHR / EMR) Integration**:
    - The extension operates strictly in-browser and will not implement direct EHR/LIMS writeback or proprietary patient database connectors.
 3. **Large Structural / Cytogenetic CNVs**:

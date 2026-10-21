@@ -21,7 +21,9 @@ import {
   getFormattedVariant,
 } from '../lib/parser';
 import { normaliseAlleles } from '../utils/normalize';
-import { detectGenomeBuild, ucscDb, gnomadDataset } from '../utils/genomeBuild';
+import { detectGenomeBuild, ucscDb, gnomadDataset, franklinHg } from '../utils/genomeBuild';
+import { formatOncokbAlteration } from '../lib/urlBuilders';
+import { extractTrailingAnnotation } from '../lib/parsers/annotations';
 
 // ── parseVariant — Genomic Coordinate Formats ─────────────────────────────────
 
@@ -888,6 +890,377 @@ describe('getFormattedVariant — genomic range normalization', () => {
   it('formats range deletion as coordinate range for custom format', () => {
     const p = parseVariant('Chr20:g.23364487-23364490del');
     expect(getFormattedVariant(p, 'custom')).toBe('chr20:23364487-23364490');
+  });
+});
+
+// ── Franklin + OncoKB: platform registry ─────────────────────────────────────
+
+describe('INITIAL_PLATFORMS — Franklin and OncoKB registration', () => {
+  it('registers 10 platforms with unique ids', () => {
+    expect(INITIAL_PLATFORMS).toHaveLength(10);
+    const ids = INITIAL_PLATFORMS.map((p) => p.id);
+    expect(new Set(ids).size).toBe(ids.length);
+    expect(ids).toContain('franklin');
+    expect(ids).toContain('oncokb');
+  });
+
+  it('declares capability requirements for the new platforms', () => {
+    const franklin = INITIAL_PLATFORMS.find((p) => p.id === 'franklin')!;
+    const oncokb = INITIAL_PLATFORMS.find((p) => p.id === 'oncokb')!;
+    expect(franklin.dataRequirements).toEqual({ coordsOrGene: true });
+    expect(oncokb.dataRequirements).toEqual({ coordsOrGene: true, allelesOptional: true });
+  });
+
+  it('uses {{hg}} (not {{assembly}}) in the Franklin template', () => {
+    const franklin = INITIAL_PLATFORMS.find((p) => p.id === 'franklin')!;
+    expect(franklin.urlTemplate).toContain('hg={{hg}}');
+    expect(franklin.urlTemplate).not.toContain('{{assembly}}');
+  });
+});
+
+// ── franklinHg — Franklin build parameter ────────────────────────────────────
+
+describe('franklinHg — Franklin build parameter', () => {
+  it('returns 38 for GRCh38', () => {
+    expect(franklinHg('GRCh38')).toBe('38');
+  });
+
+  it('returns 19 for GRCh37', () => {
+    expect(franklinHg('GRCh37')).toBe('19');
+  });
+});
+
+// ── formatOncokbAlteration — OncoKB alteration normalisation ─────────────────
+
+describe('formatOncokbAlteration — OncoKB alteration normalisation', () => {
+  it('converts three-letter substitutions to single-letter', () => {
+    expect(formatOncokbAlteration('p.Val600Glu')).toBe('V600E');
+    expect(formatOncokbAlteration('Val600Glu')).toBe('V600E');
+  });
+
+  it('leaves single-letter substitutions unchanged', () => {
+    expect(formatOncokbAlteration('p.V600E')).toBe('V600E');
+  });
+
+  it('normalises three-letter deletions', () => {
+    expect(formatOncokbAlteration('p.Phe508del')).toBe('F508del');
+  });
+
+  it('normalises stop codons (Ter and *) to *', () => {
+    expect(formatOncokbAlteration('p.Arg54Ter')).toBe('R54*');
+    expect(formatOncokbAlteration('p.Arg54*')).toBe('R54*');
+  });
+
+  it('strips predicted-change parentheses', () => {
+    expect(formatOncokbAlteration('p.(Arg408Trp)')).toBe('R408W');
+  });
+
+  it('passes copy-number keywords through unchanged', () => {
+    expect(formatOncokbAlteration('Amplification')).toBe('Amplification');
+    expect(formatOncokbAlteration('Deletion')).toBe('Deletion');
+  });
+
+  it('returns null without a protein change', () => {
+    expect(formatOncokbAlteration(undefined)).toBeNull();
+    expect(formatOncokbAlteration('')).toBeNull();
+  });
+
+  it('converts residues across ranges and delins events', () => {
+    expect(formatOncokbAlteration('p.Glu746_Ala750del')).toBe('E746_A750del');
+    expect(formatOncokbAlteration('p.Val600_Lys601delinsGlu')).toBe('V600_K601delinsE');
+  });
+});
+
+// ── franklinBuilder — URL construction ───────────────────────────────────────
+
+describe('franklinBuilder — URL construction', () => {
+  const franklin = INITIAL_PLATFORMS.find((p) => p.id === 'franklin')!;
+
+  it('builds the SNP URL for GRCh38 with hg=38', () => {
+    const r = parseVariant('chr7:g.140753336A>T');
+    const url = buildPlatformUrl(r, franklin, 'GRCh38');
+    expect(url).toBe('https://franklin.genoox.com/clinical-db/variant/snp/chr7-140753336-A-T?hg=38');
+  });
+
+  it('builds the SNP URL for GRCh37 with hg=19', () => {
+    const r = parseVariant('chr7:g.140753336A>T');
+    const url = buildPlatformUrl(r, franklin, 'GRCh37');
+    expect(url).toBe('https://franklin.genoox.com/clinical-db/variant/snp/chr7-140753336-A-T?hg=19');
+  });
+
+  it('falls back to the gene page for gene-only input', () => {
+    const r = parseVariant('BRAF');
+    const url = buildPlatformUrl(r, franklin);
+    expect(url).toBe('https://franklin.genoox.com/clinical-db/gene/BRAF');
+  });
+
+  it('uses enrichment gene symbol when the input has coordinates only', () => {
+    const r = parseVariant('chr7:140453136');
+    const url = buildPlatformUrl(r, franklin, 'GRCh38', { geneSymbol: 'BRAF' });
+    expect(url).toBe('https://franklin.genoox.com/clinical-db/gene/BRAF');
+  });
+
+  it('normalises redundant indel alleles before building the SNP URL', () => {
+    const r = parseVariant('chr7:g.140453136CTT>CT');
+    const url = buildPlatformUrl(r, franklin, 'GRCh38');
+    expect(url).toContain('/snp/chr7-140453137-TT-T?hg=38');
+  });
+
+  it('refuses a SNP URL for pure insertions without a gene (no real ref allele)', () => {
+    const r = parseVariant('chr7:g.140453136_140453137insA');
+    expect(getMissingDataReason(r, franklin)).toMatch(/coordinates or gene/i);
+    expect(buildPlatformUrl(r, franklin)).toBeNull();
+  });
+});
+
+// ── oncokbBuilder — URL construction ─────────────────────────────────────────
+
+describe('oncokbBuilder — URL construction', () => {
+  const oncokb = INITIAL_PLATFORMS.find((p) => p.id === 'oncokb')!;
+
+  it('builds gene + single-letter alteration URL', () => {
+    const r = parseVariant('BRAF V600E');
+    expect(buildPlatformUrl(r, oncokb)).toBe('https://www.oncokb.org/gene/BRAF/V600E');
+  });
+
+  it('normalises three-letter alterations in the URL', () => {
+    const r = parseVariant('BRAF p.Val600Glu');
+    expect(buildPlatformUrl(r, oncokb)).toBe('https://www.oncokb.org/gene/BRAF/V600E');
+  });
+
+  it('builds the gene page when only a transcript/coding change is available', () => {
+    const r = parseVariant('NM_004333.4:c.1799T>A');
+    expect(buildPlatformUrl(r, oncokb)).toBe('https://www.oncokb.org/gene/BRAF');
+  });
+
+  it('routes truncating alterations to the gene page', () => {
+    // Gate D6: OncoKB is an SPA and its alteration API requires auth, so
+    // per-codon truncating pages could not be verified. OncoKB groups
+    // truncating changes under "Truncating Mutations" — the gene page is
+    // always valid, so we never deep-link to a likely-empty page.
+    const r = parseVariant('BRAF p.Arg54Ter');
+    expect(buildPlatformUrl(r, oncokb)).toBe('https://www.oncokb.org/gene/BRAF');
+  });
+
+  it('routes frameshift alterations to the gene page', () => {
+    const r = parseVariant('BRAF p.Ser84LysfsTer4');
+    expect(buildPlatformUrl(r, oncokb)).toBe('https://www.oncokb.org/gene/BRAF');
+  });
+
+  it('deep-links amplification but keeps deletion at gene level', () => {
+    expect(buildPlatformUrl(parseVariant('ERBB2 amplification'), oncokb))
+      .toBe('https://www.oncokb.org/gene/ERBB2/Amplification');
+    // OncoKB deletion naming varies by gene ("Exon 19 Deletion" for EGFR),
+    // so the always-valid gene page is used instead.
+    expect(buildPlatformUrl(parseVariant('EGFR deletion'), oncokb))
+      .toBe('https://www.oncokb.org/gene/EGFR');
+  });
+
+  it('uses the HGVSg route for coordinate input (GRCh38)', () => {
+    const r = parseVariant('chr7:g.140753336A>T');
+    expect(buildPlatformUrl(r, oncokb, 'GRCh38'))
+      .toBe('https://www.oncokb.org/hgvsg/7:g.140753336A>T?refGenome=GRCh38');
+  });
+
+  it('uses the HGVSg route with refGenome=GRCh37 for GRCh37', () => {
+    const r = parseVariant('chr7:g.140753336A>T');
+    expect(buildPlatformUrl(r, oncokb, 'GRCh37'))
+      .toBe('https://www.oncokb.org/hgvsg/7:g.140753336A>T?refGenome=GRCh37');
+  });
+
+  it('uses the HGVSg route when only coordinates are supplied', () => {
+    const r = parseVariant('chr7:140453136A>T');
+    expect(buildPlatformUrl(r, oncokb))
+      .toBe('https://www.oncokb.org/hgvsg/7:g.140453136A>T?refGenome=GRCh38');
+  });
+
+  it('uses the HGVSg route for structural deletions', () => {
+    const r = parseVariant('Chr16(GRCh38):g.5145601_5151200del');
+    expect(buildPlatformUrl(r, oncokb))
+      .toBe('https://www.oncokb.org/hgvsg/16:g.5145601_5151200del?refGenome=GRCh38');
+  });
+
+  it('prefers the protein route over enrichment-resolved coordinates', () => {
+    const r = parseVariant('BRAF V600E');
+    const enrichment = { geneSymbol: 'BRAF', hgvsg: 'chr7:g.140453136A>T' };
+    expect(buildPlatformUrl(r, oncokb, 'GRCh38', enrichment))
+      .toBe('https://www.oncokb.org/gene/BRAF/V600E');
+  });
+});
+
+// ── getMissingDataReason — capability requirements ──────────────────────────
+
+describe('getMissingDataReason — Franklin/OncoKB capability requirements', () => {
+  const franklin = INITIAL_PLATFORMS.find((p) => p.id === 'franklin')!;
+  const oncokb = INITIAL_PLATFORMS.find((p) => p.id === 'oncokb')!;
+
+  it('Franklin is enabled with coordinates', () => {
+    expect(getMissingDataReason(parseVariant('chr7:140453136A>T'), franklin)).toBeNull();
+  });
+
+  it('Franklin is enabled with a gene symbol only', () => {
+    expect(getMissingDataReason(parseVariant('BRAF'), franklin)).toBeNull();
+  });
+
+  it('Franklin is disabled without coordinates or gene', () => {
+    expect(getMissingDataReason(parseVariant('not a variant'), franklin))
+      .toMatch(/coordinates or gene/i);
+  });
+
+  it('OncoKB is enabled with a gene symbol or with coordinates', () => {
+    expect(getMissingDataReason(parseVariant('BRAF'), oncokb)).toBeNull();
+    expect(getMissingDataReason(parseVariant('chr7:140453136A>T'), oncokb)).toBeNull();
+    expect(getMissingDataReason(parseVariant('not a variant'), oncokb))
+      .toMatch(/coordinates or gene/i);
+  });
+
+  it('OncoKB accepts a gene symbol resolved from enrichment', () => {
+    const r = parseVariant('chr7:140453136A>T');
+    expect(getMissingDataReason(r, oncokb, { geneSymbol: 'BRAF' })).toBeNull();
+  });
+});
+
+// ── parseVariant — report annotations (VAF) ─────────────────────────────────
+
+describe('parseVariant — report annotations (VAF)', () => {
+  it('parses a coding variant with a percentage VAF suffix', () => {
+    const r = parseVariant('NM_004333.4:c.1799T>A (VAF 32%)');
+    expect(r.isValid).toBe(true);
+    expect(r.transcript).toBe('NM_004333.4');
+    expect(r.codingChange).toBe('c.1799T>A');
+    expect(r.geneSymbol).toBe('BRAF');
+    expect(r.vaf).toBeCloseTo(0.32);
+    expect(r.annotationText).toBe('VAF 32%');
+  });
+
+  it('parses a protein variant with a fractional AF and T/N context', () => {
+    const r = parseVariant('BRAF V600E (AF 0.45, T/N)');
+    expect(r.isValid).toBe(true);
+    expect(r.geneSymbol).toBe('BRAF');
+    expect(r.proteinChange).toBe('p.V600E');
+    expect(r.vaf).toBeCloseTo(0.45);
+    expect(r.annotationText).toBe('AF 0.45, T/N');
+  });
+
+  it('leaves plain inputs without annotations unchanged', () => {
+    const r = parseVariant('NM_004333.4:c.1799T>A');
+    expect(r.isValid).toBe(true);
+    expect(r.vaf).toBeUndefined();
+    expect(r.annotationText).toBeUndefined();
+  });
+
+  it('does not strip predicted protein-change parentheses', () => {
+    const r = parseVariant('PAH p.(Arg408Trp)');
+    expect(r.isValid).toBe(true);
+    expect(r.proteinChange).toBe('p.(Arg408Trp)');
+    expect(r.annotationText).toBeUndefined();
+  });
+
+  it('does not strip build annotations', () => {
+    const r = parseVariant('chrX:g.77989236C>G (GRCh38)');
+    expect(r.isValid).toBe(true);
+    expect(r.genomeBuild).toBe('GRCh38');
+    expect(r.annotationText).toBeUndefined();
+  });
+});
+
+// ── parseVariant — copy-number shorthand (oncology) ─────────────────────────
+
+describe('parseVariant — copy-number shorthand (oncology)', () => {
+  it('parses a recognized amplification', () => {
+    const r = parseVariant('ERBB2 amplification');
+    expect(r.isValid).toBe(true);
+    expect(r.type).toBe('cnv');
+    expect(r.geneSymbol).toBe('ERBB2');
+    expect(r.copyNumberChange).toBe('Amplification');
+    expect(r.proteinChange).toBeUndefined();
+    expect(r.transcript).toBeUndefined(); // no curated default transcript
+  });
+
+  it('parses a recognized deletion and backfills a known transcript', () => {
+    const r = parseVariant('EGFR deletion');
+    expect(r.isValid).toBe(true);
+    expect(r.geneSymbol).toBe('EGFR');
+    expect(r.copyNumberChange).toBe('Deletion');
+    expect(r.transcript).toBe('NM_005228');
+  });
+
+  it('accepts adjective forms', () => {
+    expect(parseVariant('MET amplified').copyNumberChange).toBe('Amplification');
+    expect(parseVariant('MET deleted').copyNumberChange).toBe('Deletion');
+  });
+
+  it('rejects an unrecognized gene token', () => {
+    expect(parseVariant('bogus amplification').isValid).toBe(false);
+  });
+
+  it('does not treat fusions as copy-number shorthand (out of scope)', () => {
+    const r = parseVariant('EML4-ALK fusion');
+    expect(r.isValid).toBe(false);
+  });
+
+  it('does not accept a fusion pair even when one partner is a CNV gene', () => {
+    expect(parseVariant('EML4-ALK amplification').isValid).toBe(false);
+  });
+});
+
+// ── extractTrailingAnnotation — report-annotation guards ─────────────────────
+
+describe('extractTrailingAnnotation — report-annotation guards', () => {
+  it('reads a VAF percentage as a 0–1 fraction', () => {
+    expect(extractTrailingAnnotation('NM_004333.4:c.1799T>A (VAF 32%)')?.vaf).toBeCloseTo(0.32);
+    expect(extractTrailingAnnotation('BRAF V600E (VAF 100%)')?.vaf).toBe(1);
+  });
+
+  it('rejects percentages above 100', () => {
+    expect(extractTrailingAnnotation('BRAF V600E (VAF 150%)')?.vaf).toBeUndefined();
+    expect(extractTrailingAnnotation('BRAF V600E (VAF 5000%)')?.vaf).toBeUndefined();
+  });
+
+  it('does not truncate multi-digit or exponent fractions', () => {
+    expect(extractTrailingAnnotation('BRAF V600E (AF 10)')?.vaf).toBeUndefined();
+    expect(extractTrailingAnnotation('chr1:123 A>G (AF 1e-5)')?.vaf).toBeUndefined();
+  });
+
+  it('accepts a fraction with trailing report context', () => {
+    expect(extractTrailingAnnotation('chr1:123 A>G (AF 0.45, T/N)')?.vaf).toBe(0.45);
+  });
+
+  it('strips a keyword-only annotation without a numeric VAF', () => {
+    const r = extractTrailingAnnotation('BRAF V600E (tumor)');
+    expect(r?.stripped).toBe('BRAF V600E');
+    expect(r?.vaf).toBeUndefined();
+  });
+
+  it('returns null when the annotation would leave no variant behind', () => {
+    expect(extractTrailingAnnotation('(VAF 32%)')).toBeNull();
+  });
+});
+
+// ── oncokbBuilder / franklinBuilder — routing and allele guards ──────────────
+
+describe('oncokbBuilder — deep-link routing', () => {
+  const oncokb = INITIAL_PLATFORMS.find((p) => p.id === 'oncokb')!;
+
+  it('deep-links an in-frame deletion to its one-letter slug', () => {
+    const r = parseVariant('CFTR p.Phe508del');
+    expect(buildPlatformUrl(r, oncokb)).toBe('https://www.oncokb.org/gene/CFTR/F508del');
+  });
+
+  it('routes a truncating change to the gene page', () => {
+    const r = parseVariant('BRAF p.Arg54Ter');
+    expect(buildPlatformUrl(r, oncokb)).toBe('https://www.oncokb.org/gene/BRAF');
+  });
+});
+
+describe('franklinBuilder — allele guard', () => {
+  const franklin = INITIAL_PLATFORMS.find((p) => p.id === 'franklin')!;
+
+  it('does not build a SNP URL from an N allele', () => {
+    const r = { ...parseVariant('chr7:g.140753336A>T'), ref: 'N' };
+    expect(buildPlatformUrl(r, franklin, 'GRCh38', { geneSymbol: 'BRAF' })).toBe(
+      'https://franklin.genoox.com/clinical-db/gene/BRAF',
+    );
   });
 });
 

@@ -2,7 +2,7 @@
 
 > A candid technical inventory of what the extension cannot currently do, why, and the engineering effort needed to address each gap. Intended for users, contributors, and stakeholders evaluating the tool for clinical or research workflows.
 
-> **Scope note:** Variant Handler targets **rare-disease (germline) genomics**. It is **not** designed for somatic/oncology workflows (no VAF, no COSMIC/OncoKB integration — see Section 3) and does **not** support copy-number variants (see §1.1). See the "Scope & Intended Use" section of the top-level [README](../README.md) for the supported variant-class matrix.
+> **Scope note:** Variant Handler targets **rare-disease (germline) genomics** as its primary use case. It does **not** perform somatic calling or VAF-based analysis (no tumor purity/TMB/MSI; no COSMIC/cIViC integration — see Section 3) and does **not** support structural copy-number variants (see §1.1). The latest release also supports oncology lookups (Franklin/OncoKB launch buttons, trailing VAF-annotation parsing, `GENE amplification/deletion` shorthand). See the "Scope & Intended Use" section of the top-level [README](../README.md) for the supported variant-class matrix.
 
 ---
 
@@ -76,7 +76,7 @@ ClinVar significance/review now come **directly** from NCBI E-utilities (R2), wh
 ### 3.5 Cache Refresh
 Enrichment results are cached for **24 hours**. The cache now lives in **`chrome.storage.session`** (R4) — in-memory, cleared when the browser closes — rather than `localStorage`. A "Force refresh live annotations" button (the circular arrow in the Variant Details header) bypasses the cache for the active variant. Settings → Data Retention & Privacy offers a "Clear all stored data" action that also clears the cache.
 
-> **Somatic / oncology variants are out of scope** — see the README "Scope & Intended Use" section. MyVariant + ClinVar direct are germline-curated; no COSMIC / OncoKB / cIViC integration exists. (The former §3.6 "Somatic Variants — Poor Coverage" is superseded by the scope statement.)
+> **Somatic calling is out of scope** — see the README "Scope & Intended Use" section. MyVariant + ClinVar direct are germline-curated; there is no COSMIC or cIViC integration. The latest release makes OncoKB and Franklin available as **launch targets** (therapeutic-actionability lookups), a trailing `(VAF 32%)` annotation is parsed for display only, and `GENE amplification/deletion` resolves to a copy-number keyword — none of which performs somatic calling or VAF-based interpretation. (The former §3.6 "Somatic Variants — Poor Coverage" is superseded by the scope statement.)
 
 ---
 
@@ -164,8 +164,8 @@ There are two separate ways variant data is transmitted, and they differ in *whe
 
 | Area | Limitation | Severity |
 |---|---|---|
-| Scope | Rare-disease/germline focus; not a somatic/oncology tool (no VAF, no COSMIC/OncoKB) | High (by use case) |
-| Parser | No CNVs, translocations, RNA-level notation, multi-allelic, or colloquial shorthand | High |
+| Scope | Germline-first; no somatic calling / VAF interpretation / TMB or MSI (OncoKB & Franklin lookups and VAF display are supported in the latest release) | High (by use case) |
+| Parser | No cytogenetic/structural CNVs, translocations, RNA-level notation, or multi-allelic notation (copy-number shorthand is limited to the curated gene set) | High |
 | Normalisation | Left-alignment only when Live Enrichment ON (VEP hgvsg); trim-only when OFF | Medium |
 | Enrichment | Layered (MyVariant→ClinVar direct→Ensembl); no gnomAD direct API; 3 req/sec NCBI limit | Medium |
 | Build detection | Heuristic matching; liftover during enrichment; bounds validator when OFF; alternative-build sequence mismatch validator | Medium |

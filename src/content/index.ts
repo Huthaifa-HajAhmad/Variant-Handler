@@ -4,6 +4,7 @@
  * host page DOMs with visual buttons.
  */
 import { parseVariant, ParsedVariant, hasRealAllele, parseGenomicHgvs } from '../lib/parser';
+import { AMINO_ACID_3_TO_1 } from '../lib/aminoAcids';
 
 let isClearFiltersPending = false;
 
@@ -54,10 +55,24 @@ function showNotification(message: string, isError = false): void {
   setTimeout(dismiss, 4000);
 }
 
+/**
+ * Robust visibility check. `offsetParent` returns null for elements inside
+ * `position: fixed` containers (e.g. OncoKB's header search), so client
+ * rects are used instead.
+ */
+function isElementVisible(el: HTMLElement): boolean {
+  if ((el as HTMLInputElement).type === 'hidden') return false;
+  const style = window.getComputedStyle(el);
+  if (style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0' || style.pointerEvents === 'none') return false;
+  if (el.getClientRects().length === 0) return false;
+  const rect = el.getBoundingClientRect();
+  return rect.width > 0 && rect.height > 0;
+}
+
 function findVisibleInput(selector: string): HTMLInputElement | null {
   const elements = Array.from(document.querySelectorAll(selector)) as HTMLInputElement[];
   if (elements.length === 0) return null;
-  const visible = elements.find(el => el.offsetParent !== null && el.type !== 'hidden');
+  const visible = elements.find(isElementVisible);
   if (visible) return visible;
   return elements.find(el => el.type !== 'hidden') || elements[0];
 }
@@ -195,15 +210,7 @@ function findSearchInputs(): HTMLInputElement[] {
 
   if (hostname.includes('gnomad.broadinstitute.org')) {
     const elements = Array.from(document.querySelectorAll('input[placeholder*="Search"]')) as HTMLInputElement[];
-    return elements.filter(el => {
-      const style = window.getComputedStyle(el);
-      return el.offsetParent !== null &&
-             style.display !== 'none' &&
-             style.visibility !== 'hidden' &&
-             style.opacity !== '0' &&
-             style.pointerEvents !== 'none' &&
-             el.offsetWidth > 50;
-    });
+    return elements.filter(el => isElementVisible(el) && el.getBoundingClientRect().width > 50);
   }
   if (hostname.includes('genome.ucsc.edu')) {
     const el = (document.getElementById('positionInput') as HTMLInputElement | null)
@@ -220,6 +227,41 @@ function findSearchInputs(): HTMLInputElement[] {
                findVisibleInput('input[id="identifier"]') || 
                findVisibleInput('input[id="uniprot_id"]');
     return el ? [el] : [];
+  }
+  if (hostname.includes('franklin.genoox.com')) {
+    const selectors = [
+      'input[placeholder*="Search"]',
+      'input[placeholder*="search"]',
+      'input[placeholder*="variant"]',
+      'input[placeholder*="Variant"]',
+      'input[placeholder*="gene"]',
+      'input[type="search"]',
+    ];
+    for (const selector of selectors) {
+      const el = findVisibleInput(selector);
+      if (el) return [el];
+    }
+  }
+  if (hostname.includes('oncokb.org')) {
+    const selectors = [
+      'input[placeholder*="Search"]',
+      'input[placeholder*="search"]',
+      'input[id*="search" i]',
+      'input[placeholder*="gene"]',
+      'input[placeholder*="alteration"]',
+      'input.form-control',
+      'input[type="search"]',
+    ];
+    for (const selector of selectors) {
+      const el = findVisibleInput(selector);
+      if (el) return [el];
+    }
+    // OncoKB's search is a react-select: its <input> carries no `type` and no
+    // `placeholder` attribute (the placeholder is a sibling div), so none of
+    // the selectors above match it. Fall back to any visible input.
+    const anyInput = Array.from(document.querySelectorAll('input'))
+      .find(el => isElementVisible(el) && el.getBoundingClientRect().width > 50);
+    return anyInput ? [anyInput] : [];
   }
   if (hostname.includes('ncbi.nlm.nih.gov')) {
     const selectors = [
@@ -238,25 +280,117 @@ function findSearchInputs(): HTMLInputElement[] {
   }
 
   const inputs = Array.from(document.querySelectorAll('input[type="text"], input[type="search"]')) as HTMLInputElement[];
-  const visible = inputs.find(input => {
-    const style = window.getComputedStyle(input);
-    return input.offsetParent !== null &&
-           style.display !== 'none' &&
-           style.visibility !== 'hidden' &&
-           style.opacity !== '0' &&
-           style.pointerEvents !== 'none' &&
-           input.offsetWidth > 50;
-  });
+  const visible = inputs.find(input => isElementVisible(input) && input.getBoundingClientRect().width > 50);
   return visible ? [visible] : [];
 }
 
-const AMINO_ACID_MAP: Record<string, string> = {
-  Ala: 'A', Arg: 'R', Asn: 'N', Asp: 'D', Cys: 'C',
-  Gln: 'Q', Glu: 'E', Gly: 'G', His: 'H', Ile: 'I',
-  Leu: 'L', Lys: 'K', Met: 'M', Phe: 'F', Pro: 'P',
-  Ser: 'S', Thr: 'T', Trp: 'W', Tyr: 'Y', Val: 'V',
-  Ter: '*', Stop: '*', X: 'X'
-};
+/** Sets an input's value with the native setter so React/Angular register the change. */
+function setNativeInputValue(inputEl: HTMLInputElement, value: string): void {
+  const nativeSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')?.set;
+  if (nativeSetter) {
+    nativeSetter.call(inputEl, value);
+  } else {
+    inputEl.value = value;
+  }
+  inputEl.dispatchEvent(new Event('input', { bubbles: true }));
+  inputEl.dispatchEvent(new Event('change', { bubbles: true }));
+}
+
+/** Reports autofill progress to the sidepanel (shown as a notice-banner). */
+function notifyAutofillProgress(message: string): void {
+  try {
+    chrome.runtime.sendMessage({ type: 'AUTOFILL_PROGRESS', message });
+  } catch { /* sidepanel closed — progress is best-effort */ }
+}
+
+function siteLabel(): string {
+  const host = window.location.hostname;
+  if (host.includes('oncokb.org')) return 'OncoKB';
+  if (host.includes('franklin.genoox.com')) return 'Franklin';
+  if (host.includes('gnomad.broadinstitute.org')) return 'gnomAD';
+  if (host.includes('genome.ucsc.edu')) return 'UCSC';
+  return host;
+}
+
+/**
+ * Runs `onSuccess` with the first matching search input, retrying for up to
+ * ~9 s while SPAs (OncoKB, Franklin) render their search box. Reports progress
+ * to the sidepanel so the user is never left waiting without feedback.
+ */
+function withSearchInput(
+  pick: () => HTMLInputElement | undefined | null,
+  onSuccess: (inputEl: HTMLInputElement) => void,
+  onFailure: () => void,
+  attemptNo = 0,
+): void {
+  const inputEl = pick();
+  if (inputEl) {
+    onSuccess(inputEl);
+    return;
+  }
+  if (attemptNo === 1) {
+    notifyAutofillProgress(`Looking for the ${siteLabel()} search box…`);
+  } else if (attemptNo === 9) {
+    notifyAutofillProgress(`Still waiting for ${siteLabel()} to finish loading…`);
+  }
+  if (attemptNo < 29) {
+    setTimeout(() => withSearchInput(pick, onSuccess, onFailure, attemptNo + 1), 300);
+    return;
+  }
+  onFailure();
+}
+
+/** Domain-aware failure message when no search input could be found at all. */
+function noSearchInputError(): string {
+  if (window.location.hostname.includes('oncokb.org') && window.location.pathname.startsWith('/gene/')) {
+    return 'OncoKB gene pages have no search box — use the Launchpad button to open this variant directly.';
+  }
+  return 'No active search input box found on the page.';
+}
+
+/**
+ * Franklin keeps its reference-build dropdown (an Angular Material
+ * `mat-select` with hg19/hg38 options) and reads the last choice from
+ * localStorage (`lastHGValue`) at page init. Persist the variant's build,
+ * then try to switch the open dropdown live.
+ */
+function setFranklinAssembly(genomeBuild: string): void {
+  const target = genomeBuild === 'GRCh37' ? 'hg19' : 'hg38';
+  try {
+    localStorage.setItem('lastHGValue', target);
+  } catch { /* storage unavailable — fall through to the live switch */ }
+
+  try {
+    const trigger = Array.from(document.querySelectorAll<HTMLElement>('mat-select, [role="combobox"]'))
+      .find(el => /hg19|hg38/i.test(el.textContent ?? ''));
+    if (!trigger) return;
+
+    trigger.click();
+    const pickOption = (attempts: number): void => {
+      const options = Array.from(document.querySelectorAll<HTMLElement>('mat-option, [role="option"]'));
+      const match = options.find(o => (o.textContent ?? '').trim().toLowerCase() === target);
+      if (match) {
+        match.click();
+        return;
+      }
+      if (attempts >= 12) {
+        // Panel never opened (or option missing) — close it if it did.
+        document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+        return;
+      }
+      setTimeout(() => pickOption(attempts + 1), 150);
+    };
+    setTimeout(() => pickOption(0), 150);
+  } catch (err) {
+    console.warn('[VariantHandler] Franklin reference-build switch failed:', err);
+  }
+}
+
+function maybeSetFranklinAssembly(genomeBuild?: string): void {
+  if (!genomeBuild) return;
+  if (!window.location.hostname.includes('franklin.genoox.com')) return;
+  setFranklinAssembly(genomeBuild);
+}
 
 function convert3To1Letter(proteinChange: string): string | null {
   const match = proteinChange.match(/^p\.([A-Z][a-z]{2})(\d+)([A-Z][a-z]{2})$/i);
@@ -264,8 +398,8 @@ function convert3To1Letter(proteinChange: string): string | null {
     const aa1 = match[1];
     const pos = match[2];
     const aa2 = match[3];
-    const a1 = AMINO_ACID_MAP[aa1.charAt(0).toUpperCase() + aa1.slice(1).toLowerCase()];
-    const a2 = AMINO_ACID_MAP[aa2.charAt(0).toUpperCase() + aa2.slice(1).toLowerCase()];
+    const a1 = AMINO_ACID_3_TO_1[aa1.charAt(0).toUpperCase() + aa1.slice(1).toLowerCase()];
+    const a2 = AMINO_ACID_3_TO_1[aa2.charAt(0).toUpperCase() + aa2.slice(1).toLowerCase()];
     if (a1 && a2) {
       return `p.${a1}${pos}${a2}`;
     }
@@ -343,148 +477,136 @@ function findAndHighlightProteinChange(proteinChange: string): boolean {
 if (isContextValid()) {
   chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     if (message.type === 'AUTOFILL_VARIANT') {
-      const inputs = findSearchInputs();
-      const clinVar = findClinVarInputs();
-      const inputEl = clinVar.variant || inputs[0];
-      if (!inputEl) {
-        sendResponse({ success: false, error: 'No active search input box found on the page.' });
-        return;
-      }
-      const formatted = message.value;
-      try {
-        if (window.location.hostname.includes('ncbi.nlm.nih.gov')) {
-          const hasTerm = new URLSearchParams(window.location.search).has('term');
-          if (hasTerm) {
-            const clearBtn = findClinVarClearAllFiltersButton();
-            if (clearBtn) {
-              sessionStorage.setItem('vh_pending_autofill', JSON.stringify({
-                type: 'variant',
-                value: formatted,
-                timestamp: Date.now()
-              }));
-              clearBtn.click();
-              sendResponse({ success: true });
-              return;
+      withSearchInput(
+        () => findClinVarInputs().variant || findSearchInputs()[0],
+        (inputEl) => {
+          const formatted = message.value;
+          try {
+            if (window.location.hostname.includes('ncbi.nlm.nih.gov')) {
+              const hasTerm = new URLSearchParams(window.location.search).has('term');
+              if (hasTerm) {
+                const clearBtn = findClinVarClearAllFiltersButton();
+                if (clearBtn) {
+                  sessionStorage.setItem('vh_pending_autofill', JSON.stringify({
+                    type: 'variant',
+                    value: formatted,
+                    timestamp: Date.now()
+                  }));
+                  clearBtn.click();
+                  sendResponse({ success: true });
+                  return;
+                }
+              }
             }
-          }
-        }
 
-        const isUCSC = window.location.hostname.includes('genome.ucsc.edu');
-        if (isUCSC) {
-          const posInput = (
-            document.getElementById('positionInput') ??
-            document.querySelector<HTMLInputElement>('input[name="hgt.positionInput"]')
-          ) as HTMLInputElement | null;
+            const isUCSC = window.location.hostname.includes('genome.ucsc.edu');
+            if (isUCSC) {
+              const posInput = (
+                document.getElementById('positionInput') ??
+                document.querySelector<HTMLInputElement>('input[name="hgt.positionInput"]')
+              ) as HTMLInputElement | null;
 
-          if (posInput) {
-            posInput.value = formatted;
-            posInput.dispatchEvent(new Event('input', { bubbles: true }));
-            posInput.dispatchEvent(new Event('change', { bubbles: true }));
-          }
+              if (posInput) {
+                posInput.value = formatted;
+                posInput.dispatchEvent(new Event('input', { bubbles: true }));
+                posInput.dispatchEvent(new Event('change', { bubbles: true }));
+              }
 
-          const trySubmit = () => {
-            const goById = document.getElementById('hgtGoButton') ?? document.getElementById('gbtGoButton');
-            if (goById) { (goById as HTMLElement).click(); return; }
+              const trySubmit = () => {
+                const goById = document.getElementById('hgtGoButton') ?? document.getElementById('gbtGoButton');
+                if (goById) { (goById as HTMLElement).click(); return; }
 
-            const form = posInput?.form;
-            const goByName = form?.querySelector<HTMLElement>('input[name="hgt.goButton"]');
-            if (goByName) { goByName.click(); return; }
+                const form = posInput?.form;
+                const goByName = form?.querySelector<HTMLElement>('input[name="hgt.goButton"]');
+                if (goByName) { goByName.click(); return; }
 
-            const goByAttr = form?.querySelector<HTMLElement>(
-              'input[name*="goButton"], input[value="go" i]'
-            );
-            if (goByAttr) { goByAttr.click(); return; }
+                const goByAttr = form?.querySelector<HTMLElement>(
+                  'input[name*="goButton"], input[value="go" i]'
+                );
+                if (goByAttr) { goByAttr.click(); return; }
 
-            if (form) {
-              try { (form as any).requestSubmit(); }
-              catch { form.submit(); }
+                if (form) {
+                  try { (form as any).requestSubmit(); }
+                  catch { form.submit(); }
+                }
+              };
+              setTimeout(trySubmit, 80);
+            } else {
+              setNativeInputValue(inputEl, formatted);
+              maybeSetFranklinAssembly(message.genomeBuild);
+
+              if (window.location.hostname.includes('ncbi.nlm.nih.gov')) {
+                const form = inputEl.form;
+                if (form) {
+                  try { (form as any).requestSubmit(); }
+                  catch { form.submit(); }
+                }
+              }
             }
-          };
-          setTimeout(trySubmit, 80);
-        } else {
-          const nativeSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')?.set;
-          if (nativeSetter) {
-            nativeSetter.call(inputEl, formatted);
-          } else {
-            inputEl.value = formatted;
+            sendResponse({ success: true });
+          } catch (err) {
+            console.error('[VariantHandler] Autofill failed:', err);
+            sendResponse({ success: false, error: String(err) });
           }
-          inputEl.dispatchEvent(new Event('input', { bubbles: true }));
-          inputEl.dispatchEvent(new Event('change', { bubbles: true }));
-
-          if (window.location.hostname.includes('ncbi.nlm.nih.gov')) {
-            const form = inputEl.form;
-            if (form) {
-              try { (form as any).requestSubmit(); }
-              catch { form.submit(); }
-            }
-          }
-        }
-        sendResponse({ success: true });
-      } catch (err) {
-        console.error('[VariantHandler] Autofill failed:', err);
-        sendResponse({ success: false, error: String(err) });
-      }
+        },
+        () => sendResponse({ success: false, error: noSearchInputError() }),
+      );
+      return true; // sendResponse may fire after the SPA-render retry window
     } else if (message.type === 'AUTOFILL_GENE') {
-      const inputs = findSearchInputs();
-      const clinVar = findClinVarInputs();
-      const inputEl = clinVar.gene || inputs[0];
-      if (!inputEl) {
-        sendResponse({ success: false, error: 'No active search input box found on the page.' });
-        return;
-      }
-      const geneSymbol = message.value;
-      try {
-        if (window.location.hostname.includes('ncbi.nlm.nih.gov')) {
-          const hasTerm = new URLSearchParams(window.location.search).has('term');
-          if (hasTerm) {
-            const clearBtn = findClinVarClearAllFiltersButton();
-            if (clearBtn) {
-              sessionStorage.setItem('vh_pending_autofill', JSON.stringify({
-                type: 'gene',
-                value: `${geneSymbol}[gene]`,
-                timestamp: Date.now()
-              }));
-              clearBtn.click();
-              sendResponse({ success: true });
-              return;
+      withSearchInput(
+        () => findClinVarInputs().gene || findSearchInputs()[0],
+        (inputEl) => {
+          const geneSymbol = message.value;
+          try {
+            if (window.location.hostname.includes('ncbi.nlm.nih.gov')) {
+              const hasTerm = new URLSearchParams(window.location.search).has('term');
+              if (hasTerm) {
+                const clearBtn = findClinVarClearAllFiltersButton();
+                if (clearBtn) {
+                  sessionStorage.setItem('vh_pending_autofill', JSON.stringify({
+                    type: 'gene',
+                    value: `${geneSymbol}[gene]`,
+                    timestamp: Date.now()
+                  }));
+                  clearBtn.click();
+                  sendResponse({ success: true });
+                  return;
+                }
+              }
             }
-          }
-        }
 
-        const isUCSC = window.location.hostname.includes('genome.ucsc.edu');
-        if (isUCSC) {
-          const related = document.querySelectorAll('input[name="position"], input[name="hgt.positionInput"], #positionInput');
-          related.forEach((el) => {
-            const input = el as HTMLInputElement;
-            input.focus();
-            input.value = geneSymbol;
-            input.dispatchEvent(new Event('input', { bubbles: true }));
-            input.dispatchEvent(new Event('change', { bubbles: true }));
-            input.blur();
-          });
-        } else {
-          const nativeSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')?.set;
-          if (nativeSetter) {
-            nativeSetter.call(inputEl, geneSymbol);
-          } else {
-            inputEl.value = geneSymbol;
-          }
-          inputEl.dispatchEvent(new Event('input', { bubbles: true }));
-          inputEl.dispatchEvent(new Event('change', { bubbles: true }));
+            const isUCSC = window.location.hostname.includes('genome.ucsc.edu');
+            if (isUCSC) {
+              const related = document.querySelectorAll('input[name="position"], input[name="hgt.positionInput"], #positionInput');
+              related.forEach((el) => {
+                const input = el as HTMLInputElement;
+                input.focus();
+                input.value = geneSymbol;
+                input.dispatchEvent(new Event('input', { bubbles: true }));
+                input.dispatchEvent(new Event('change', { bubbles: true }));
+                input.blur();
+              });
+            } else {
+              setNativeInputValue(inputEl, geneSymbol);
+              maybeSetFranklinAssembly(message.genomeBuild);
 
-          if (window.location.hostname.includes('ncbi.nlm.nih.gov')) {
-            const form = inputEl.form;
-            if (form) {
-              try { (form as any).requestSubmit(); }
-              catch { form.submit(); }
+              if (window.location.hostname.includes('ncbi.nlm.nih.gov')) {
+                const form = inputEl.form;
+                if (form) {
+                  try { (form as any).requestSubmit(); }
+                  catch { form.submit(); }
+                }
+              }
             }
+            sendResponse({ success: true });
+          } catch (err) {
+            console.error('[VariantHandler] Autofill gene failed:', err);
+            sendResponse({ success: false, error: String(err) });
           }
-        }
-        sendResponse({ success: true });
-      } catch (err) {
-        console.error('[VariantHandler] Autofill gene failed:', err);
-        sendResponse({ success: false, error: String(err) });
-      }
+        },
+        () => sendResponse({ success: false, error: noSearchInputError() }),
+      );
+      return true; // sendResponse may fire after the SPA-render retry window
     } else if (message.type === 'FIND_VARIANT') {
       const proteinChange = message.value;
       try {

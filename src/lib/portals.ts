@@ -39,14 +39,4 @@ export const CLINICAL_PRESETS: PlatformAdapter[] = [
     urlTemplate: 'https://www.deciphergenomics.org/search?q={{variant}}',
     requiredFormat: 'custom',
   },
-  {
-    id: 'franklin',
-    name: 'Franklin Genoox',
-    domain: 'franklin.genoox.com',
-    description: 'Clinical genomics search engine and community AI suggestions',
-    color: '#ec4899',
-    accentColor: 'bg-pink-500/10 border-pink-500 text-pink-400',
-    urlTemplate: 'https://franklin.genoox.com/clinical-db/variant/variant/{{variant}}',
-    requiredFormat: 'hgvs_c',
-  },
 ];

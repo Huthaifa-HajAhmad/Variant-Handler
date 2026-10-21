@@ -3,6 +3,7 @@ import { Check, Copy } from 'lucide-react';
 import { ParsedVariant } from '../../lib/parser';
 import HighlightedCoordinate from '../HighlightedCoordinate';
 import { EnrichmentData } from '../../hooks/useVariantEnrichment';
+import { truncateSequence, MAX_SEQ_DISPLAY } from '../../utils/variantUtils';
 
 interface CoordinateBreakdownCardProps {
   activeInput: string;
@@ -107,8 +108,11 @@ export default function CoordinateBreakdownCard({
               {chromosome && position ? `chr${chromosome}:${position}` : (chromosome ? `chr${chromosome}` : '—')}
             </span>
             {ref && alt && (
-              <span className={`text-[10.5px] font-mono break-all block mt-0.5 ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>
-                {ref} → {alt}
+              <span
+                className={`text-[10.5px] font-mono break-all block mt-0.5 ${isLight ? 'text-slate-500' : 'text-slate-400'}`}
+                title={`${ref} → ${alt}`}
+              >
+                {truncateSequence(ref)} → {truncateSequence(alt)}
               </span>
             )}
           </div>
@@ -149,7 +153,9 @@ export default function CoordinateBreakdownCard({
             </div>
           </div>
           <div className="mt-1">
-            <span className={rowValCls}>{codingChange || '—'}</span>
+            <span className={rowValCls} title={codingChange && codingChange.length > MAX_SEQ_DISPLAY ? codingChange : undefined}>
+              {codingChange ? truncateSequence(codingChange) : '—'}
+            </span>
             {transcript && (
               <span className={`text-[10.5px] font-mono break-all block mt-0.5 ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>
                 {transcript}

@@ -4,7 +4,7 @@
 
 This document explains the system design of Variant Handler — why things are structured the way they are, and the key patterns used to keep the codebase safe and maintainable.
 
-> **Scope:** Variant Handler targets **rare-disease (germline) genomics**. It handles **SNVs** and **small indels** (sequence-level `del`/`ins`/`dup`/`delins`/`inv` with explicit positions). It does **not** support **CNVs/copy-number**, translocations, RNA-level notation, or **somatic/oncology** workflows (no VAF, no COSMIC/OncoKB integration). Oncology genes in the bundled symbol table (BRCA1/2, TP53, BRAF, KRAS, EGFR, PTEN, Lynch genes) exist to support **hereditary cancer-predisposition** (germline) panels, not somatic analysis. See the top-level README's "Scope & Intended Use" and [`LIMITATIONS.md`](./LIMITATIONS.md) for the full matrix.
+> **Scope:** Variant Handler targets **rare-disease (germline) genomics** as its primary use case. It handles **SNVs** and **small indels** (sequence-level `del`/`ins`/`dup`/`delins`/`inv` with explicit positions). It does **not** support **CNVs/copy-number**, translocations, RNA-level notation, somatic **calling**, or VAF-based analysis (tumor purity, TMB/MSI) — and there is no COSMIC/cIViC integration. The latest release does support oncology **lookups**: Franklin and OncoKB launch buttons, trailing `(VAF 32%)` annotation parsing for display, and `GENE amplification/deletion` shorthand. Oncology genes in the bundled symbol table (BRCA1/2, TP53, BRAF, KRAS, EGFR, PTEN, Lynch genes) support hereditary cancer-predisposition panels and OncoKB lookups. See the top-level README's "Scope & Intended Use" and [`LIMITATIONS.md`](./LIMITATIONS.md) for the full matrix.
 
 ---
 

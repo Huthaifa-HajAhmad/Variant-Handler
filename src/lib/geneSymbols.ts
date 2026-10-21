@@ -61,3 +61,31 @@ export const GENE_TO_DEFAULT_TRANSCRIPT: Record<string, string> = {
   MSH2: 'NM_000251',
 };
 
+/**
+ * Gene symbols accepted by the oncology copy-number shorthand
+ * (`ERBB2 amplification` / `MET deletion`).
+ *
+ * Deliberately separate from the transcript tables: these entries do not carry
+ * a curated default transcript, so they only widen recognition of
+ * amplification/deletion inputs — they never trigger transcript backfill.
+ */
+const CNV_SHORTHAND_GENES: ReadonlySet<string> = new Set([
+  'ERBB2', 'ERBB3', 'EGFR', 'MET', 'ALK', 'RET', 'ROS1',
+  'NTRK1', 'NTRK2', 'NTRK3', 'FGFR1', 'FGFR2', 'FGFR3',
+  'IDH1', 'IDH2', 'PIK3CA', 'KRAS', 'NRAS', 'HRAS', 'BRAF',
+  'MDM2', 'MDM4', 'CDK4', 'CDK6', 'CCND1', 'MYC', 'MYCN',
+  'PTEN', 'TP53', 'RB1', 'BRCA1', 'BRCA2',
+  'MSH2', 'MSH6', 'MLH1', 'PMS2', 'ATM', 'CDKN2A',
+  'AR', 'ESR1', 'FLT3', 'KIT', 'PDGFRA', 'JAK2',
+]);
+
+/**
+ * Returns true when the symbol is recognised for the amplification/deletion
+ * shorthand — either it has a curated default transcript or it is a known
+ * oncology copy-number gene.
+ */
+export function isCnvGeneSymbol(symbol: string): boolean {
+  const upper = symbol.toUpperCase();
+  return upper in GENE_TO_DEFAULT_TRANSCRIPT || CNV_SHORTHAND_GENES.has(upper);
+}
+

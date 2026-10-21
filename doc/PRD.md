@@ -2,7 +2,7 @@
 
 **Version:** 1.1.1 | **Status:** Active Development
 
-> **Scope:** Rare-disease (germline) genomics. Handles SNVs and small sequence-level indels; does **not** support CNVs, translocations, or somatic/oncology workflows (no VAF, no COSMIC/OncoKB). See the top-level README "Scope & Intended Use" and [`LIMITATIONS.md`](./LIMITATIONS.md).
+> **Scope:** Rare-disease (germline) genomics is the primary use case. Handles SNVs and small sequence-level indels; does **not** support cytogenetic/structural CNVs, translocations, or somatic calling / VAF-based workflows. The latest release supports oncology **lookups** via Franklin and OncoKB launch buttons, plus parsing of trailing `(VAF 32%)` report annotations and the `GENE amplification/deletion` shorthand. See the top-level README "Scope & Intended Use" and [`LIMITATIONS.md`](./LIMITATIONS.md).
 
 ---
 
@@ -13,7 +13,7 @@
 Variant Handler acts as a persistent, format-aware clipboard that:
 1. Accepts a variant in any notation
 2. Parses it into structured fields (chromosome, position, alleles, transcript, coding change, protein change) entirely client-side
-3. Presents launch buttons to 8 clinical databases, each pre-formatted for that platform's expected input
+3. Presents launch buttons to 10 clinical databases, each pre-formatted for that platform's expected input
 4. Autofills the reformatted variant directly into the target site's search field
 
 It also provides a multi-variant worklist with clinical notes, search history, and three export formats (TSV, styled Excel, clinical slide deck).
@@ -183,7 +183,7 @@ Preference persisted. Toggle remembers last dark theme when returning from light
 | High | Icon assets | Add `assets/icon{16,32,48,128}.png` (manifest is ready) |
 | High | Exporter unit tests | JSDOM setup required for HTML assertion |
 | High | GDPR sanitised export mode | Option to strip diagnostics trace (raw input) from exported files |
-| Medium | Settings presets UI | Wire `CLINICAL_PRESETS` (PanelApp, DECIPHER, Franklin) into Settings toggles |
+| Medium | Settings presets UI | Wire `CLINICAL_PRESETS` (PanelApp, DECIPHER) into Settings toggles — Franklin now ships in `INITIAL_PLATFORMS` |
 | Medium | ClinVar accession input | Accept `VCV000036974` / `RCV` accession numbers as input format |
 | Low | HGVS left-normalisation | Normalise indels before URL construction |
 | Low | History search/filter | Filter history panel by gene or coordinate substring |

@@ -9,7 +9,7 @@ import { GenomeBuild } from '../../utils/genomeBuild';
 export interface ParsedVariant {
   raw: string;
   isValid: boolean;
-  type: 'genomic' | 'coding' | 'protein' | 'hybrid' | 'unknown';
+  type: 'genomic' | 'coding' | 'protein' | 'hybrid' | 'cnv' | 'unknown';
   chromosome?: string;
   position?: string;
   endPosition?: string;
@@ -18,10 +18,16 @@ export interface ParsedVariant {
   transcript?: string;
   codingChange?: string;
   proteinChange?: string;
+  /** Copy-number keyword resolved from the `GENE amplification/deletion` shorthand. */
+  copyNumberChange?: 'Amplification' | 'Deletion';
   /** Genome build detected in the raw input string, if present. */
   genomeBuild?: GenomeBuild;
   /** Resolved HGNC gene symbol if available. */
   geneSymbol?: string;
+  /** Allele fraction (0–1) parsed from a trailing report annotation, e.g. "(VAF 32%)". */
+  vaf?: number;
+  /** Raw trailing report annotation stripped before parsing, preserved for display. */
+  annotationText?: string;
   diagnostics?: string[];
 }
 

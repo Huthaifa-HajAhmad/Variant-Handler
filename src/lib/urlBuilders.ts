@@ -1,8 +1,9 @@
 import { ParsedVariant, parseVariant, computeEndPos, getFormattedVariant } from './parser';
-import { PlatformAdapter, getMissingDataReason, hasRealAllele } from './platforms';
-import { GenomeBuild, DEFAULT_BUILD, ucscDb, gnomadDataset, spliceAiAssembly } from '../utils/genomeBuild';
+import { PlatformAdapter, getMissingDataReason, hasRealAllele, isConcreteBase } from './platforms';
+import { GenomeBuild, DEFAULT_BUILD, ucscDb, gnomadDataset, spliceAiAssembly, franklinHg } from '../utils/genomeBuild';
 import { normaliseAlleles } from '../utils/normalize';
 import { lookupGeneSymbol } from './geneSymbols';
+import { AMINO_ACID_3_TO_1 } from './aminoAcids';
 
 export type PlatformUrlBuilder = (
   parsed: ParsedVariant,
@@ -178,6 +179,109 @@ export const variantvalidatorBuilder: PlatformUrlBuilder = (parsed, adapter, bui
   return 'https://variantvalidator.org/';
 };
 
+/**
+ * Normalises a protein change into OncoKB's alteration slug.
+ *
+ *   p.Val600Glu   → V600E
+ *   p.V600E       → V600E
+ *   p.Phe508del   → F508del
+ *   p.Arg54Ter    → R54*
+ *   p.(Arg408Trp) → R408W
+ *   Amplification → Amplification   (copy-number shorthand passthrough)
+ *
+ * Returns null when no protein change is available.
+ */
+export function formatOncokbAlteration(proteinChange?: string): string | null {
+  if (!proteinChange) return null;
+
+  let alteration = proteinChange.trim();
+  alteration = alteration.replace(/^p\./i, '');
+  alteration = alteration.replace(/^\(/, '').replace(/\)$/, '');
+
+  // Every three-letter residue becomes one letter, wherever it sits: Val600Glu → V600E,
+  // Phe508del → F508del, Glu746_Ala750del → E746_A750del, Val600_Lys601delinsGlu → V600_K601delinsE.
+  // Lookarounds rather than \b, which does not separate residues across `_`.
+  alteration = alteration.replace(
+    /(?:(?<![A-Za-z])|(?<=delins|ins))([A-Z][a-z]{2})(?![a-z])/g,
+    (token: string) => AMINO_ACID_3_TO_1[token] ?? token,
+  );
+  // Stop codons written as Ter → *
+  alteration = alteration.replace(/Ter/g, '*');
+
+  return alteration || null;
+}
+
+export const franklinBuilder: PlatformUrlBuilder = (parsed, adapter, build, enrichment) => {
+  const chrom = parsed.chromosome ?? '';
+  const pos = parsed.position ?? '';
+  const ref = parsed.ref ?? '';
+  const alt = parsed.alt ?? '';
+  const gene = enrichment?.geneSymbol || parsed.geneSymbol || '';
+  const { pos: nPos, ref: nRef, alt: nAlt } = normaliseAlleles(pos, ref, alt);
+
+  if (chrom && pos && isConcreteBase(nRef) && isConcreteBase(nAlt)) {
+    const path = [encodeURIComponent(chrom), encodeURIComponent(nPos), nRef, nAlt].join('-');
+    return `https://franklin.genoox.com/clinical-db/variant/snp/chr${path}?hg=${franklinHg(build)}`;
+  }
+  if (gene) {
+    return `https://franklin.genoox.com/clinical-db/gene/${encodeURIComponent(gene)}`;
+  }
+  return 'https://franklin.genoox.com/clinical-db/home';
+};
+
+/**
+ * Builds OncoKB's HGVSg query form (`7:g.140453136A>T`) — no `chr` prefix,
+ * no whitespace. Returns null when the parsed variant has no coordinates.
+ */
+function toOncokbHgvsg(parsed: ParsedVariant): string | null {
+  const { chromosome, position, ref, alt } = parsed;
+  if (!chromosome || !position) return null;
+
+  if (hasRealAllele(ref) && hasRealAllele(alt)) {
+    return `${chromosome}:g.${position}${ref}>${alt}`;
+  }
+  const formatted = getFormattedVariant(parsed, 'hgvs_g').replace(/\s+/g, '').replace(/^chr/i, '');
+  return formatted.includes(':g.') ? formatted : null;
+}
+
+export const oncokbBuilder: PlatformUrlBuilder = (parsed, adapter, build, enrichment) => {
+  const gene = enrichment?.geneSymbol || parsed.geneSymbol || '';
+  const effectiveBuild = parsed.genomeBuild ?? build;
+
+  // Coordinate-first: when the user supplied genomic notation, use OncoKB's
+  // HGVSg route so the lookup reflects those coordinates exactly instead of a
+  // transcript/protein prediction. Protein and coding inputs keep the
+  // gene/alteration route below.
+  const isProteinNotation = !!parsed.proteinChange || (parsed.codingChange?.startsWith('c.') ?? false);
+  if (!parsed.copyNumberChange && !isProteinNotation) {
+    const hgvsg = toOncokbHgvsg(parsed);
+    if (hgvsg) {
+      return `https://www.oncokb.org/hgvsg/${hgvsg}?refGenome=${encodeURIComponent(effectiveBuild)}`;
+    }
+  }
+  if (!gene) {
+    return 'https://www.oncokb.org/';
+  }
+  const proteinChange = enrichment?.proteinChange || parsed.proteinChange || '';
+  const alteration = parsed.copyNumberChange ?? formatOncokbAlteration(proteinChange);
+
+  // Deep-link only to alteration slugs OncoKB reliably serves:
+  //  - missense / in-frame indels (V600E, F508del, R273H)
+  //  - copy-number amplification (ERBB2 Amplification)
+  // Truncating changes (nonsense/frameshift) are grouped under "Truncating
+  // Mutations", and deletion naming varies by gene ("Exon 19 Deletion",
+  // "Deletion", ...), so those route to the gene page which is always valid.
+  const isDeepLinkable =
+    alteration !== null &&
+    alteration !== 'Deletion' &&
+    !/\*|fs/i.test(alteration);
+
+  if (isDeepLinkable) {
+    return `https://www.oncokb.org/gene/${encodeURIComponent(gene)}/${encodeURIComponent(alteration)}`;
+  }
+  return `https://www.oncokb.org/gene/${encodeURIComponent(gene)}`;
+};
+
 export const defaultBuilder: PlatformUrlBuilder = (parsed, adapter, build, enrichment) => {
   const chrom = parsed.chromosome ?? '';
   const pos = parsed.position ?? '';
@@ -215,6 +319,8 @@ export const defaultBuilder: PlatformUrlBuilder = (parsed, adapter, build, enric
   url = url.replace(/\{\{c\}\}/g,          encodeURIComponent(fullHgvsC));
   url = url.replace(/\{\{p\}\}/g,          encodeURIComponent(parsed.proteinChange ?? ''));
   url = url.replace(/\{\{transcript\}\}/g, encodeURIComponent(parsed.transcript ?? ''));
+  url = url.replace(/\{\{gene\}\}/g,      encodeURIComponent(enrichment?.geneSymbol || parsed.geneSymbol || ''));
+  url = url.replace(/\{\{hg\}\}/g,        franklinHg(build));
   url = url.replace(/\{\{db\}\}/g,         db);
   url = url.replace(/\{\{dataset\}\}/g,    dataset);
   url = url.replace(/\{\{assembly\}\}/g,   assembly);
@@ -231,6 +337,8 @@ const builders = new Map<string, PlatformUrlBuilder>([
   ['dbsnp', dbsnpBuilder],
   ['mutalyzer', mutalyzerBuilder],
   ['variantvalidator', variantvalidatorBuilder],
+  ['franklin', franklinBuilder],
+  ['oncokb', oncokbBuilder],
 ]);
 
 export function buildPlatformUrl(

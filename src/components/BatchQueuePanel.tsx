@@ -13,7 +13,7 @@ import { BatchItem } from '../lib/types';
 import { ParsedVariant, parseVariant } from '../lib/parser';
 import { ColorTheme } from '../lib/themes';
 import HighlightedCoordinate from './HighlightedCoordinate';
-import { inferGeneLabel } from '../utils/variantUtils';
+import { inferGeneLabel, truncateSequence, MAX_SEQ_DISPLAY } from '../utils/variantUtils';
 
 function ParsedDetails({ input, isLight }: { input: string; isLight: boolean }) {
   const parsed = parseVariant(input);
@@ -21,7 +21,9 @@ function ParsedDetails({ input, isLight }: { input: string; isLight: boolean }) 
   return (
     <div className={`flex flex-wrap gap-x-3 gap-y-0.5 text-[10px] font-mono ${isLight ? 'text-slate-500' : 'text-slate-500'}`}>
       {parsed.codingChange && (
-        <span>{parsed.transcript ? `${parsed.transcript}:` : ''}{parsed.codingChange}</span>
+        <span title={parsed.codingChange.length > MAX_SEQ_DISPLAY ? parsed.codingChange : undefined}>
+          {parsed.transcript ? `${parsed.transcript}:` : ''}{truncateSequence(parsed.codingChange)}
+        </span>
       )}
       {parsed.proteinChange && <span>{parsed.proteinChange}</span>}
     </div>

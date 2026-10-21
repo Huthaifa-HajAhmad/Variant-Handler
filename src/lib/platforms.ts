@@ -13,6 +13,19 @@ export interface PlatformAdapter {
   accentColor: string;
   urlTemplate: string;
   requiredFormat: 'dash' | 'hgvs_g' | 'hgvs_c' | 'coordinate' | 'custom';
+  /**
+   * Optional declarative data requirements evaluated generically by
+   * getMissingDataReason(). When present it takes precedence over the
+   * requiredFormat-based heuristics.
+   */
+  dataRequirements?: {
+    /** Genomic coordinates (chrom, pos, real ref/alt) OR a gene symbol must be present. */
+    coordsOrGene?: boolean;
+    /** Allow coordinate matching without real ref/alt alleles (structural shorthand such as `del`). */
+    allelesOptional?: boolean;
+    /** A gene symbol must be present. */
+    gene?: boolean;
+  };
 }
 
 export const INITIAL_PLATFORMS: PlatformAdapter[] = [
@@ -96,10 +109,37 @@ export const INITIAL_PLATFORMS: PlatformAdapter[] = [
     urlTemplate: 'https://variantvalidator.org/service/validate/{{variant}}',
     requiredFormat: 'hgvs_c',
   },
+  {
+    id: 'franklin',
+    name: 'Franklin (Genoox)',
+    domain: 'franklin.genoox.com',
+    description: 'AI-powered clinical variant interpretation and automated ACMG classifications',
+    color: '#06b6d4',
+    accentColor: 'bg-cyan-500/10 border-cyan-500 text-cyan-400',
+    urlTemplate: 'https://franklin.genoox.com/clinical-db/variant/snp/chr{{chrom}}-{{pos}}-{{ref}}-{{alt}}?hg={{hg}}',
+    requiredFormat: 'custom',
+    dataRequirements: { coordsOrGene: true },
+  },
+  {
+    id: 'oncokb',
+    name: 'OncoKB',
+    domain: 'oncokb.org',
+    description: 'Precision oncology knowledge base for cancer gene alterations and therapeutic actionability',
+    color: '#f97316',
+    accentColor: 'bg-orange-500/10 border-orange-500 text-orange-400',
+    urlTemplate: 'https://www.oncokb.org/gene/{{gene}}',
+    requiredFormat: 'custom',
+    dataRequirements: { coordsOrGene: true, allelesOptional: true },
+  },
 ];
 
 export function hasRealAllele(allele?: string): boolean {
   return !!allele && allele !== '-';
+}
+
+/** A concrete A/C/G/T allele. Rejects `N`, `-` and empty values, which cannot form a genomic URL. */
+export function isConcreteBase(allele?: string): boolean {
+  return !!allele && /^[ACGT]+$/i.test(allele);
 }
 
 export function getMissingDataReason(
@@ -117,6 +157,26 @@ export function getMissingDataReason(
     if (resolvedGenomic.isValid) {
       currentParsed = resolvedGenomic;
     }
+  }
+
+  // Declarative capability checks (e.g. Franklin, OncoKB) take precedence over
+  // the requiredFormat-based heuristics below.
+  if (adapter.dataRequirements) {
+    const geneForRequirements = enrichment?.geneSymbol || currentParsed.geneSymbol;
+    if (adapter.dataRequirements.gene && !geneForRequirements) {
+      return `Gene symbol required for ${adapter.name}`;
+    }
+    if (adapter.dataRequirements.coordsOrGene) {
+      const hasCoords =
+        !!currentParsed.chromosome &&
+        !!currentParsed.position &&
+        (adapter.dataRequirements.allelesOptional === true ||
+          (isConcreteBase(currentParsed.ref) && isConcreteBase(currentParsed.alt)));
+      if (!hasCoords && !geneForRequirements) {
+        return `Chromosome coordinates or gene symbol required for ${adapter.name}`;
+      }
+    }
+    return null;
   }
 
   if (needsCoords  && (!currentParsed.chromosome || !currentParsed.position))  return `Chromosome and position required for ${adapter.name}`;

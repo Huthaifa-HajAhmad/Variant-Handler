@@ -31,7 +31,7 @@ Variant Handler acts as a **persistent, format-aware clipboard** that travels ac
 
 ## Scope & Intended Use
 
-**Variant Handler is designed for rare-disease (germline) genomics workflows.** The parser and enrichment layer are oriented toward constitutional variants reported in HGVS nomenclature.
+**Variant Handler is designed for rare-disease (germline) genomics workflows.** The parser and enrichment layer are oriented toward constitutional variants reported in HGVS nomenclature. The latest release also supports **oncology lookups** — Franklin and OncoKB launch buttons, VAF report-annotation parsing, and `GENE amplification/deletion` shorthand — without performing somatic calling or VAF-based analysis.
 
 ### ✅ Supported Variant Classes
 
@@ -41,7 +41,7 @@ Variant Handler acts as a **persistent, format-aware clipboard** that travels ac
 > [!NOTE]
 > **Out of Scope / Unsupported Classes:**
 > Cytogenetic CNVs (e.g., `del(17)(p13.1)`), large structural variants, chromosomal translocations/fusions, RNA-level changes (`r.76a>u`), and multi-allelic/complex genotypes are not supported by the parser or portal launchers.
-> The extension is **not built for somatic (oncology) workflows**.
+> Somatic **calling** and VAF-based workflows (tumor purity, TMB/MSI) remain out of scope; OncoKB/Franklin are supported as therapeutic-actionability **lookups**, and a trailing `(VAF 32%)` report annotation is parsed for display only.
 
 ---
 
@@ -76,7 +76,7 @@ Genomic coordinates and sequences are resolved at runtime via a layered enrichme
 Disable Live Lookup in Settings for sensitive/unpublished variants — parsing and URL-building work fully offline.
 
 ### 🚀 Platform Launchpad
-One-click launch to 8 partner databases with automatic format translation:
+One-click launch to 10 partner databases with automatic format translation:
 
 | Database | Format Used |
 |----------|-------------|
@@ -88,6 +88,8 @@ One-click launch to 8 partner databases with automatic format translation:
 | dbSNP (NCBI) | Raw input (search term) |
 | Mutalyzer | Raw input (HGVS checker) |
 | VariantValidator | HGVSc `transcript:c.change` |
+| Franklin (Genoox) | `chrN-pos-ref-alt?hg=38\|19`, or gene page |
+| OncoKB | HGVSg coordinates (`refGenome`), `gene/alteration`, `gene/Amplification`, or gene page |
 
 Buttons are disabled with a descriptive tooltip when the active variant is missing required fields for that platform (e.g., VariantValidator requires a transcript accession).
 
@@ -166,7 +168,7 @@ variant-handler/
 │   │   └── index.tsx          # Root side panel component (state orchestrator)
 │   ├── components/
 │   │   ├── VariantWorkbench.tsx    # Input form + parsed field display
-│   │   ├── PlatformLaunchpad.tsx  # 8-platform button grid
+│   │   ├── PlatformLaunchpad.tsx  # 10-platform button grid
 │   │   ├── BatchQueuePanel.tsx    # Queue + history tabs + export buttons
 │   │   ├── HighlightedCoordinate.tsx  # Syntax-coloured variant display
 │   │   ├── Header.tsx             # Toolbar with theme toggle
@@ -308,7 +310,7 @@ The extension requests the minimum required permissions:
 |------------|--------|
 | `sidePanel` | Open the side panel via toolbar click |
 | `storage` | Persist queue, history, theme, and genome-build preference in `chrome.storage.local` |
-| Host permissions (7 domains) | Inject content script to autofill search inputs on supported clinical databases |
+| Host permissions (9 content-script domains) | Inject content script to autofill search inputs on supported clinical databases |
 
 All coordinate parsing is performed locally. The extension optionally queries public clinical APIs (UCSC Sequence API, MyVariant.info, Ensembl, and NCBI) over HTTPS to fetch annotation enrichments if live lookup is enabled in Settings.
 
