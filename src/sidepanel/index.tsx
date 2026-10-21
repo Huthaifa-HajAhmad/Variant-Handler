@@ -21,6 +21,7 @@ import { useKeyboardShortcuts } from '../hooks/useKeyboardShortcuts';
 import { useVariantEnrichment, clearEnrichmentCache } from '../hooks/useVariantEnrichment';
 import { exportTSV, exportExcel, exportPPT } from '../utils/exporters';
 import { isSafeUrl } from '../utils/sanitize';
+import { hostIs } from '../utils/hostMatch';
 import { inferGeneLabel } from '../utils/variantUtils';
 import { WHATS_NEW_STORAGE_KEY } from '../lib/version';
 import SettingsModal from '../components/SettingsModal';
@@ -58,8 +59,9 @@ export default function SidepanelView() {
   const [copiedId,       setCopiedId]       = useState<string | null>(null);
   const [alertMsg,       setAlertMsg]       = useState('');
   const [alertVisible,   setAlertVisible]   = useState(false);
-  const alertTimerRef     = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const alertHideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const alertTimerRef      = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const alertHideTimerRef  = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const alertClearTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const [activeSec3Tab,  setActiveSec3Tab]  = useState<'queue' | 'history'>('queue');
 
@@ -78,9 +80,16 @@ export default function SidepanelView() {
     return localStorage.getItem('variantstream_clear_on_close') === 'true';
   });
 
+  const clearAlertMessage = useCallback(() => {
+    setAlertVisible(false);
+    if (alertClearTimerRef.current) clearTimeout(alertClearTimerRef.current);
+    alertClearTimerRef.current = setTimeout(() => setAlertMsg(''), 300);
+  }, []);
+
   const triggerAlert = useCallback((msg: string, durationMs?: number) => {
     if (alertTimerRef.current) clearTimeout(alertTimerRef.current);
     if (alertHideTimerRef.current) clearTimeout(alertHideTimerRef.current);
+    if (alertClearTimerRef.current) clearTimeout(alertClearTimerRef.current);
 
     setAlertMsg(msg);
     setAlertVisible(true);
@@ -212,8 +221,28 @@ export default function SidepanelView() {
         triggerAlert('Blocked unsafe URL scheme.');
         return;
       }
+      // Defence in depth: a builder must stay on its platform's own host.
+      try {
+        if (!hostIs(new URL(item.url).hostname, platform.domain)) {
+          triggerAlert('Blocked unexpected destination host.');
+          return;
+        }
+      } catch {
+        triggerAlert('Blocked malformed URL.');
+        return;
+      }
 
       if (typeof chrome !== 'undefined' && chrome.tabs && chrome.tabs.create) {
+        // ClinVar's clear-filters handoff is only honoured for extension-opened
+        // navigations; register the normalised target for the background to
+        // validate when the content script loads.
+        if (item.url.includes('vh_clear_filters')) {
+          try {
+            const target = new URL(item.url);
+            target.searchParams.delete('vh_clear_filters');
+            chrome.runtime.sendMessage({ type: 'REGISTER_PENDING_NAV', url: target.href });
+          } catch { /* malformed URL already rejected above */ }
+        }
         chrome.tabs.create({ url: item.url });
       } else {
         window.open(item.url, '_blank', 'noopener,noreferrer');
@@ -299,14 +328,10 @@ export default function SidepanelView() {
             alertMsg={alertMsg}
             alertVisible={alertVisible}
             isLight={isLight}
-            onDismiss={() => {
-              setAlertVisible(false);
-              setTimeout(() => setAlertMsg(''), 300);
-            }}
+            onDismiss={clearAlertMessage}
             onSelectSuggestion={(sug) => {
               setActiveInput(sug);
-              setAlertVisible(false);
-              setTimeout(() => setAlertMsg(''), 300);
+              clearAlertMessage();
             }}
             onGenomeBuildChange={onGenomeBuildChange}
             triggerAlert={triggerAlert}
@@ -338,14 +363,10 @@ export default function SidepanelView() {
             onInstantLookup={handleInstantLookup}
             alertMsg={alertMsg}
             alertVisible={alertVisible}
-            onDismissAlert={() => {
-              setAlertVisible(false);
-              setTimeout(() => setAlertMsg(''), 300);
-            }}
+            onDismissAlert={clearAlertMessage}
             onSelectSuggestion={(sug) => {
               setActiveInput(sug);
-              setAlertVisible(false);
-              setTimeout(() => setAlertMsg(''), 300);
+              clearAlertMessage();
             }}
           />
         )}

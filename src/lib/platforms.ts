@@ -23,6 +23,8 @@ export interface PlatformAdapter {
     coordsOrGene?: boolean;
     /** Allow coordinate matching without real ref/alt alleles (structural shorthand such as `del`). */
     allelesOptional?: boolean;
+    /** Genomic coordinates with real ref/alt alleles are required (form-based tools). */
+    coords?: boolean;
     /** A gene symbol must be present. */
     gene?: boolean;
   };
@@ -131,6 +133,49 @@ export const INITIAL_PLATFORMS: PlatformAdapter[] = [
     requiredFormat: 'custom',
     dataRequirements: { coordsOrGene: true, allelesOptional: true },
   },
+  {
+    id: 'varsome',
+    name: 'VarSome Clinical',
+    domain: 'varsome.com',
+    description: 'ACMG classification and clinical interpretation across curated public sources',
+    color: '#6366f1',
+    accentColor: 'bg-indigo-500/10 border-indigo-500 text-indigo-400',
+    urlTemplate: 'https://varsome.com/variant/search?query={{variant}}&genome={{hg}}',
+    requiredFormat: 'custom',
+    dataRequirements: { coordsOrGene: true },
+  },
+  {
+    id: 'varchat',
+    name: 'VarChat',
+    domain: 'varchat.engenome.com',
+    description: 'Generative-AI summaries of the literature for a specific variant',
+    color: '#14b8a6',
+    accentColor: 'bg-teal-500/10 border-teal-500 text-teal-400',
+    urlTemplate: 'https://varchat.engenome.com/search?text={{variant}}',
+    requiredFormat: 'custom',
+    dataRequirements: { gene: true },
+  },
+  {
+    id: 'genebe',
+    name: 'GeneBe',
+    domain: 'genebe.net',
+    description: 'Variant annotation portal with ACMG criteria and population data',
+    color: '#84cc16',
+    accentColor: 'bg-lime-500/10 border-lime-500 text-lime-400',
+    urlTemplate: 'https://genebe.net/variant/{{hg}}/{{variant}}',
+    requiredFormat: 'custom',
+    dataRequirements: { coordsOrGene: true },
+  },
+  {
+    id: 'intervar',
+    name: 'InterVar',
+    domain: 'wintervar.wglab.org',
+    description: 'ACMG/AMP 2015 interpretation form (launches the form; Autofill populates it)',
+    color: '#ef4444',
+    accentColor: 'bg-red-500/10 border-red-500 text-red-400',
+    urlTemplate: 'https://wintervar.wglab.org/',
+    requiredFormat: 'dash',
+    dataRequirements: { coords: true },  },
 ];
 
 export function hasRealAllele(allele?: string): boolean {
@@ -142,6 +187,66 @@ export function isConcreteBase(allele?: string): boolean {
   return !!allele && /^[ACGT]+$/i.test(allele);
 }
 
+/**
+ * Merges enrichment-resolved HGVSg data into a parsed variant without
+ * discarding user-supplied data.
+ *
+ * Rules:
+ *  - Complete user input (coordinates + concrete alleles) always wins.
+ *  - Coordinate-only input accepts resolved alleles only when they describe
+ *    the same locus (a ±1 shift is allowed for structural shorthand, where VCF
+ *    anchoring moves the start position).
+ *  - Missing fields (coordinates, alleles, transcript, coding change) are
+ *    filled from the resolved variant.
+ */
+export function mergeResolvedGenomic(
+  parsed: ParsedVariant,
+  enrichment?: { hgvsg?: string } | null,
+): ParsedVariant {
+  if (!enrichment?.hgvsg) return parsed;
+
+  const resolved = parseVariant(enrichment.hgvsg);
+  if (!resolved.isValid) return parsed;
+
+  const userHasCoords = !!parsed.chromosome && !!parsed.position;
+  const userHasAlleles = isConcreteBase(parsed.ref) && isConcreteBase(parsed.alt);
+
+  if (userHasCoords && userHasAlleles) return parsed;
+
+  let adoptResolvedLocus = false;
+  if (userHasCoords && !userHasAlleles) {
+    const sameChrom = resolved.chromosome === parsed.chromosome;
+    const samePos = resolved.position === parsed.position;
+    const structuralShift =
+      !!parsed.endPosition &&
+      sameChrom &&
+      !!resolved.position &&
+      !!parsed.position &&
+      Math.abs(Number(resolved.position) - Number(parsed.position)) <= 1;
+    if (!sameChrom || (!samePos && !structuralShift)) return parsed;
+    // A shifted structural variant must adopt the resolved locus as a unit,
+    // because the resolved alleles are anchored at that position.
+    adoptResolvedLocus = !samePos;
+  }
+
+  const merged: ParsedVariant = { ...parsed };
+  if (adoptResolvedLocus) {
+    merged.chromosome = resolved.chromosome;
+    merged.position = resolved.position;
+    merged.endPosition = resolved.endPosition ?? merged.endPosition;
+  } else {
+    if (!merged.chromosome) merged.chromosome = resolved.chromosome;
+    if (!merged.position) merged.position = resolved.position;
+    if (!merged.endPosition) merged.endPosition = resolved.endPosition;
+  }
+  if (!isConcreteBase(merged.ref)) merged.ref = resolved.ref;
+  if (!isConcreteBase(merged.alt)) merged.alt = resolved.alt;
+  if (!merged.transcript) merged.transcript = resolved.transcript;
+  if (!merged.codingChange) merged.codingChange = resolved.codingChange;
+  if (!merged.geneSymbol) merged.geneSymbol = resolved.geneSymbol;
+  return merged;
+}
+
 export function getMissingDataReason(
   parsed: ParsedVariant,
   adapter: PlatformAdapter,
@@ -151,13 +256,7 @@ export function getMissingDataReason(
   const needsAlleles = ['dash', 'hgvs_g'].includes(adapter.requiredFormat);
   const needsHgvsC   = adapter.requiredFormat === 'hgvs_c';
 
-  let currentParsed = parsed;
-  if (enrichment?.hgvsg) {
-    const resolvedGenomic = parseVariant(enrichment.hgvsg);
-    if (resolvedGenomic.isValid) {
-      currentParsed = resolvedGenomic;
-    }
-  }
+  const currentParsed = mergeResolvedGenomic(parsed, enrichment);
 
   // Declarative capability checks (e.g. Franklin, OncoKB) take precedence over
   // the requiredFormat-based heuristics below.
@@ -166,15 +265,17 @@ export function getMissingDataReason(
     if (adapter.dataRequirements.gene && !geneForRequirements) {
       return `Gene symbol required for ${adapter.name}`;
     }
-    if (adapter.dataRequirements.coordsOrGene) {
-      const hasCoords =
-        !!currentParsed.chromosome &&
-        !!currentParsed.position &&
-        (adapter.dataRequirements.allelesOptional === true ||
-          (isConcreteBase(currentParsed.ref) && isConcreteBase(currentParsed.alt)));
-      if (!hasCoords && !geneForRequirements) {
-        return `Chromosome coordinates or gene symbol required for ${adapter.name}`;
-      }
+    const hasAlleles =
+      isConcreteBase(currentParsed.ref) && isConcreteBase(currentParsed.alt);
+    const hasCoords =
+      !!currentParsed.chromosome &&
+      !!currentParsed.position &&
+      (hasAlleles || (adapter.dataRequirements.allelesOptional === true && !!currentParsed.endPosition));
+    if (adapter.dataRequirements.coords && !hasCoords) {
+      return `Chromosome, position, ref and alt alleles required for ${adapter.name}`;
+    }
+    if (adapter.dataRequirements.coordsOrGene && !hasCoords && !geneForRequirements) {
+      return `Chromosome coordinates or gene symbol required for ${adapter.name}`;
     }
     return null;
   }

@@ -22,7 +22,8 @@ import {
 } from '../lib/parser';
 import { normaliseAlleles } from '../utils/normalize';
 import { detectGenomeBuild, ucscDb, gnomadDataset, franklinHg } from '../utils/genomeBuild';
-import { formatOncokbAlteration } from '../lib/urlBuilders';
+import { formatOneLetterProtein } from '../lib/urlBuilders';
+import { isSafeUrl } from '../utils/sanitize';
 import { extractTrailingAnnotation } from '../lib/parsers/annotations';
 
 // ── parseVariant — Genomic Coordinate Formats ─────────────────────────────────
@@ -490,6 +491,15 @@ describe('parseVariant — Notation-Only (canonical DB removed)', () => {
 // ── parseVariant — Edge Cases ─────────────────────────────────────────────────
 
 describe('parseVariant — Edge Cases', () => {
+  it('rejects adversarial protein-like input in linear time (ReDoS regression)', () => {
+    const input = 'p.' + 'A'.repeat(60) + '!';
+    const started = performance.now();
+    const result = parseVariant(input);
+    const elapsed = performance.now() - started;
+
+    expect(result.isValid).toBe(false);
+    expect(elapsed).toBeLessThan(500);
+  });
   it('returns invalid for empty string', () => {
     const r = parseVariant('');
     expect(r.isValid).toBe(false);
@@ -896,19 +906,31 @@ describe('getFormattedVariant — genomic range normalization', () => {
 // ── Franklin + OncoKB: platform registry ─────────────────────────────────────
 
 describe('INITIAL_PLATFORMS — Franklin and OncoKB registration', () => {
-  it('registers 10 platforms with unique ids', () => {
-    expect(INITIAL_PLATFORMS).toHaveLength(10);
+  it('registers 14 platforms with unique ids', () => {
+    expect(INITIAL_PLATFORMS).toHaveLength(14);
     const ids = INITIAL_PLATFORMS.map((p) => p.id);
     expect(new Set(ids).size).toBe(ids.length);
     expect(ids).toContain('franklin');
     expect(ids).toContain('oncokb');
+    expect(ids).toContain('varsome');
+    expect(ids).toContain('varchat');
+    expect(ids).toContain('genebe');
+    expect(ids).toContain('intervar');
   });
 
   it('declares capability requirements for the new platforms', () => {
     const franklin = INITIAL_PLATFORMS.find((p) => p.id === 'franklin')!;
     const oncokb = INITIAL_PLATFORMS.find((p) => p.id === 'oncokb')!;
+    const varsome = INITIAL_PLATFORMS.find((p) => p.id === 'varsome')!;
+    const varchat = INITIAL_PLATFORMS.find((p) => p.id === 'varchat')!;
+    const genebe = INITIAL_PLATFORMS.find((p) => p.id === 'genebe')!;
+    const intervar = INITIAL_PLATFORMS.find((p) => p.id === 'intervar')!;
     expect(franklin.dataRequirements).toEqual({ coordsOrGene: true });
     expect(oncokb.dataRequirements).toEqual({ coordsOrGene: true, allelesOptional: true });
+    expect(varsome.dataRequirements).toEqual({ coordsOrGene: true });
+    expect(varchat.dataRequirements).toEqual({ gene: true });
+    expect(genebe.dataRequirements).toEqual({ coordsOrGene: true });
+    expect(intervar.dataRequirements).toEqual({ coords: true });
   });
 
   it('uses {{hg}} (not {{assembly}}) in the Franklin template', () => {
@@ -930,44 +952,44 @@ describe('franklinHg — Franklin build parameter', () => {
   });
 });
 
-// ── formatOncokbAlteration — OncoKB alteration normalisation ─────────────────
+// ── formatOneLetterProtein — OncoKB alteration normalisation ─────────────────
 
-describe('formatOncokbAlteration — OncoKB alteration normalisation', () => {
+describe('formatOneLetterProtein — OncoKB alteration normalisation', () => {
   it('converts three-letter substitutions to single-letter', () => {
-    expect(formatOncokbAlteration('p.Val600Glu')).toBe('V600E');
-    expect(formatOncokbAlteration('Val600Glu')).toBe('V600E');
+    expect(formatOneLetterProtein('p.Val600Glu')).toBe('V600E');
+    expect(formatOneLetterProtein('Val600Glu')).toBe('V600E');
   });
 
   it('leaves single-letter substitutions unchanged', () => {
-    expect(formatOncokbAlteration('p.V600E')).toBe('V600E');
+    expect(formatOneLetterProtein('p.V600E')).toBe('V600E');
   });
 
   it('normalises three-letter deletions', () => {
-    expect(formatOncokbAlteration('p.Phe508del')).toBe('F508del');
+    expect(formatOneLetterProtein('p.Phe508del')).toBe('F508del');
   });
 
   it('normalises stop codons (Ter and *) to *', () => {
-    expect(formatOncokbAlteration('p.Arg54Ter')).toBe('R54*');
-    expect(formatOncokbAlteration('p.Arg54*')).toBe('R54*');
+    expect(formatOneLetterProtein('p.Arg54Ter')).toBe('R54*');
+    expect(formatOneLetterProtein('p.Arg54*')).toBe('R54*');
   });
 
   it('strips predicted-change parentheses', () => {
-    expect(formatOncokbAlteration('p.(Arg408Trp)')).toBe('R408W');
+    expect(formatOneLetterProtein('p.(Arg408Trp)')).toBe('R408W');
   });
 
   it('passes copy-number keywords through unchanged', () => {
-    expect(formatOncokbAlteration('Amplification')).toBe('Amplification');
-    expect(formatOncokbAlteration('Deletion')).toBe('Deletion');
+    expect(formatOneLetterProtein('Amplification')).toBe('Amplification');
+    expect(formatOneLetterProtein('Deletion')).toBe('Deletion');
   });
 
   it('returns null without a protein change', () => {
-    expect(formatOncokbAlteration(undefined)).toBeNull();
-    expect(formatOncokbAlteration('')).toBeNull();
+    expect(formatOneLetterProtein(undefined)).toBeNull();
+    expect(formatOneLetterProtein('')).toBeNull();
   });
 
   it('converts residues across ranges and delins events', () => {
-    expect(formatOncokbAlteration('p.Glu746_Ala750del')).toBe('E746_A750del');
-    expect(formatOncokbAlteration('p.Val600_Lys601delinsGlu')).toBe('V600_K601delinsE');
+    expect(formatOneLetterProtein('p.Glu746_Ala750del')).toBe('E746_A750del');
+    expect(formatOneLetterProtein('p.Val600_Lys601delinsGlu')).toBe('V600_K601delinsE');
   });
 });
 
@@ -1263,5 +1285,237 @@ describe('franklinBuilder — allele guard', () => {
     );
   });
 });
+
+// ── VarSome — URL construction ──────────────────────────────────────────────
+
+describe('varsomeBuilder — URL construction', () => {
+  const varsome = INITIAL_PLATFORMS.find((p) => p.id === 'varsome')!;
+
+  it('uses GENE:PROTEIN for protein input', () => {
+    expect(buildPlatformUrl(parseVariant('BRAF V600E'), varsome))
+      .toBe('https://varsome.com/variant/search?query=BRAF%3AV600E&genome=hg38');
+  });
+
+  it('uses canonical chr-pos-ref-alt for genomic input', () => {
+    expect(buildPlatformUrl(parseVariant('chr7:g.140753336A>T'), varsome))
+      .toBe('https://varsome.com/variant/search?query=chr7-140753336-A-T&genome=hg38');
+  });
+
+  it('honours the selected assembly', () => {
+    expect(buildPlatformUrl(parseVariant('chr7:g.140753336A>T'), varsome, 'GRCh37'))
+      .toBe('https://varsome.com/variant/search?query=chr7-140753336-A-T&genome=hg19');
+  });
+
+  it('uses HGVS c. notation for coding input', () => {
+    expect(buildPlatformUrl(parseVariant('NM_004333.4:c.1799T>A'), varsome))
+      .toBe('https://varsome.com/variant/search?query=NM_004333.4%3Ac.1799T%3EA&genome=hg38');
+  });
+
+  it('falls back to the gene symbol', () => {
+    expect(buildPlatformUrl(parseVariant('BRAF'), varsome))
+      .toBe('https://varsome.com/variant/search?query=BRAF&genome=hg38');
+  });
+});
+
+// ── VarChat — URL construction ──────────────────────────────────────────────
+
+describe('varchatBuilder — URL construction', () => {
+  const varchat = INITIAL_PLATFORMS.find((p) => p.id === 'varchat')!;
+
+  it('uses gene + protein in the text parameter', () => {
+    expect(buildPlatformUrl(parseVariant('BRAF V600E'), varchat))
+      .toBe('https://varchat.engenome.com/search?text=BRAF%20p.V600E');
+  });
+
+  it('prefers full HGVSc when available', () => {
+    expect(buildPlatformUrl(parseVariant('NM_004333.4:c.1799T>A'), varchat))
+      .toBe('https://varchat.engenome.com/search?text=NM_004333.4%3Ac.1799T%3EA');
+  });
+
+  it('supports gene-only searches', () => {
+    expect(buildPlatformUrl(parseVariant('BRAF'), varchat))
+      .toBe('https://varchat.engenome.com/search?text=BRAF');
+  });
+
+  it('is disabled for coordinate-only input with no gene', () => {
+    const r = parseVariant('chr7:140453136A>T');
+    expect(getMissingDataReason(r, varchat)).toMatch(/gene symbol/i);
+    expect(buildPlatformUrl(r, varchat)).toBeNull();
+  });
+
+  it('uses enrichment gene symbol for coordinate input', () => {
+    const r = parseVariant('chr7:140453136A>T');
+    expect(buildPlatformUrl(r, varchat, 'GRCh38', { geneSymbol: 'BRAF', proteinChange: 'p.Val600Glu' }))
+      .toBe('https://varchat.engenome.com/search?text=BRAF%20p.Val600Glu');
+  });
+});
+
+// ── GeneBe — URL construction ───────────────────────────────────────────────
+
+describe('genebeBuilder — URL construction', () => {
+  const genebe = INITIAL_PLATFORMS.find((p) => p.id === 'genebe')!;
+
+  it('uses canonical chrom-pos-ref-alt for genomic input', () => {
+    expect(buildPlatformUrl(parseVariant('chr7:g.140753336A>T'), genebe))
+      .toBe('https://genebe.net/variant/hg38/7-140753336-A-T');
+  });
+
+  it('honours the selected assembly in the path', () => {
+    expect(buildPlatformUrl(parseVariant('chr7:g.140753336A>T'), genebe, 'GRCh37'))
+      .toBe('https://genebe.net/variant/hg19/7-140753336-A-T');
+  });
+
+  it('uses HGVS c. notation for coding input', () => {
+    expect(buildPlatformUrl(parseVariant('NM_004333.4:c.1799T>A'), genebe))
+      .toBe('https://genebe.net/variant/hg38/NM_004333.4%3Ac.1799T%3EA');
+  });
+
+  it('uses GENE:p.Alteration for protein input', () => {
+    expect(buildPlatformUrl(parseVariant('BRAF p.Val600Glu'), genebe))
+      .toBe('https://genebe.net/variant/hg38/BRAF%3Ap.V600E');
+  });
+
+  it('falls back to the gene page', () => {
+    expect(buildPlatformUrl(parseVariant('BRAF'), genebe))
+      .toBe('https://genebe.net/gene/hg38/BRAF');
+  });
+
+  it('never overrides complete user coordinates with the enrichment hgvsg', () => {
+    const r = parseVariant('chr16:g.66823281T>C');
+    const url = buildPlatformUrl(r, genebe, 'GRCh38', { hgvsg: 'chr16:g.66857184A>T' });
+    expect(url).toBe('https://genebe.net/variant/hg38/16-66823281-T-C');
+  });
+
+  it('still uses enrichment alleles when the input lacks them', () => {
+    const r = parseVariant('chr16:g.5145601_5151200del');
+    const url = buildPlatformUrl(r, genebe, 'GRCh38', { hgvsg: 'chr16:g.5145600TTTCT>A' });
+    expect(url).toContain('16-5145600-');
+  });
+});
+
+// ── InterVar — form-based platform ──────────────────────────────────────────
+
+describe('intervarBuilder — form-based platform', () => {
+  const intervar = INITIAL_PLATFORMS.find((p) => p.id === 'intervar')!;
+
+  it('launches the ACMG form for a complete SNV', () => {
+    expect(buildPlatformUrl(parseVariant('chr7:140453136A>T'), intervar))
+      .toBe('https://wintervar.wglab.org/');
+  });
+
+  it('is disabled without ref/alt alleles', () => {
+    const r = parseVariant('chr7:140453136');
+    expect(getMissingDataReason(r, intervar)).toMatch(/ref and alt/i);
+    expect(buildPlatformUrl(r, intervar)).toBeNull();
+  });
+
+  it('is disabled for gene-only input (form needs coordinates)', () => {
+    expect(getMissingDataReason(parseVariant('BRAF'), intervar)).toMatch(/ref and alt/i);
+  });
+});
+
+// ── Review regressions: enrichment merge & eligibility parity ───────────────
+
+describe('enrichment merge — user coordinates are authoritative', () => {
+  const gnomad = INITIAL_PLATFORMS.find((p) => p.id === 'gnomad')!;
+  const oncokb = INITIAL_PLATFORMS.find((p) => p.id === 'oncokb')!;
+
+  it('does not move coordinate-only input to a different locus (GRCh37)', () => {
+    const r = parseVariant('chr7(GRCh37):140753336');
+    const enrichment = { hgvsg: 'chr7:g.140453136A>T' };
+    expect(buildPlatformUrl(r, gnomad, 'GRCh37', enrichment)).toBeNull();
+    expect(getMissingDataReason(r, gnomad, enrichment)).toMatch(/ref and alt/i);
+  });
+
+  it('fills alleles at the same locus instead of relocating', () => {
+    const r = parseVariant('chr7:140753336');
+    const url = buildPlatformUrl(r, gnomad, 'GRCh38', { hgvsg: 'chr7:g.140753336A>T' });
+    expect(url).toBe('https://gnomad.broadinstitute.org/variant/7-140753336-A-T?dataset=gnomad_r4');
+  });
+
+  it('keeps the user locus for OncoKB HGVSg', () => {
+    const r = parseVariant('chr7:140753336');
+    const url = buildPlatformUrl(r, oncokb, 'GRCh38', { hgvsg: 'chr7:g.140753336A>T' });
+    expect(url).toBe('https://www.oncokb.org/hgvsg/7:g.140753336A>T?refGenome=GRCh38');
+  });
+
+  it('adopts the resolved locus for structural shorthand with a VCF anchor shift', () => {
+    const r = parseVariant('chr9:g.38068458_38068460del');
+    const url = buildPlatformUrl(r, gnomad, 'GRCh38', { hgvsg: 'chr9:g.38068457ATCG>A' });
+    expect(url).toContain('9-38068457-ATCG-A');
+  });
+});
+
+describe('eligibility parity — getMissingDataReason matches buildPlatformUrl', () => {
+  const variantvalidator = INITIAL_PLATFORMS.find((p) => p.id === 'variantvalidator')!;
+  const varchat = INITIAL_PLATFORMS.find((p) => p.id === 'varchat')!;
+  const enrichment = { hgvsg: 'chr7:g.140453136A>T' };
+
+  it('keeps VariantValidator enabled for HGVSc input when enrichment adds coordinates', () => {
+    const r = parseVariant('NM_004333.4:c.1799T>A');
+    expect(getMissingDataReason(r, variantvalidator, enrichment)).toBeNull();
+    expect(buildPlatformUrl(r, variantvalidator, 'GRCh38', enrichment)).not.toBeNull();
+  });
+
+  it('keeps VarChat enabled for a typed gene when enrichment adds coordinates', () => {
+    const r = parseVariant('PAH c.1222C>T');
+    expect(getMissingDataReason(r, varchat, enrichment)).toBeNull();
+    expect(buildPlatformUrl(r, varchat, 'GRCh38', enrichment)).toContain('varchat.engenome.com/search?text=');
+  });
+});
+
+describe('unsupported data never produces a URL', () => {
+  const ids = ['oncokb', 'varsome', 'genebe', 'varchat'] as const;
+
+  it('disables position-only inputs for coords-or-gene platforms', () => {
+    const r = parseVariant('chr7:140453136');
+    for (const id of ids) {
+      const adapter = INITIAL_PLATFORMS.find((p) => p.id === id)!;
+      expect(getMissingDataReason(r, adapter)).not.toBeNull();
+      expect(buildPlatformUrl(r, adapter)).toBeNull();
+    }
+  });
+
+  it('rejects N alleles for OncoKB, VarSome, and GeneBe', () => {
+    const r = parseVariant('chr1:123N>A');
+    for (const id of ['oncokb', 'varsome', 'genebe'] as const) {
+      const adapter = INITIAL_PLATFORMS.find((p) => p.id === id)!;
+      expect(buildPlatformUrl(r, adapter)).toBeNull();
+    }
+  });
+
+  it('never leaks report annotations into URLs', () => {
+    const r = parseVariant('chr7:g.140453136A>T (VAF 32%)');
+    for (const id of ['oncokb', 'varsome', 'genebe', 'gnomad'] as const) {
+      const adapter = INITIAL_PLATFORMS.find((p) => p.id === id)!;
+      const url = buildPlatformUrl(r, adapter);
+      expect(url).not.toBeNull();
+      expect(url).not.toMatch(/VAF|%\)/);
+    }
+    expect(getFormattedVariant(parseVariant('chr7:g.140453136del (VAF 32%)'), 'custom')).not.toMatch(/VAF/);
+  });
+});
+
+describe('isSafeUrl — scheme and credential hardening', () => {
+  it('accepts https URLs', () => {
+    expect(isSafeUrl('https://www.oncokb.org/gene/BRAF/V600E')).toBe(true);
+  });
+
+  it('rejects http, javascript, and data schemes', () => {
+    expect(isSafeUrl('http://wintervar.wglab.org/')).toBe(false);
+    expect(isSafeUrl('javascript:alert(1)')).toBe(false);
+    expect(isSafeUrl('data:text/html,hi')).toBe(false);
+  });
+
+  it('rejects embedded credentials', () => {
+    expect(isSafeUrl('https://user:pass@varsome.com/')).toBe(false);
+    expect(isSafeUrl('https://evil@varsome.com/')).toBe(false);
+  });
+
+  it('rejects malformed input', () => {
+    expect(isSafeUrl('not a url')).toBe(false);
+  });
+});
+
 
 

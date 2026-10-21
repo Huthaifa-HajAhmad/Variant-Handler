@@ -30,6 +30,22 @@ const ALLOWED_DOMAINS = [
   'api.ncbi.nlm.nih.gov'
 ];
 
+/**
+ * One-shot registry of extension-initiated navigations that need in-page
+ * setup (e.g. ClinVar's clear-filters handoff). Content scripts are untrusted
+ * contexts and cannot read `chrome.storage.session`, so the trusted side panel
+ * registers the target here and the background validates the handoff.
+ */
+const pendingNavigations = new Map<string, number>();
+const PENDING_NAV_TTL_MS = 60_000;
+
+function prunePendingNavigations(): void {
+  const now = Date.now();
+  for (const [url, ts] of pendingNavigations) {
+    if (now - ts > PENDING_NAV_TTL_MS) pendingNavigations.delete(url);
+  }
+}
+
 if (typeof chrome !== 'undefined' && chrome.runtime) {
   chrome.runtime.onConnect.addListener((port) => {
     if (port.name === 'variant-handler-panel') {
@@ -41,6 +57,22 @@ if (typeof chrome !== 'undefined' && chrome.runtime) {
   });
 
   chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+    if (message && message.type === 'REGISTER_PENDING_NAV' && typeof message.url === 'string') {
+      prunePendingNavigations();
+      pendingNavigations.set(message.url, Date.now());
+      sendResponse({ success: true });
+      return;
+    }
+
+    if (message && message.type === 'CONSUME_PENDING_NAV' && typeof message.url === 'string') {
+      prunePendingNavigations();
+      const ts = pendingNavigations.get(message.url);
+      const authorised = typeof ts === 'number';
+      if (authorised) pendingNavigations.delete(message.url);
+      sendResponse({ success: true, authorised });
+      return;
+    }
+
     if (message && message.type === 'FETCH_VARIANT_ENRICHMENT') {
       const urlStr = message.url;
       

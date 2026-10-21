@@ -3,8 +3,9 @@
  * Exposes page actions (Autofill, Highlight) to the side panel without cluttering
  * host page DOMs with visual buttons.
  */
-import { parseVariant, ParsedVariant, hasRealAllele, parseGenomicHgvs } from '../lib/parser';
-import { AMINO_ACID_3_TO_1 } from '../lib/aminoAcids';
+import { formatOneLetterProtein } from '../lib/aminoAcids';
+import { hostIs } from '../utils/hostMatch';
+import { fillIntervarForm } from './intervarForm';
 
 let isClearFiltersPending = false;
 
@@ -14,45 +15,6 @@ function isContextValid(): boolean {
   } catch {
     return false;
   }
-}
-
-/**
- * Shows a non-blocking toast notification anchored to the top of the host page.
- */
-function showNotification(message: string, isError = false): void {
-  const existing = document.getElementById('vh-notification-banner');
-  if (existing) existing.remove();
-
-  const banner = document.createElement('div');
-  banner.id = 'vh-notification-banner';
-  banner.textContent = `🧬 Variant Handler: ${message}`;
-  banner.style.cssText = `
-    position: fixed;
-    top: 12px;
-    right: 12px;
-    z-index: 2147483647;
-    padding: 10px 16px;
-    border-radius: 8px;
-    font-size: 13px;
-    font-family: system-ui, -apple-system, sans-serif;
-    font-weight: 600;
-    box-shadow: 0 4px 12px rgba(0,0,0,0.25);
-    pointer-events: none;
-    opacity: 1;
-    transition: opacity 0.4s ease;
-    background-color: ${isError ? '#fee2e2' : '#ecfdf5'};
-    color: ${isError ? '#991b1b' : '#065f46'};
-    border: 1px solid ${isError ? '#fca5a5' : '#6ee7b7'};
-    max-width: 360px;
-    word-break: break-word;
-  `;
-  document.body.appendChild(banner);
-
-  const dismiss = () => {
-    banner.style.opacity = '0';
-    setTimeout(() => banner.remove(), 400);
-  };
-  setTimeout(dismiss, 4000);
 }
 
 /**
@@ -69,12 +31,18 @@ function isElementVisible(el: HTMLElement): boolean {
   return rect.width > 0 && rect.height > 0;
 }
 
+/** Text-entry inputs only — never password, login, newsletter or hidden fields. */
+function isTextEntryInput(el: HTMLInputElement): boolean {
+  const type = (el.getAttribute('type') || 'text').toLowerCase();
+  if (!['text', 'search', 'url', ''].includes(type)) return false;
+  const haystack = `${el.name} ${el.id} ${el.placeholder} ${el.getAttribute('aria-label') ?? ''}`.toLowerCase();
+  return !/password|login|sign-?in|email|newsletter|subscri/.test(haystack);
+}
+
 function findVisibleInput(selector: string): HTMLInputElement | null {
   const elements = Array.from(document.querySelectorAll(selector)) as HTMLInputElement[];
   if (elements.length === 0) return null;
-  const visible = elements.find(isElementVisible);
-  if (visible) return visible;
-  return elements.find(el => el.type !== 'hidden') || elements[0];
+  return elements.find(isElementVisible) ?? null;
 }
 
 function findAssociatedInput(labelEl: HTMLElement): HTMLInputElement | null {
@@ -208,27 +176,27 @@ function handlePendingClinVarAutofill() {
 function findSearchInputs(): HTMLInputElement[] {
   const hostname = window.location.hostname;
 
-  if (hostname.includes('gnomad.broadinstitute.org')) {
+  if (hostIs(hostname, 'gnomad.broadinstitute.org')) {
     const elements = Array.from(document.querySelectorAll('input[placeholder*="Search"]')) as HTMLInputElement[];
     return elements.filter(el => isElementVisible(el) && el.getBoundingClientRect().width > 50);
   }
-  if (hostname.includes('genome.ucsc.edu')) {
+  if (hostIs(hostname, 'genome.ucsc.edu')) {
     const el = (document.getElementById('positionInput') as HTMLInputElement | null)
       ?? document.querySelector<HTMLInputElement>('input[name="hgt.positionInput"]')
       ?? document.querySelector<HTMLInputElement>('input[name="position"]');
     return el ? [el] : [];
   }
-  if (hostname.includes('spliceailookup.broadinstitute.org')) {
+  if (hostIs(hostname, 'spliceailookup.broadinstitute.org')) {
     const el = findVisibleInput('input[id="search-box"]');
     return el ? [el] : [];
   }
-  if (hostname.includes('alphamissense.hegelab.org')) {
+  if (hostIs(hostname, 'alphamissense.hegelab.org')) {
     const el = findVisibleInput('input[id="search_input"]') || 
                findVisibleInput('input[id="identifier"]') || 
                findVisibleInput('input[id="uniprot_id"]');
     return el ? [el] : [];
   }
-  if (hostname.includes('franklin.genoox.com')) {
+  if (hostIs(hostname, 'franklin.genoox.com')) {
     const selectors = [
       'input[placeholder*="Search"]',
       'input[placeholder*="search"]',
@@ -242,7 +210,7 @@ function findSearchInputs(): HTMLInputElement[] {
       if (el) return [el];
     }
   }
-  if (hostname.includes('oncokb.org')) {
+  if (hostIs(hostname, 'oncokb.org')) {
     const selectors = [
       'input[placeholder*="Search"]',
       'input[placeholder*="search"]',
@@ -258,12 +226,37 @@ function findSearchInputs(): HTMLInputElement[] {
     }
     // OncoKB's search is a react-select: its <input> carries no `type` and no
     // `placeholder` attribute (the placeholder is a sibling div), so none of
-    // the selectors above match it. Fall back to any visible input.
+    // the selectors above match it. Fall back to a visible text-entry input,
+    // excluding login/newsletter fields.
     const anyInput = Array.from(document.querySelectorAll('input'))
-      .find(el => isElementVisible(el) && el.getBoundingClientRect().width > 50);
+      .find(el => isElementVisible(el) && isTextEntryInput(el) && el.getBoundingClientRect().width > 50);
     return anyInput ? [anyInput] : [];
   }
-  if (hostname.includes('ncbi.nlm.nih.gov')) {
+  if (hostIs(hostname, 'wintervar.wglab.org')) {
+    const el = findVisibleInput('input[name="pos"]');
+    return el ? [el] : [];
+  }
+  if (hostIs(hostname, 'varsome.com')) {
+    const el = findVisibleInput('input#search') ||
+               findVisibleInput('input[name="query"]') ||
+               findVisibleInput('input[type="text"]');
+    return el ? [el] : [];
+  }
+  if (hostIs(hostname, 'varchat.engenome.com')) {
+    const el = findVisibleInput('input[placeholder*="variant" i]') ||
+               findVisibleInput('input[placeholder*="HGVS" i]') ||
+               findVisibleInput('input[type="text"]') ||
+               Array.from(document.querySelectorAll('input')).find(el => isElementVisible(el) && isTextEntryInput(el));
+    return el ? [el] : [];
+  }
+  if (hostIs(hostname, 'genebe.net')) {
+    const el = findVisibleInput('input[placeholder*="Search" i]') ||
+               findVisibleInput('input[placeholder*="variant" i]') ||
+               findVisibleInput('input[name*="search" i]') ||
+               findVisibleInput('input[type="text"]');
+    return el ? [el] : [];
+  }
+  if (hostIs(hostname, 'ncbi.nlm.nih.gov')) {
     const selectors = [
       'input#query',
       'input[name="term"]',
@@ -305,10 +298,10 @@ function notifyAutofillProgress(message: string): void {
 
 function siteLabel(): string {
   const host = window.location.hostname;
-  if (host.includes('oncokb.org')) return 'OncoKB';
-  if (host.includes('franklin.genoox.com')) return 'Franklin';
-  if (host.includes('gnomad.broadinstitute.org')) return 'gnomAD';
-  if (host.includes('genome.ucsc.edu')) return 'UCSC';
+  if (hostIs(host, 'oncokb.org')) return 'OncoKB';
+  if (hostIs(host, 'franklin.genoox.com')) return 'Franklin';
+  if (hostIs(host, 'gnomad.broadinstitute.org')) return 'gnomAD';
+  if (hostIs(host, 'genome.ucsc.edu')) return 'UCSC';
   return host;
 }
 
@@ -342,7 +335,7 @@ function withSearchInput(
 
 /** Domain-aware failure message when no search input could be found at all. */
 function noSearchInputError(): string {
-  if (window.location.hostname.includes('oncokb.org') && window.location.pathname.startsWith('/gene/')) {
+  if (hostIs(window.location.hostname, 'oncokb.org') && window.location.pathname.startsWith('/gene/')) {
     return 'OncoKB gene pages have no search box — use the Launchpad button to open this variant directly.';
   }
   return 'No active search input box found on the page.';
@@ -388,23 +381,13 @@ function setFranklinAssembly(genomeBuild: string): void {
 
 function maybeSetFranklinAssembly(genomeBuild?: string): void {
   if (!genomeBuild) return;
-  if (!window.location.hostname.includes('franklin.genoox.com')) return;
+  if (!hostIs(window.location.hostname, 'franklin.genoox.com')) return;
   setFranklinAssembly(genomeBuild);
 }
 
 function convert3To1Letter(proteinChange: string): string | null {
-  const match = proteinChange.match(/^p\.([A-Z][a-z]{2})(\d+)([A-Z][a-z]{2})$/i);
-  if (match) {
-    const aa1 = match[1];
-    const pos = match[2];
-    const aa2 = match[3];
-    const a1 = AMINO_ACID_3_TO_1[aa1.charAt(0).toUpperCase() + aa1.slice(1).toLowerCase()];
-    const a2 = AMINO_ACID_3_TO_1[aa2.charAt(0).toUpperCase() + aa2.slice(1).toLowerCase()];
-    if (a1 && a2) {
-      return `p.${a1}${pos}${a2}`;
-    }
-  }
-  return null;
+  const oneLetter = formatOneLetterProtein(proteinChange);
+  return oneLetter ? `p.${oneLetter}` : null;
 }
 
 function findAndHighlightProteinChange(proteinChange: string): boolean {
@@ -482,7 +465,16 @@ if (isContextValid()) {
         (inputEl) => {
           const formatted = message.value;
           try {
-            if (window.location.hostname.includes('ncbi.nlm.nih.gov')) {
+            if (hostIs(window.location.hostname, 'wintervar.wglab.org')) {
+              if (fillIntervarForm(message.genomeBuild, message.coordinates)) {
+                sendResponse({ success: true });
+                return;
+              }
+              sendResponse({ success: false, error: 'InterVar needs chromosome, position, ref and alt alleles.' });
+              return;
+            }
+
+            if (hostIs(window.location.hostname, 'ncbi.nlm.nih.gov')) {
               const hasTerm = new URLSearchParams(window.location.search).has('term');
               if (hasTerm) {
                 const clearBtn = findClinVarClearAllFiltersButton();
@@ -499,7 +491,7 @@ if (isContextValid()) {
               }
             }
 
-            const isUCSC = window.location.hostname.includes('genome.ucsc.edu');
+            const isUCSC = hostIs(window.location.hostname, 'genome.ucsc.edu');
             if (isUCSC) {
               const posInput = (
                 document.getElementById('positionInput') ??
@@ -535,7 +527,7 @@ if (isContextValid()) {
               setNativeInputValue(inputEl, formatted);
               maybeSetFranklinAssembly(message.genomeBuild);
 
-              if (window.location.hostname.includes('ncbi.nlm.nih.gov')) {
+              if (hostIs(window.location.hostname, 'ncbi.nlm.nih.gov')) {
                 const form = inputEl.form;
                 if (form) {
                   try { (form as any).requestSubmit(); }
@@ -558,7 +550,7 @@ if (isContextValid()) {
         (inputEl) => {
           const geneSymbol = message.value;
           try {
-            if (window.location.hostname.includes('ncbi.nlm.nih.gov')) {
+            if (hostIs(window.location.hostname, 'ncbi.nlm.nih.gov')) {
               const hasTerm = new URLSearchParams(window.location.search).has('term');
               if (hasTerm) {
                 const clearBtn = findClinVarClearAllFiltersButton();
@@ -575,7 +567,7 @@ if (isContextValid()) {
               }
             }
 
-            const isUCSC = window.location.hostname.includes('genome.ucsc.edu');
+            const isUCSC = hostIs(window.location.hostname, 'genome.ucsc.edu');
             if (isUCSC) {
               const related = document.querySelectorAll('input[name="position"], input[name="hgt.positionInput"], #positionInput');
               related.forEach((el) => {
@@ -590,7 +582,7 @@ if (isContextValid()) {
               setNativeInputValue(inputEl, geneSymbol);
               maybeSetFranklinAssembly(message.genomeBuild);
 
-              if (window.location.hostname.includes('ncbi.nlm.nih.gov')) {
+              if (hostIs(window.location.hostname, 'ncbi.nlm.nih.gov')) {
                 const form = inputEl.form;
                 if (form) {
                   try { (form as any).requestSubmit(); }
@@ -618,9 +610,35 @@ if (isContextValid()) {
     }
   });
 
-  const initialParams = new URLSearchParams(window.location.search);
-  if (initialParams.has('vh_clear_filters')) {
-    const termVal = initialParams.get('term') || '';
+  // The `vh_clear_filters` trigger is only honoured when the extension itself
+  // opened this navigation: it stores the exact target URL in session storage
+  // before opening the tab, so arbitrary page links cannot spoof the handoff.
+  void handleExtensionInitiatedClinVarNavigation();
+
+  async function handleExtensionInitiatedClinVarNavigation(): Promise<void> {
+    const params = new URLSearchParams(window.location.search);
+    if (!params.has('vh_clear_filters')) return;
+
+    const termVal = params.get('term') || '';
+    let authorised = false;
+    try {
+      // Ask the background (trusted context) whether the extension itself
+      // opened this navigation; content scripts cannot read session storage.
+      const current = new URL(window.location.href);
+      current.searchParams.delete('vh_clear_filters');
+      const response = await chrome.runtime.sendMessage({
+        type: 'CONSUME_PENDING_NAV',
+        url: current.href,
+      }) as { authorised?: boolean } | undefined;
+      authorised = !!response?.authorised;
+    } catch { /* background unavailable — treat as unauthorised */ }
+
+    // Strip the trigger parameter regardless of origin.
+    params.delete('vh_clear_filters');
+    const newSearch = params.toString();
+    window.history.replaceState(null, '', window.location.pathname + (newSearch ? '?' + newSearch : ''));
+
+    if (!authorised) return;
     if (termVal) {
       sessionStorage.setItem('vh_pending_autofill', JSON.stringify({
         type: 'variant',
@@ -629,18 +647,13 @@ if (isContextValid()) {
       }));
     }
 
-    initialParams.delete('vh_clear_filters');
-    const newSearch = initialParams.toString();
-    const newUrl = window.location.pathname + (newSearch ? '?' + newSearch : '');
-    window.history.replaceState(null, '', newUrl);
-
-    if (window.location.hostname.includes('ncbi.nlm.nih.gov')) {
+    if (hostIs(window.location.hostname, 'ncbi.nlm.nih.gov')) {
       isClearFiltersPending = true;
       handleClinVarClearFiltersUrl();
     }
   }
 
-  if (window.location.hostname.includes('ncbi.nlm.nih.gov')) {
+  if (hostIs(window.location.hostname, 'ncbi.nlm.nih.gov')) {
     handlePendingClinVarAutofill();
   }
 }

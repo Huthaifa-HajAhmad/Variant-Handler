@@ -39,7 +39,13 @@ export function getFormattedVariant(parsed: ParsedVariant, format: string): stri
   const ref = parsed.ref ?? '';
   const alt = parsed.alt ?? '';
 
-  const cleanRaw = parsed.raw
+  // Strip a trailing report annotation (e.g. "(VAF 32%)") so formatted
+  // notations never leak annotation text into URLs.
+  const rawBase = parsed.annotationText
+    ? parsed.raw.replace(/\s*\([^()]*\)\s*$/, '').trim()
+    : parsed.raw;
+
+  const cleanRaw = rawBase
     .replace(/\s*[\(\[][A-Za-z0-9]+[\)\]]\s*/g, '')
     .trim()
     .replace(/^(?:Chr|CHR)/, 'chr')

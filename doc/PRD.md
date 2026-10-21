@@ -1,6 +1,6 @@
 # Product Requirements Document — Variant Handler Extension
 
-**Version:** 1.1.1 | **Status:** Active Development
+**Version:** 1.7.0 | **Status:** Active Development
 
 > **Scope:** Rare-disease (germline) genomics is the primary use case. Handles SNVs and small sequence-level indels; does **not** support cytogenetic/structural CNVs, translocations, or somatic calling / VAF-based workflows. The latest release supports oncology **lookups** via Franklin and OncoKB launch buttons, plus parsing of trailing `(VAF 32%)` report annotations and the `GENE amplification/deletion` shorthand. See the top-level README "Scope & Intended Use" and [`LIMITATIONS.md`](./LIMITATIONS.md).
 
@@ -13,7 +13,7 @@
 Variant Handler acts as a persistent, format-aware clipboard that:
 1. Accepts a variant in any notation
 2. Parses it into structured fields (chromosome, position, alleles, transcript, coding change, protein change) entirely client-side
-3. Presents launch buttons to 10 clinical databases, each pre-formatted for that platform's expected input
+3. Presents launch buttons to 14 clinical databases, each pre-formatted for that platform's expected input
 4. Autofills the reformatted variant directly into the target site's search field
 
 It also provides a multi-variant worklist with clinical notes, search history, and three export formats (TSV, styled Excel, clinical slide deck).
@@ -25,7 +25,7 @@ It also provides a multi-variant worklist with clinical notes, search history, a
 | Objective | How It Is Met |
 |-----------|--------------|
 | Standardise input parsing | Local regex engine covering HGVSg, VCF, HGVSc, HGVSp, NC_ accessions, and mitochondrial MT |
-| Cross-portal interoperability | Content script injects an autofill button into 7 supported clinical databases; format translation is automatic |
+| Cross-portal interoperability | Content script injects an autofill button into 13 supported clinical databases; format translation is automatic |
 | Diagnostic workflow continuity | Batch queue with `localStorage` persistence survives browser restart; history debounced to avoid noise |
 | Cohort export | TSV for downstream analysis; styled XLS for lab records; HTML slide deck for MDT case discussions |
 | Security | All user-derived strings sanitised before HTML export; `https:`-only URL validation; optional live lookup (MyVariant.info / Ensembl) can be disabled in Settings for sensitive variants; no third-party favicon/analytics requests |

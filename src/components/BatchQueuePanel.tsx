@@ -8,27 +8,12 @@
  *   - Clear filter (×) button
  */
 import React, { useState, useMemo } from 'react';
-import { ListOrdered, History, Trash2, FileText, FileSpreadsheet, Presentation, Search, X, Plus, ClipboardList, ClipboardPaste } from 'lucide-react';
+import { ListOrdered, History, Trash2, FileText, FileSpreadsheet, Presentation, Search, X, ClipboardPaste } from 'lucide-react';
 import { BatchItem } from '../lib/types';
 import { ParsedVariant, parseVariant } from '../lib/parser';
 import { ColorTheme } from '../lib/themes';
 import HighlightedCoordinate from './HighlightedCoordinate';
-import { inferGeneLabel, truncateSequence, MAX_SEQ_DISPLAY } from '../utils/variantUtils';
-
-function ParsedDetails({ input, isLight }: { input: string; isLight: boolean }) {
-  const parsed = parseVariant(input);
-  if (!parsed.codingChange && !parsed.proteinChange) return null;
-  return (
-    <div className={`flex flex-wrap gap-x-3 gap-y-0.5 text-[10px] font-mono ${isLight ? 'text-slate-500' : 'text-slate-500'}`}>
-      {parsed.codingChange && (
-        <span title={parsed.codingChange.length > MAX_SEQ_DISPLAY ? parsed.codingChange : undefined}>
-          {parsed.transcript ? `${parsed.transcript}:` : ''}{truncateSequence(parsed.codingChange)}
-        </span>
-      )}
-      {parsed.proteinChange && <span>{parsed.proteinChange}</span>}
-    </div>
-  );
-}
+import { inferGeneLabel } from '../utils/variantUtils';
 
 interface BatchQueuePanelProps {
   batchQueue: BatchItem[];

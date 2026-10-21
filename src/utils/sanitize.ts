@@ -29,6 +29,8 @@ export function escapeHtml(str: string): string {
 export function isSafeUrl(url: string): boolean {
   try {
     const parsed = new URL(url);
+    // Credentials in URLs are a classic phishing vector and never needed here.
+    if (parsed.username || parsed.password) return false;
     return parsed.protocol === 'https:';
   } catch {
     return false;

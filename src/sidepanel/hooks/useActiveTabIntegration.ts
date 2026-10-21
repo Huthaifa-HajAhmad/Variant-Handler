@@ -3,6 +3,7 @@ import { ParsedVariant, INITIAL_PLATFORMS, getFormattedVariant, buildPlatformUrl
 import { GenomeBuild } from '../../utils/genomeBuild';
 import { EnrichmentData } from '../../hooks/useVariantEnrichment';
 import { inferGeneLabel } from '../../utils/variantUtils';
+import { hostIs } from '../../utils/hostMatch';
 
 /**
  * Normalises an OncoKB-style tab URL for comparison: OncoKB redirects
@@ -105,8 +106,14 @@ export function useActiveTabIntegration({
       }
       try {
         const parsedUrl = new URL(activeTab.url);
-        const adapter = INITIAL_PLATFORMS.find(p => parsedUrl.hostname === p.domain || parsedUrl.hostname.endsWith(`.${p.domain}`));
+        const adapter = INITIAL_PLATFORMS.find(p => hostIs(parsedUrl.hostname, p.domain));
         const formatted = adapter ? getFormattedVariant(parsed, adapter.requiredFormat) : activeInput;
+        const coordinates = {
+          chromosome: parsed.chromosome,
+          position: parsed.position,
+          ref: parsed.ref,
+          alt: parsed.alt,
+        };
 
         // OncoKB's search box is an opaque react-select widget, so try the
         // in-page fill first; if the page has no scriptable search box, fall
@@ -119,6 +126,16 @@ export function useActiveTabIntegration({
             const attempt = (): void => {
               const target = buildPlatformUrl(parsed, adapter, build, enrichmentRef.current);
               if (target) {
+                // Defence in depth: only navigate to OncoKB itself.
+                try {
+                  if (!hostIs(new URL(target).hostname, 'oncokb.org')) {
+                    triggerAlert('Blocked unexpected destination host.');
+                    return;
+                  }
+                } catch {
+                  triggerAlert('Blocked malformed URL.');
+                  return;
+                }
                 if (normaliseTabUrl(activeTab.url) === normaliseTabUrl(target)) {
                   triggerAlert('Already showing this variant in OncoKB.');
                   return;
@@ -142,7 +159,7 @@ export function useActiveTabIntegration({
 
           chrome.tabs.sendMessage(
             activeTab.id!,
-            { type: 'AUTOFILL_VARIANT', value: formatted, genomeBuild: build },
+            { type: 'AUTOFILL_VARIANT', value: formatted, genomeBuild: build, coordinates },
             (response) => {
               const lastError = chrome.runtime.lastError;
               if (!lastError && response && response.success) {
@@ -155,7 +172,7 @@ export function useActiveTabIntegration({
           return;
         }
 
-        chrome.tabs.sendMessage(activeTab.id, { type: 'AUTOFILL_VARIANT', value: formatted, genomeBuild: parsed.genomeBuild ?? genomeBuild }, (response) => {
+        chrome.tabs.sendMessage(activeTab.id, { type: 'AUTOFILL_VARIANT', value: formatted, genomeBuild: parsed.genomeBuild ?? genomeBuild, coordinates }, (response) => {
           const lastError = chrome.runtime.lastError;
           if (lastError) {
             triggerAlert('Could not communicate with tab search input. Please refresh the active tab and try again.');
@@ -193,7 +210,7 @@ export function useActiveTabIntegration({
       if (activeTab.url) {
         try {
           const host = new URL(activeTab.url).hostname;
-          if (host === 'oncokb.org' || host.endsWith('.oncokb.org')) {
+          if (hostIs(host, 'oncokb.org')) {
             chrome.tabs.update(activeTab.id, { url: `https://www.oncokb.org/gene/${encodeURIComponent(geneSymbol)}` }, () => {
               triggerAlert('Opened gene page in OncoKB.');
             });

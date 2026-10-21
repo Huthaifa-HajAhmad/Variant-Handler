@@ -1,8 +1,6 @@
 import React from 'react';
 import { Zap, Sparkles, Crosshair, FileInput } from 'lucide-react';
-
-/** Matches the domain itself or any subdomain, so `evil-oncokb.org` does not pass as `oncokb.org`. */
-const hostIs = (host: string, domain: string) => host === domain || host.endsWith(`.${domain}`);
+import { hostIs } from '../../utils/hostMatch';
 
 interface ActiveTabIntegrationCardProps {
   isLight: boolean;
@@ -38,6 +36,8 @@ export default function ActiveTabIntegrationCard({
         }
       } else if (hostIs(host, 'oncokb.org')) {
         isAutofillGeneActive = true;
+      } else if (hostIs(host, 'varsome.com') || hostIs(host, 'varchat.engenome.com') || hostIs(host, 'genebe.net') || hostIs(host, 'wintervar.wglab.org')) {
+        isAutofillVariantActive = true;
       } else if (hostIs(host, 'ncbi.nlm.nih.gov')) {
         isAutofillGeneActive = true;
       } else if (hostIs(host, 'alphamissense.hegelab.org')) {

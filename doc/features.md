@@ -5,7 +5,7 @@
 > For architecture internals, see [`ARCHITECTURE.md`](./ARCHITECTURE.md).
 > For setup instructions, see the main [`README.md`](../README.md).
 
-> **Scope:** Rare-disease (germline) genomics. The parser handles **SNVs** and **small indels** (`del`/`ins`/`dup`/`delins`/`inv` with explicit positions/sequence). It does **not** support cytogenetic/structural CNVs, translocations, RNA-level notation, or somatic/oncology workflows. Oncology genes in the bundled symbol table support hereditary cancer-predisposition (germline) panels only.
+> **Scope:** Rare-disease (germline) genomics. The parser handles **SNVs** and **small indels** (`del`/`ins`/`dup`/`delins`/`inv` with explicit positions/sequence). It does **not** support cytogenetic/structural CNVs, translocations, RNA-level notation, or somatic calling / VAF-based analysis. Oncology genes in the bundled symbol table support hereditary cancer-predisposition panels and hotspot/actionability **lookups** (Franklin, OncoKB, VarSome, GeneBe), not somatic calling.
 
 ---
 
@@ -127,7 +127,7 @@ interface ParsedVariant {
 
 ### 2.1 Default Platforms (`INITIAL_PLATFORMS`)
 
-Ten platforms are active by default. Each has a `requiredFormat` that determines which variant fields are needed before its button is enabled; platforms may additionally declare `dataRequirements` (see §2.3).
+Fourteen platforms are active by default. Each has a `requiredFormat` that determines which variant fields are needed before its button is enabled; platforms may additionally declare `dataRequirements` (see §2.3).
 
 | ID | Name | Domain | Format Required | Fields Needed |
 |----|------|--------|----------------|---------------|
@@ -141,6 +141,10 @@ Ten platforms are active by default. Each has a `requiredFormat` that determines
 | `variantvalidator` | Variant Validator | `variantvalidator.org` | `hgvs_c` | transcript + codingChange |
 | `franklin` | Franklin (Genoox) | `franklin.genoox.com` | `custom` | coords (chrom+pos+ref+alt) **or** gene |
 | `oncokb` | OncoKB | `oncokb.org` | `custom` | coords (chrom+pos+ref+alt) **or** gene |
+| `varsome` | VarSome Clinical | `varsome.com` | `custom` | coords **or** gene |
+| `varchat` | VarChat | `varchat.engenome.com` | `custom` | gene symbol |
+| `genebe` | GeneBe | `genebe.net` | `custom` | coords **or** gene |
+| `intervar` | InterVar | `wintervar.wglab.org` | `dash` | chrom + pos + ref + alt |
 
 ### 2.2 Optional Clinical Presets (`CLINICAL_PRESETS`)
 
@@ -162,7 +166,7 @@ Before any URL is built, `getMissingDataReason()` checks format requirements:
 | `hgvs_c` | transcript + codingChange must be present |
 | `custom` | No data required (raw input passed through) |
 
-Platforms may additionally declare `dataRequirements`, which is evaluated before the format table: `coordsOrGene` (Franklin and OncoKB — real coordinates or a gene symbol; OncoKB sets `allelesOptional` so structural shorthand such as `16:g.5145601_5151200del` qualifies without explicit ref/alt). OncoKB builds its HGVSg route (`/hgvsg/{chrom}:g.…?refGenome=…`) when the input is genomic, and falls back to gene/alteration pages for protein or coding inputs.
+Platforms may additionally declare `dataRequirements`, which is evaluated before the format table: `coordsOrGene` (Franklin, OncoKB, VarSome, GeneBe — real coordinates or a gene symbol; OncoKB sets `allelesOptional` so structural shorthand such as `16:g.5145601_5151200del` qualifies), `coords` (InterVar — the form needs chromosome, position, ref and alt), and `gene` (VarChat — needs a gene/transcript notation). OncoKB builds its HGVSg route (`/hgvsg/{chrom}:g.…?refGenome=…`) when the input is genomic, and falls back to gene/alteration pages for protein or coding inputs.
 
 If the check fails, `buildPlatformUrl()` returns `null` and the button is disabled with a tooltip explaining what is missing.
 
@@ -263,6 +267,10 @@ Security: same as XLS — all values escaped via `escapeHtml()`.
 | `ncbi.nlm.nih.gov` | `input[name="term"]` or `input[id="term"]` |
 | `franklin.genoox.com` | First visible `input[placeholder*="Search"]`, `variant`, or `gene` |
 | `oncokb.org` | First visible `input[placeholder*="Search"]`, `gene`, or `alteration` |
+| `varsome.com` | `input#search` or `input[name="query"]` |
+| `varchat.engenome.com` | `input[placeholder*="variant"]` / `HGVS`, else any visible input |
+| `genebe.net` | `input[placeholder*="Search"]`, `variant`, or `name*=search` |
+| `wintervar.wglab.org` | `input[name="pos"]` (form autofill fills build/chr/pos/ref/alt) |
 | Generic fallback | First visible `text` or `search` input |
 
 ### 5.2 SPA Compatibility

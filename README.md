@@ -11,7 +11,7 @@
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.8-3178c6?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
 [![React](https://img.shields.io/badge/React-19-61dafb?logo=react&logoColor=black)](https://react.dev/)
 [![Manifest V3](https://img.shields.io/badge/Chrome_Extension-MV3-4285F4?logo=googlechrome&logoColor=white)](https://developer.chrome.com/docs/extensions/mv3/intro/)
-[![Tests](https://img.shields.io/badge/Tests-140%20passing-10b981)](./src/__tests__/parser.test.ts)
+[![Tests](https://img.shields.io/badge/Tests-258%20passing-10b981)](./src/__tests__/parser.test.ts)
 
 </div>
 
@@ -76,7 +76,7 @@ Genomic coordinates and sequences are resolved at runtime via a layered enrichme
 Disable Live Lookup in Settings for sensitive/unpublished variants — parsing and URL-building work fully offline.
 
 ### 🚀 Platform Launchpad
-One-click launch to 10 partner databases with automatic format translation:
+One-click launch to 14 partner databases with automatic format translation:
 
 | Database | Format Used |
 |----------|-------------|
@@ -90,6 +90,10 @@ One-click launch to 10 partner databases with automatic format translation:
 | VariantValidator | HGVSc `transcript:c.change` |
 | Franklin (Genoox) | `chrN-pos-ref-alt?hg=38\|19`, or gene page |
 | OncoKB | HGVSg coordinates (`refGenome`), `gene/alteration`, `gene/Amplification`, or gene page |
+| VarSome Clinical | `chrN-pos-ref-alt`, `GENE:PROTEIN`, HGVS c., rsID, or gene |
+| VarChat | `search?text=` with HGVSc, gene + protein, or gene |
+| GeneBe | `chrom-pos-ref-alt` / HGVS / `GENE:p.Alteration`, or gene page |
+| InterVar | ACMG form (Autofill populates chr/pos/ref/alt) |
 
 Buttons are disabled with a descriptive tooltip when the active variant is missing required fields for that platform (e.g., VariantValidator requires a transcript accession).
 
@@ -120,7 +124,7 @@ When you navigate to a supported database while the panel is open, a **"Autofill
 2. Reformats it for the specific site's expected notation
 3. Injects it into the search field and fires `input`/`change` events to trigger SPA state updates
 
-Supported sites: gnomAD, UCSC, SpliceAI, AlphaMissense, NCBI (ClinVar/dbSNP), Mutalyzer, VariantValidator.
+Supported sites: gnomAD, UCSC, SpliceAI, AlphaMissense, NCBI (ClinVar/dbSNP), Mutalyzer, VariantValidator, Franklin (Genoox), OncoKB, VarSome Clinical, VarChat, GeneBe, and InterVar.
 
 ---
 
@@ -168,7 +172,7 @@ variant-handler/
 │   │   └── index.tsx          # Root side panel component (state orchestrator)
 │   ├── components/
 │   │   ├── VariantWorkbench.tsx    # Input form + parsed field display
-│   │   ├── PlatformLaunchpad.tsx  # 10-platform button grid
+│   │   ├── PlatformLaunchpad.tsx  # 14-platform button grid
 │   │   ├── BatchQueuePanel.tsx    # Queue + history tabs + export buttons
 │   │   ├── HighlightedCoordinate.tsx  # Syntax-coloured variant display
 │   │   ├── Header.tsx             # Toolbar with theme toggle
@@ -290,7 +294,7 @@ System-wide shortcuts can also be customized directly in Chrome's extension shor
 | Concern | Mitigation |
 |---------|-----------|
 | XSS in HTML exports | All user strings pass through `escapeHtml()` before embedding in XLS/PPT |
-| URL injection | `isSafeUrl()` enforces `https:` only; all URL params are `encodeURIComponent`-encoded |
+| URL injection | `isSafeUrl()` enforces `https:` and rejects embedded credentials; launch URLs must also stay on their platform's own host; all URL params are `encodeURIComponent`-encoded |
 | `javascript:` URIs | `isSafeUrl()` rejects non-https schemes; `window.open` uses `noopener,noreferrer` |
 | Phishing via alert() | Content script uses non-blocking toast notifications instead of `alert()` |
 | Malformed localStorage | `parseBatchItem()` validates each item shape on read |
@@ -310,7 +314,7 @@ The extension requests the minimum required permissions:
 |------------|--------|
 | `sidePanel` | Open the side panel via toolbar click |
 | `storage` | Persist queue, history, theme, and genome-build preference in `chrome.storage.local` |
-| Host permissions (9 content-script domains) | Inject content script to autofill search inputs on supported clinical databases |
+| Host permissions (13 content-script domains) | Inject content script to autofill search inputs on supported clinical databases |
 
 All coordinate parsing is performed locally. The extension optionally queries public clinical APIs (UCSC Sequence API, MyVariant.info, Ensembl, and NCBI) over HTTPS to fetch annotation enrichments if live lookup is enabled in Settings.
 
@@ -363,7 +367,7 @@ Add the `accession → symbol` mapping to `TRANSCRIPT_TO_GENE` in [`src/utils/va
 
 ## AI-Assisted Development
 
-This project was developed with AI assistance and validated against a comprehensive suite of 140+ unit tests to ensure parsing accuracy and safety.
+This project was developed with AI assistance and validated against a comprehensive suite of 250+ unit tests to ensure parsing accuracy and safety.
 
 ---
 

@@ -33,12 +33,21 @@ export function detectGenomeBuild(input: string): GenomeBuild | null {
 }
 
 /**
+ * Returns the plain hg-style assembly name used by several portals.
+ *   GRCh38 → 'hg38'
+ *   GRCh37 → 'hg19'
+ */
+export function hgBuild(build: GenomeBuild): string {
+  return build === 'GRCh37' ? 'hg19' : 'hg38';
+}
+
+/**
  * Returns the UCSC `db` query parameter for the given build.
  *   GRCh38 → 'hg38'
  *   GRCh37 → 'hg19'
  */
 export function ucscDb(build: GenomeBuild): string {
-  return build === 'GRCh37' ? 'hg19' : 'hg38';
+  return hgBuild(build);
 }
 
 /**
@@ -56,7 +65,7 @@ export function gnomadDataset(build: GenomeBuild): string {
  *   GRCh37 → 'hg19'
  */
 export function spliceAiAssembly(build: GenomeBuild): string {
-  return build === 'GRCh37' ? 'hg19' : 'hg38';
+  return hgBuild(build);
 }
 
 /**

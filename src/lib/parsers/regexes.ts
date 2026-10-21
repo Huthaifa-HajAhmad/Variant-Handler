@@ -38,6 +38,10 @@ export const CODING_TRANSCRIPT_REGEX =
 /**
  * HGVSp protein-only regex.
  * Supports transcript or gene symbol prefix, e.g. PAH p.Arg408Trp or PAH:p.Arg408Trp or ATM:Thr1675del
+ *
+ * ReDoS note: the single-letter branch uses one linear character class. Do not
+ * reintroduce nested quantifiers such as `[A-Za-z0-9_*?]+(?:[A-Za-z0-9_*?()]+)*`,
+ * which backtrack catastrophically on long unmatched tokens.
  */
 export const PROTEIN_REGEX =
-  /^(?:(?:((?:ENST|NM_|NR_|NC_|XM_|XR_|NP_|LRG_)\d+(?:\.\d+)?)(?:\s*\([A-Za-z0-9_-]+\))?|([A-Za-z0-9_-]+))\s*[:\s]\s*)?(?:p\.\s*(\(?[A-Za-z0-9_*?]+(?:[A-Za-z0-9_*?()]+)*\)?)|((?:Ala|Arg|Asn|Asp|Cys|Gln|Glu|Gly|His|Ile|Leu|Lys|Met|Phe|Pro|Ser|Thr|Trp|Tyr|Val|Ter|[\*A-Z])\d+[0-9_()a-zA-Z*?]*))$/i;
+  /^(?:(?:((?:ENST|NM_|NR_|NC_|XM_|XR_|NP_|LRG_)\d+(?:\.\d+)?)(?:\s*\([A-Za-z0-9_-]+\))?|([A-Za-z0-9_-]+))\s*[:\s]\s*)?(?:p\.\s*(\(?[A-Za-z0-9_*?()]+\)?)|((?:Ala|Arg|Asn|Asp|Cys|Gln|Glu|Gly|His|Ile|Leu|Lys|Met|Phe|Pro|Ser|Thr|Trp|Tyr|Val|Ter|[\*A-Z])\d+[0-9_()a-zA-Z*?]*))$/i;

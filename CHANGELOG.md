@@ -6,6 +6,35 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [1.7.0] — 2026-10-21
+
+### 🚀 New Features & Enhancements
+- **Four new databases: VarSome Clinical, VarChat, GeneBe, and InterVar** — the Platform Launchpad now ships 14 databases.
+- **VarSome Clinical** — protein input maps to `GENE:PROTEIN` (e.g. `BRAF:V600E`), genomic input to `chrN-pos-ref-alt`, with HGVS c., rsID and gene fallbacks; routed through VarSome's own search form with `genome=hg38|hg19`, which resolves every format and avoids 404s on direct slugs.
+- **VarChat** — literature summaries via `search?text=`, preferring full HGVSc, then gene + protein, then gene.
+- **GeneBe** — canonical `chrom-pos-ref-alt`, HGVS, or `GENE:p.Alteration` variant pages with a gene-page fallback.
+- **InterVar** — its ACMG form is POST-only behind reCAPTCHA, so the button launches the form (over https) and **Autofill populates build/chr/pos/ref/alt** from the parsed variant.
+
+### ⚙️ Refactoring & Code Cleanup
+- **`coords` data requirement** — expresses "genomic coordinates with real alleles required" for form-based platforms such as InterVar.
+- **`hgBuild()` helper** — single source for `hg38`/`hg19` assembly strings, now shared by UCSC, SpliceAI, VarSome, and GeneBe.
+- **`formatOneLetterProtein()`** — renamed from the OncoKB-specific normaliser and shared by OncoKB, VarSome, and GeneBe.
+- **Autofill payload** now carries parsed coordinates so form-based portals can be populated without re-parsing the formatted string.
+- **User coordinates are authoritative** — the enrichment-resolved `hgvsg` now only fills gaps (transcript-only or allele-less inputs); complete user coordinates are no longer overwritten, fixing mismatched REF/position URLs.
+
+### 🛠️ Correctness, Security & Review Fixes
+- **Eligibility matches URL building** — `getMissingDataReason` and `buildPlatformUrl` now share one merge helper, so VariantValidator (HGVSc input) and VarChat (typed gene) are no longer disabled when enrichment adds coordinates.
+- **Coordinate-only input is never relocated** — enrichment alleles are accepted only at the same locus; structural shorthand may adopt a ±1 VCF anchor with its resolved alleles as a unit.
+- **Position-only inputs no longer open homepages** — OncoKB, VarSome, GeneBe, and VarChat builders return `null` (button disabled with a reason) when no meaningful URL can be built; `N` alleles are rejected by all new builders.
+- **OncoKB HGVSg hardening** — position-only input can no longer produce `g.` without alleles, and report annotations are stripped before formatting so `(VAF 32%)` never leaks into a URL.
+- **InterVar form safety** — autofill refuses non-coordinate input with a clear message instead of writing text into the position field.
+- **Autofill targets only visible text-entry inputs** — hidden-element fallbacks removed, and login/newsletter/password fields are excluded.
+- **ReDoS fixed in `PROTEIN_REGEX`** — nested quantifier replaced with a linear character class (a 50-character unmatched token went from >60 s to ~4 ms).
+- **URL safety hardening** — `isSafeUrl` rejects embedded credentials, launch URLs must stay on the platform's own host, and the ClinVar clear-filters handoff is only honoured for extension-initiated navigations (verified through a background handshake).
+- **Shared helpers** — `hostMatch`, `hgBuild`, and `formatOneLetterProtein` replace duplicated host/build/protein logic across the content script, card, and builders.
+- **Timer hygiene** — one tracked alert-dismiss timer replaces four untracked 300 ms timeouts.
+- **Docs corrected** — privacy list now names every portal that receives a variant in its URL, the README supported-sites list and test badge are current, the PRD version/counts are updated, and the features scope no longer contradicts the README.
+
 ## [1.6.0] — 2026-10-21
 
 ### 🚀 New Features & Enhancements

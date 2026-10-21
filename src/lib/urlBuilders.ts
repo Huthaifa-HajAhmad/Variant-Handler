@@ -1,9 +1,9 @@
 import { ParsedVariant, parseVariant, computeEndPos, getFormattedVariant } from './parser';
-import { PlatformAdapter, getMissingDataReason, hasRealAllele, isConcreteBase } from './platforms';
-import { GenomeBuild, DEFAULT_BUILD, ucscDb, gnomadDataset, spliceAiAssembly, franklinHg } from '../utils/genomeBuild';
+import { PlatformAdapter, getMissingDataReason, hasRealAllele, isConcreteBase, mergeResolvedGenomic } from './platforms';
+import { GenomeBuild, DEFAULT_BUILD, ucscDb, gnomadDataset, spliceAiAssembly, franklinHg, hgBuild } from '../utils/genomeBuild';
 import { normaliseAlleles } from '../utils/normalize';
 import { lookupGeneSymbol } from './geneSymbols';
-import { AMINO_ACID_3_TO_1 } from './aminoAcids';
+import { formatOneLetterProtein } from './aminoAcids';
 
 export type PlatformUrlBuilder = (
   parsed: ParsedVariant,
@@ -180,35 +180,29 @@ export const variantvalidatorBuilder: PlatformUrlBuilder = (parsed, adapter, bui
 };
 
 /**
- * Normalises a protein change into OncoKB's alteration slug.
- *
- *   p.Val600Glu   → V600E
- *   p.V600E       → V600E
- *   p.Phe508del   → F508del
- *   p.Arg54Ter    → R54*
- *   p.(Arg408Trp) → R408W
- *   Amplification → Amplification   (copy-number shorthand passthrough)
- *
- * Returns null when no protein change is available.
+ * Normalises a protein change into a single-letter alteration slug
+ * (`p.Val600Glu` → `V600E`). Re-exported from `aminoAcids` for URL builders;
+ * the implementation lives there so the content script can share it.
  */
-export function formatOncokbAlteration(proteinChange?: string): string | null {
-  if (!proteinChange) return null;
+export { formatOneLetterProtein };
 
-  let alteration = proteinChange.trim();
-  alteration = alteration.replace(/^p\./i, '');
-  alteration = alteration.replace(/^\(/, '').replace(/\)$/, '');
+/** True when the user's input used protein or coding (c.) notation. */
+function usesProteinNotation(parsed: ParsedVariant): boolean {
+  return !!parsed.proteinChange || (parsed.codingChange?.startsWith('c.') ?? false);
+}
 
-  // Every three-letter residue becomes one letter, wherever it sits: Val600Glu → V600E,
-  // Phe508del → F508del, Glu746_Ala750del → E746_A750del, Val600_Lys601delinsGlu → V600_K601delinsE.
-  // Lookarounds rather than \b, which does not separate residues across `_`.
-  alteration = alteration.replace(
-    /(?:(?<![A-Za-z])|(?<=delins|ins))([A-Z][a-z]{2})(?![a-z])/g,
-    (token: string) => AMINO_ACID_3_TO_1[token] ?? token,
-  );
-  // Stop codons written as Ter → *
-  alteration = alteration.replace(/Ter/g, '*');
-
-  return alteration || null;
+/** Full HGVSc string from enrichment or parsed input, when available. */
+function buildHgvsC(
+  parsed: ParsedVariant,
+  enrichment?: { transcript?: string; codingChange?: string } | null,
+): string {
+  if (enrichment?.transcript && enrichment?.codingChange) {
+    return `${enrichment.transcript}:${enrichment.codingChange}`;
+  }
+  if (parsed.transcript && parsed.codingChange?.startsWith('c.')) {
+    return `${parsed.transcript}:${parsed.codingChange}`;
+  }
+  return '';
 }
 
 export const franklinBuilder: PlatformUrlBuilder = (parsed, adapter, build, enrichment) => {
@@ -234,12 +228,15 @@ export const franklinBuilder: PlatformUrlBuilder = (parsed, adapter, build, enri
  * no whitespace. Returns null when the parsed variant has no coordinates.
  */
 function toOncokbHgvsg(parsed: ParsedVariant): string | null {
-  const { chromosome, position, ref, alt } = parsed;
+  const { chromosome, position, ref, alt, endPosition } = parsed;
   if (!chromosome || !position) return null;
 
-  if (hasRealAllele(ref) && hasRealAllele(alt)) {
+  if (isConcreteBase(ref) && isConcreteBase(alt)) {
     return `${chromosome}:g.${position}${ref}>${alt}`;
   }
+  // Structural shorthand is only usable with an explicit range (e.g.
+  // `16:g.5145601_5151200del`); a position-only input cannot form valid HGVSg.
+  if (!endPosition) return null;
   const formatted = getFormattedVariant(parsed, 'hgvs_g').replace(/\s+/g, '').replace(/^chr/i, '');
   return formatted.includes(':g.') ? formatted : null;
 }
@@ -252,18 +249,17 @@ export const oncokbBuilder: PlatformUrlBuilder = (parsed, adapter, build, enrich
   // HGVSg route so the lookup reflects those coordinates exactly instead of a
   // transcript/protein prediction. Protein and coding inputs keep the
   // gene/alteration route below.
-  const isProteinNotation = !!parsed.proteinChange || (parsed.codingChange?.startsWith('c.') ?? false);
-  if (!parsed.copyNumberChange && !isProteinNotation) {
+  if (!parsed.copyNumberChange && !usesProteinNotation(parsed)) {
     const hgvsg = toOncokbHgvsg(parsed);
     if (hgvsg) {
       return `https://www.oncokb.org/hgvsg/${hgvsg}?refGenome=${encodeURIComponent(effectiveBuild)}`;
     }
   }
   if (!gene) {
-    return 'https://www.oncokb.org/';
+    return null;
   }
   const proteinChange = enrichment?.proteinChange || parsed.proteinChange || '';
-  const alteration = parsed.copyNumberChange ?? formatOncokbAlteration(proteinChange);
+  const alteration = parsed.copyNumberChange ?? formatOneLetterProtein(proteinChange);
 
   // Deep-link only to alteration slugs OncoKB reliably serves:
   //  - missense / in-frame indels (V600E, F508del, R273H)
@@ -281,6 +277,82 @@ export const oncokbBuilder: PlatformUrlBuilder = (parsed, adapter, build, enrich
   }
   return `https://www.oncokb.org/gene/${encodeURIComponent(gene)}`;
 };
+
+export const varsomeBuilder: PlatformUrlBuilder = (parsed, adapter, build, enrichment) => {
+  const gene = enrichment?.geneSymbol || parsed.geneSymbol || '';
+  const protein = formatOneLetterProtein(enrichment?.proteinChange || parsed.proteinChange);
+  const coding = buildHgvsC(parsed, enrichment);
+  const rsId = enrichment?.rsId;
+  const chrom = parsed.chromosome ?? '';
+  const { pos: nPos, ref: nRef, alt: nAlt } = normaliseAlleles(parsed.position ?? '', parsed.ref ?? '', parsed.alt ?? '');
+  const effectiveBuild = parsed.genomeBuild ?? build;
+
+  let query = '';
+  if (usesProteinNotation(parsed)) {
+    // VarSome accepts `GENE:PROTEIN`, HGVS c., rsIDs, and gene symbols.
+    if (gene && protein) query = `${gene}:${protein}`;
+    else if (coding) query = coding;
+    else if (rsId) query = rsId;
+    else query = gene;
+  } else if (chrom && parsed.position && isConcreteBase(nRef) && isConcreteBase(nAlt)) {
+    // VarSome's canonical genomic notation omits the `chr` prefix spacing.
+    query = `chr${chrom}-${nPos}-${nRef}-${nAlt}`;
+  } else if (coding) {
+    query = coding;
+  } else if (rsId) {
+    query = rsId;
+  } else {
+    query = gene;
+  }
+
+  if (!query) return null;
+  // Use VarSome's own search form: it accepts every variant format and lands
+  // on the canonical variant page (direct slugs can 404 behind their guard).
+  return `https://varsome.com/variant/search?query=${encodeURIComponent(query)}&genome=${hgBuild(effectiveBuild)}`;
+};
+
+export const varchatBuilder: PlatformUrlBuilder = (parsed, adapter, build, enrichment) => {
+  const gene = enrichment?.geneSymbol || parsed.geneSymbol || '';
+  const protein = enrichment?.proteinChange || parsed.proteinChange || '';
+  const hgvsC = buildHgvsC(parsed, enrichment);
+  const geneCoding = gene && parsed.codingChange?.startsWith('c.') ? `${gene}:${parsed.codingChange}` : '';
+
+  // VarChat supports HGVS at coding/protein level plus gene symbols.
+  const term = hgvsC || geneCoding || (gene && protein ? `${gene} ${protein}` : '') || gene;
+  if (!term) return null;
+  return `https://varchat.engenome.com/search?text=${encodeURIComponent(term)}`;
+};
+
+export const genebeBuilder: PlatformUrlBuilder = (parsed, adapter, build, enrichment) => {
+  const gene = enrichment?.geneSymbol || parsed.geneSymbol || '';
+  const effectiveBuild = parsed.genomeBuild ?? build;
+  const hg = hgBuild(effectiveBuild);
+  const chrom = parsed.chromosome ?? '';
+  const { pos: nPos, ref: nRef, alt: nAlt } = normaliseAlleles(parsed.position ?? '', parsed.ref ?? '', parsed.alt ?? '');
+
+  // GeneBe's canonical form is `chrom-pos-ref-alt`.
+  if (!usesProteinNotation(parsed) && chrom && parsed.position && isConcreteBase(nRef) && isConcreteBase(nAlt)) {
+    const variant = `${chrom}-${nPos}-${nRef}-${nAlt}`;
+    return `https://genebe.net/variant/${hg}/${encodeURIComponent(variant)}`;
+  }
+  const coding = buildHgvsC(parsed, enrichment);
+  if (coding) {
+    return `https://genebe.net/variant/${hg}/${encodeURIComponent(coding)}`;
+  }
+  const protein = formatOneLetterProtein(enrichment?.proteinChange || parsed.proteinChange);
+  if (gene && protein) {
+    return `https://genebe.net/variant/${hg}/${encodeURIComponent(`${gene}:p.${protein}`)}`;
+  }
+  if (gene) {
+    return `https://genebe.net/gene/${hg}/${encodeURIComponent(gene)}`;
+  }
+  return null;
+};
+
+// InterVar is a POST form behind reCAPTCHA — no URL can encode the variant.
+// Launch the form (https is required by the extension's URL safety check); the
+// content script populates chr/pos/ref/alt on Autofill.
+export const intervarBuilder: PlatformUrlBuilder = () => 'https://wintervar.wglab.org/';
 
 export const defaultBuilder: PlatformUrlBuilder = (parsed, adapter, build, enrichment) => {
   const chrom = parsed.chromosome ?? '';
@@ -339,6 +411,10 @@ const builders = new Map<string, PlatformUrlBuilder>([
   ['variantvalidator', variantvalidatorBuilder],
   ['franklin', franklinBuilder],
   ['oncokb', oncokbBuilder],
+  ['varsome', varsomeBuilder],
+  ['varchat', varchatBuilder],
+  ['genebe', genebeBuilder],
+  ['intervar', intervarBuilder],
 ]);
 
 export function buildPlatformUrl(
@@ -350,18 +426,10 @@ export function buildPlatformUrl(
   const missingReason = getMissingDataReason(parsed, adapter, enrichment);
   if (missingReason) return null;
 
-  // Pre-process enrichment.hgvsg if present to override genomic parameters
-  const effectiveParsed = { ...parsed };
-  if (enrichment?.hgvsg) {
-    const resolvedGenomic = parseVariant(enrichment.hgvsg);
-    if (resolvedGenomic.isValid && resolvedGenomic.position) {
-      effectiveParsed.chromosome = resolvedGenomic.chromosome ?? effectiveParsed.chromosome;
-      effectiveParsed.position = resolvedGenomic.position;
-      effectiveParsed.ref = resolvedGenomic.ref ?? effectiveParsed.ref;
-      effectiveParsed.alt = resolvedGenomic.alt ?? effectiveParsed.alt;
-      effectiveParsed.endPosition = resolvedGenomic.endPosition;
-    }
-  }
+  // User-supplied data always wins; enrichment only fills gaps. The same merge
+  // is used by getMissingDataReason so eligibility and URL building cannot
+  // disagree.
+  const effectiveParsed = mergeResolvedGenomic(parsed, enrichment);
 
   const builder = builders.get(adapter.id) || defaultBuilder;
   return builder(effectiveParsed, adapter, build, enrichment);
