@@ -6,6 +6,25 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [1.8.0] — 2026-10-24
+
+### 🚀 New Features & Enhancements
+- **Open Targets Platform** — genomic input searches the platform by variant ID (`/search?q={chrom}_{pos}_{ref}_{alt}`, GRCh38-only; ID format verified against the public GraphQL API). Protein or gene input searches by gene symbol. Search routing avoids the 404 page shown for variants the platform has not indexed.
+- **MobiDetails** — links to the gene's variant list (`/vars/{GENE}`) on the current host, `mobidetails.chu-montpellier.fr` (the former `iurc` host redirects). Its variant pages use internal numeric IDs and search is POST-only, so the gene route is the deepest linkable entry point; Autofill targets its `#engine` search box.
+- The Platform Launchpad now ships **16 databases**.
+- **Playwright End-to-End (E2E) Test Suite** — full test harness testing MV3 Service Worker lifecycle, Workbench rendering, genome build switching, tab navigation, and content script autofill on mock portals in persistent headless browser contexts.
+- **Automated CI Workflow** — `.github/workflows/e2e.yml` running the Playwright E2E suite in GitHub Actions.
+
+### 🛠️ Correctness, Security & Hardening Remediations
+- **ReDoS Elimination** — pre-collapses consecutive whitespace and enforces a 1,000-character input cap across all parser regular expressions.
+- **Strict Protein Shorthand** — rejects false positives from scientific prose (e.g. `Figure 3`, `Day 14`, `A1B2`) by enforcing biologically valid 1-to-1 amino acid mappings.
+- **Clinical Mutations Support** — native parsing for clinical nonsense mutations (`R213X`, `APC R1450X`) and frameshift stop codons (`V600fsTer5`, `T790MfsTer4`).
+- **Native dbSNP rsID Routing** — parses rsIDs (`^rs\d+$`) directly into ClinVar, dbSNP, and VarSome URL builders.
+- **VariantValidator Modernization** — routed to active endpoint `https://variantvalidator.org/service/validate/` with hash-based and form autofill.
+- **Assembly Precedence & Range Bounds** — unified user-specified genome build precedence and chromosome boundary checks (`boundsWarning`).
+- **UI Accessibility** — resolved nested button bubbling and keyboard delete event propagation in the Batch Queue list.
+- **Content Script DOM Dispatch** — implemented native HTMLTextAreaElement prototype setter for React/Vue host page compatibility.
+
 ## [1.7.0] — 2026-10-21
 
 ### 🚀 New Features & Enhancements

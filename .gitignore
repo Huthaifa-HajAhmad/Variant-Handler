@@ -5,11 +5,15 @@ node_modules/
 dist/
 build/
 *.zip
+!release/*.zip
 *.tar.gz
 
 # Testing & Coverage
 coverage/
 .playwright-mcp/
+test-results/
+playwright-report/
+.e2e/
 
 # Environment Variables & Secrets
 .env

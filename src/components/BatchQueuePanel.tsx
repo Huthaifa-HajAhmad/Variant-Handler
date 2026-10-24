@@ -299,7 +299,17 @@ export default function BatchQueuePanel({
                 return (
                   <div
                     key={item.id}
+                    role="button"
+                    tabIndex={0}
                     onClick={() => setActiveInput(item.input)}
+                    onKeyDown={(e) => {
+                      if (e.target !== e.currentTarget) return;
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault();
+                        setActiveInput(item.input);
+                      }
+                    }}
+                    aria-label={`Select queued variant ${item.input}`}
                     className={`p-3 flex items-center justify-between gap-3 cursor-pointer transition-all border-l-4 ${
                       isActive
                         ? isLight ? 'bg-indigo-50/50 border-l-indigo-500' : 'bg-slate-800 border-l-indigo-500'
@@ -317,7 +327,11 @@ export default function BatchQueuePanel({
                     <button
                       id={`btn-remove-${item.id}`}
                       type="button"
-                      onClick={(e) => handleRemoveQueueItem(item.id, e)}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleRemoveQueueItem(item.id, e);
+                      }}
+                      onKeyDown={(e) => e.stopPropagation()}
                       title="Remove from queue"
                       className="p-1.5 text-slate-400 hover:text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-500/10 rounded-md transition-all cursor-pointer shrink-0"
                     >
@@ -344,11 +358,27 @@ export default function BatchQueuePanel({
                 const isActive = activeInput === input;
                 const geneLabel = parsedHist.transcript
                   ? (input.split(':')[0] || 'Genomic')
-                  : parsedHist.chromosome ? `chr${parsedHist.chromosome}` : 'RAW';
+                  : parsedHist.geneSymbol
+                  ? parsedHist.geneSymbol
+                  : parsedHist.rsId
+                  ? 'dbSNP'
+                  : parsedHist.chromosome
+                  ? `chr${parsedHist.chromosome}`
+                  : 'RAW';
                 return (
                   <div
                     key={`${input}_hist_${idx}`}
+                    role="button"
+                    tabIndex={0}
                     onClick={() => setActiveInput(input)}
+                    onKeyDown={(e) => {
+                      if (e.target !== e.currentTarget) return;
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault();
+                        setActiveInput(input);
+                      }
+                    }}
+                    aria-label={`Select history variant ${input}`}
                     className={`p-3 flex items-center justify-between gap-3 cursor-pointer transition-all border-l-4 ${
                       isActive
                         ? isLight ? 'bg-indigo-50/50 border-l-indigo-500' : 'bg-slate-800 border-l-indigo-500'
@@ -371,6 +401,7 @@ export default function BatchQueuePanel({
                         removeFromHistory(input);
                         triggerAlert('History item cleared');
                       }}
+                      onKeyDown={(e) => e.stopPropagation()}
                       title="Clear this record from history log"
                       className="p-1.5 text-slate-400 hover:text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-500/10 rounded-md transition-all cursor-pointer shrink-0"
                     >

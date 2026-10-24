@@ -769,7 +769,7 @@ describe('buildPlatformUrl — URL construction', () => {
 
   it('builds VariantValidator URL with coding notation', () => {
     const r = parseVariant('NM_000492.4:c.1521_1523delCTT');
-    expect(buildPlatformUrl(r, variantvalidator)).not.toBeNull();
+    expect(buildPlatformUrl(r, variantvalidator)).toBe('https://variantvalidator.org/service/validate/');
   });
 });
 
@@ -906,8 +906,8 @@ describe('getFormattedVariant — genomic range normalization', () => {
 // ── Franklin + OncoKB: platform registry ─────────────────────────────────────
 
 describe('INITIAL_PLATFORMS — Franklin and OncoKB registration', () => {
-  it('registers 14 platforms with unique ids', () => {
-    expect(INITIAL_PLATFORMS).toHaveLength(14);
+  it('registers 16 platforms with unique ids', () => {
+    expect(INITIAL_PLATFORMS).toHaveLength(16);
     const ids = INITIAL_PLATFORMS.map((p) => p.id);
     expect(new Set(ids).size).toBe(ids.length);
     expect(ids).toContain('franklin');
@@ -916,6 +916,8 @@ describe('INITIAL_PLATFORMS — Franklin and OncoKB registration', () => {
     expect(ids).toContain('varchat');
     expect(ids).toContain('genebe');
     expect(ids).toContain('intervar');
+    expect(ids).toContain('opentargets');
+    expect(ids).toContain('mobidetails');
   });
 
   it('declares capability requirements for the new platforms', () => {
@@ -931,6 +933,10 @@ describe('INITIAL_PLATFORMS — Franklin and OncoKB registration', () => {
     expect(varchat.dataRequirements).toEqual({ gene: true });
     expect(genebe.dataRequirements).toEqual({ coordsOrGene: true });
     expect(intervar.dataRequirements).toEqual({ coords: true });
+    const opentargets = INITIAL_PLATFORMS.find((p) => p.id === 'opentargets')!;
+    const mobidetails = INITIAL_PLATFORMS.find((p) => p.id === 'mobidetails')!;
+    expect(opentargets.dataRequirements).toEqual({ coordsOrGene: true });
+    expect(mobidetails.dataRequirements).toEqual({ gene: true });
   });
 
   it('uses {{hg}} (not {{assembly}}) in the Franklin template', () => {
@@ -1500,7 +1506,6 @@ describe('isSafeUrl — scheme and credential hardening', () => {
   it('accepts https URLs', () => {
     expect(isSafeUrl('https://www.oncokb.org/gene/BRAF/V600E')).toBe(true);
   });
-
   it('rejects http, javascript, and data schemes', () => {
     expect(isSafeUrl('http://wintervar.wglab.org/')).toBe(false);
     expect(isSafeUrl('javascript:alert(1)')).toBe(false);
@@ -1516,6 +1521,61 @@ describe('isSafeUrl — scheme and credential hardening', () => {
     expect(isSafeUrl('not a url')).toBe(false);
   });
 });
+
+// ── Open Targets — URL construction ─────────────────────────────────────────
+
+describe('opentargetsBuilder — URL construction', () => {
+  const opentargets = INITIAL_PLATFORMS.find((p) => p.id === 'opentargets')!;
+
+  it('routes GRCh38 coordinates through Open Targets search', () => {
+    expect(buildPlatformUrl(parseVariant('chr7:g.140753336A>T'), opentargets))
+      .toBe('https://platform.opentargets.org/search?q=7_140753336_A_T&page=1');
+  });
+
+  it('does not emit a GRCh37 coordinate as a variant ID', () => {
+    const r = parseVariant('chr7[hg19]:g.140453136A>T');
+    expect(buildPlatformUrl(r, opentargets, 'GRCh37')).toBeNull();
+  });
+
+  it('falls back to gene search for protein input', () => {
+    expect(buildPlatformUrl(parseVariant('BRAF V600E'), opentargets))
+      .toBe('https://platform.opentargets.org/search?q=BRAF&page=1');
+  });
+
+  it('uses gene search for gene-only input', () => {
+    expect(buildPlatformUrl(parseVariant('BRAF'), opentargets))
+      .toBe('https://platform.opentargets.org/search?q=BRAF&page=1');
+  });
+});
+
+// ── MobiDetails — URL construction ──────────────────────────────────────────
+
+describe('mobidetailsBuilder — URL construction', () => {
+  const mobidetails = INITIAL_PLATFORMS.find((p) => p.id === 'mobidetails')!;
+
+  it('links to the gene variant list', () => {
+    expect(buildPlatformUrl(parseVariant('BRAF'), mobidetails))
+      .toBe('https://mobidetails.chu-montpellier.fr/vars/BRAF');
+  });
+
+  it('uses the gene from protein input', () => {
+    expect(buildPlatformUrl(parseVariant('BRAF V600E'), mobidetails))
+      .toBe('https://mobidetails.chu-montpellier.fr/vars/BRAF');
+  });
+
+  it('requires a gene symbol', () => {
+    const r = parseVariant('chr7:140453136A>T');
+    expect(getMissingDataReason(r, mobidetails)).toMatch(/gene symbol/i);
+    expect(buildPlatformUrl(r, mobidetails)).toBeNull();
+  });
+
+  it('uses enrichment gene symbol for coordinate input', () => {
+    const r = parseVariant('chr7:140453136A>T');
+    expect(buildPlatformUrl(r, mobidetails, 'GRCh38', { geneSymbol: 'BRAF' }))
+      .toBe('https://mobidetails.chu-montpellier.fr/vars/BRAF');
+  });
+});
+
 
 
 

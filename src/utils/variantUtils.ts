@@ -24,10 +24,12 @@ export function truncateSequence(value: string): string {
  *   4. Generic fallback 'GENE'
  */
 export function inferGeneLabel(input: string, parsed: ParsedVariant): string {
+  if (parsed.geneSymbol) return parsed.geneSymbol;
   if (parsed.transcript) {
     const accession = input.split(':')[0] || parsed.transcript;
     return lookupGeneSymbol(accession) ?? accession;
   }
+  if (parsed.rsId) return 'dbSNP';
   if (parsed.chromosome) return `chr${parsed.chromosome}`;
   return 'GENE';
 }

@@ -24,6 +24,8 @@ export interface ParsedVariant {
   genomeBuild?: GenomeBuild;
   /** Resolved HGNC gene symbol if available. */
   geneSymbol?: string;
+  /** dbSNP reference SNP identifier, e.g. "rs113488022". */
+  rsId?: string;
   /** Allele fraction (0–1) parsed from a trailing report annotation, e.g. "(VAF 32%)". */
   vaf?: number;
   /** Raw trailing report annotation stripped before parsing, preserved for display. */

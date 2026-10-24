@@ -22,6 +22,20 @@ export type { ParsedVariant, GenomicCoordinate };
 export { INITIAL_PLATFORMS, hasRealAllele, getMissingDataReason, buildPlatformUrl };
 export { cleanChrom, computeEndPos, getFormattedVariant };
 
+export const MAX_INPUT_LENGTH = 1000;
+
+const AA1 = '[ACDEFGHIKLMNPQRSTVWY]';
+const AA3 = '(?:Ala|Arg|Asn|Asp|Cys|Gln|Glu|Gly|His|Ile|Leu|Lys|Met|Phe|Pro|Ser|Thr|Trp|Tyr|Val|Ter)';
+const STRICT_SHORTHAND = new RegExp(
+  `^(?:` +
+  `${AA1}\\d+(?:(?:${AA1}|X)(?:fs(?:(?:\\*|Ter|X)?\\d*)?)?|\\*|\\?|Ter|del|dup|ins[A-Z]*|delins[A-Z]*|fs(?:(?:\\*|Ter|X)?\\d*)?)|` +
+  `${AA1}\\d+_${AA1}\\d+(?:del|dup|ins[A-Z]*|delins[A-Z]*)|` +
+  `${AA3}\\d+(?:(?:${AA3}|X)(?:fs(?:[*A-Za-z0-9]*)?)?|\\*|\\?|Ter|del|dup|ins[A-Za-z]*|delins[A-Za-z]*|fs(?:[*A-Za-z0-9]*)?)|` +
+  `${AA3}\\d+_${AA3}\\d+(?:del|dup|ins[A-Za-z]*|delins[A-Za-z]*)` +
+  `)$`,
+  'i'
+);
+
 export function parseGenomicHgvs(str: string): GenomicCoordinate | null {
   const parsed = parseVariant(str);
   if (parsed.isValid && parsed.type === 'genomic' && parsed.chromosome && parsed.position) {
@@ -37,19 +51,37 @@ export function parseGenomicHgvs(str: string): GenomicCoordinate | null {
 }
 
 export function parseVariant(input: string): ParsedVariant {
+  if (input.length > 100000) {
+    return {
+      raw: input.slice(0, 100),
+      isValid: false,
+      type: 'unknown',
+      diagnostics: [`Input length (${input.length}) exceeds hard limit (100000 characters).`],
+    };
+  }
+
   const raw = input.trim();
   const diagnostics: string[] = [];
-  diagnostics.push(`Initializing parser for variant: "${raw}"`);
 
   if (!raw) {
     return { raw, isValid: false, type: 'unknown', diagnostics: ['Empty input provided.'] };
   }
 
+  // Pre-collapse whitespace runs to prevent ReDoS on huge spaces (R-01)
+  const collapsed = raw.replace(/\s+/g, ' ');
+
+  if (collapsed.length > MAX_INPUT_LENGTH) {
+    diagnostics.push(`Input length (${raw.length}) exceeds maximum allowed limit of ${MAX_INPUT_LENGTH} characters.`);
+    return { raw, isValid: false, type: 'unknown', diagnostics };
+  }
+
+  diagnostics.push(`Initializing parser for variant: "${raw}"`);
+
   // ── 0. Trailing report annotations (VAF / allele fraction) ───────────────
   // Oncology reports append context such as "(VAF 32%)". Strip it before the
   // anchored notation batteries run, keeping the original in `raw`.
-  const annotation = extractTrailingAnnotation(raw);
-  const notation = annotation?.stripped ?? raw;
+  const annotation = extractTrailingAnnotation(collapsed);
+  const notation = annotation?.stripped ?? collapsed;
   if (annotation) {
     diagnostics.push(
       `Extracted report annotation "${annotation.text}"` +
@@ -69,9 +101,19 @@ export function parseVariant(input: string): ParsedVariant {
   let proteinChange: string | undefined;
   let copyNumberChange: 'Amplification' | 'Deletion' | undefined;
   let geneSymbol: string | undefined;
+  let rsId: string | undefined;
 
   const genomeBuild: GenomeBuild | undefined = detectGenomeBuild(raw) ?? undefined;
   if (genomeBuild) diagnostics.push(`Detected genome build from input: ${genomeBuild}`);
+
+  // ── 0.5. dbSNP reference SNP identifier (rsID) ───────────────────────────
+  const rsMatch = notation.match(/^rs([0-9]+)$/i);
+  if (rsMatch) {
+    rsId = `rs${rsMatch[1]}`;
+    isValid = true;
+    type = 'genomic';
+    diagnostics.push(`Matched dbSNP reference SNP identifier: ${rsId}`);
+  }
 
   // ── 1. Genomic coordinate battery ────────────────────────────────────────
   for (let idx = 0; idx < GENOMIC_REGEXES.length; idx++) {
@@ -137,82 +179,92 @@ export function parseVariant(input: string): ParsedVariant {
   if (!isValid) {
     const codingMatch = notation.match(CODING_TRANSCRIPT_REGEX);
     if (codingMatch) {
-      if (codingMatch[1]) {
-        transcript = codingMatch[1];
-      } else if (codingMatch[2]) {
-        geneSymbol = codingMatch[2];
-        const defaultTx = GENE_TO_DEFAULT_TRANSCRIPT[geneSymbol.toUpperCase()];
-        if (defaultTx) {
-          transcript = defaultTx;
-          diagnostics.push(`Backfilled default transcript ${transcript} for gene ${geneSymbol}`);
-        }
-      }
-
       const changeText = codingMatch[3] || codingMatch[4];
+      const hasTranscriptAccession = !!codingMatch[1];
+      const isPureNumeric = /^\d+$/.test(changeText || '');
 
-      let isNcGenomic = false;
-      if (transcript && transcript.startsWith('NC_')) {
-        isNcGenomic = true;
-        if (/^NC_012920/i.test(transcript)) {
-          chromosome = 'MT';
-          diagnostics.push(`Inferred mitochondrial chromosome (MT) from accession ${transcript}`);
-        } else if (transcript.startsWith('NC_0000')) {
-          const parsedCr = parseInt(transcript.substring(7, 9), 10);
-          if (!isNaN(parsedCr) && parsedCr >= 1 && parsedCr <= 24) {
-            chromosome = parsedCr === 23 ? 'X' : parsedCr === 24 ? 'Y' : String(parsedCr);
-            diagnostics.push(`Inferred chromosome chr${chromosome} from genomic accession ${transcript}`);
+      // Reject prose/page numbers like "Figure 3", "Patient 101", "Day 14" (F-02):
+      // A coding change is never purely numeric, and non-accession gene names require
+      // explicit ':' or 'c.' notation.
+      const isGeneCandidate = !hasTranscriptAccession && !!codingMatch[2];
+      const hasExplicitCodingOrColon = notation.includes(':') || /\bc\./i.test(notation);
+
+      if (!isPureNumeric && (!isGeneCandidate || hasExplicitCodingOrColon)) {
+        if (codingMatch[1]) {
+          transcript = codingMatch[1];
+        } else if (codingMatch[2]) {
+          geneSymbol = codingMatch[2];
+          const defaultTx = GENE_TO_DEFAULT_TRANSCRIPT[geneSymbol.toUpperCase()];
+          if (defaultTx) {
+            transcript = defaultTx;
+            diagnostics.push(`Backfilled default transcript ${transcript} for gene ${geneSymbol}`);
           }
         }
-      }
 
-      if (isNcGenomic) {
-        codingChange = `g.${changeText}`;
-        type = 'genomic';
-        diagnostics.push('Matched genomic accession variant');
-        
-        const subMatch = changeText.match(/^([0-9]+)\s*([ACGTN]+)\s*>\s*([ACGTN]+)$/i);
-        if (subMatch) {
-          position = subMatch[1];
-          ref = subMatch[2].toUpperCase();
-          alt = subMatch[3].toUpperCase();
-        } else {
-          const indelMatch = changeText.match(/^([0-9]+)(?:_([0-9]+))?\s*(delins|del|ins|dup|inv)\s*([ACGTN]*)$/i);
-          if (indelMatch) {
-            position = indelMatch[1];
-            const endPosRaw = indelMatch[2];
-            const changeType = indelMatch[3].toLowerCase();
-            const seq = (indelMatch[4] || '').toUpperCase();
-            if (endPosRaw) endPosition = endPosRaw;
-            
-            if (changeType === 'del') {
-              ref = seq || undefined;
-              alt = seq ? '-' : undefined;
-            } else if (changeType === 'ins') {
-              ref = '-';
-              alt = seq || undefined;
-            } else if (changeType === 'dup') {
-              if (seq) { ref = seq; alt = seq + seq; }
-            } else if (changeType === 'delins') {
-              ref = undefined;
-              alt = seq || undefined;
+        let isNcGenomic = false;
+        if (transcript && transcript.startsWith('NC_')) {
+          isNcGenomic = true;
+          if (/^NC_012920/i.test(transcript)) {
+            chromosome = 'MT';
+            diagnostics.push(`Inferred mitochondrial chromosome (MT) from accession ${transcript}`);
+          } else if (transcript.startsWith('NC_0000')) {
+            const parsedCr = parseInt(transcript.substring(7, 9), 10);
+            if (!isNaN(parsedCr) && parsedCr >= 1 && parsedCr <= 24) {
+              chromosome = parsedCr === 23 ? 'X' : parsedCr === 24 ? 'Y' : String(parsedCr);
+              diagnostics.push(`Inferred chromosome chr${chromosome} from genomic accession ${transcript}`);
             }
           }
         }
-      } else {
-        codingChange = `c.${changeText}`;
-        if (codingMatch[5]) {
-          proteinChange = codingMatch[5];
-          type = 'hybrid';
-          diagnostics.push('Matched hybrid transcript coding/protein sequence');
-        } else {
-          type = 'coding';
-          diagnostics.push('Matched transcript coding sequence');
-        }
-      }
 
-      isValid = true;
-      diagnostics.push(`Extracted transcript: ${transcript}, coding revision: ${codingChange}`);
-      if (proteinChange) diagnostics.push(`Extracted linked protein change: ${proteinChange}`);
+        if (isNcGenomic) {
+          codingChange = `g.${changeText}`;
+          type = 'genomic';
+          diagnostics.push('Matched genomic accession variant');
+          
+          const subMatch = changeText.match(/^([0-9]+)\s*([ACGTN]+)\s*>\s*([ACGTN]+)$/i);
+          if (subMatch) {
+            position = subMatch[1];
+            ref = subMatch[2].toUpperCase();
+            alt = subMatch[3].toUpperCase();
+          } else {
+            const indelMatch = changeText.match(/^([0-9]+)(?:_([0-9]+))?\s*(delins|del|ins|dup|inv)\s*([ACGTN]*)$/i);
+            if (indelMatch) {
+              position = indelMatch[1];
+              const endPosRaw = indelMatch[2];
+              const changeType = indelMatch[3].toLowerCase();
+              const seq = (indelMatch[4] || '').toUpperCase();
+              if (endPosRaw) endPosition = endPosRaw;
+              
+              if (changeType === 'del') {
+                ref = seq || undefined;
+                alt = seq ? '-' : undefined;
+              } else if (changeType === 'ins') {
+                ref = '-';
+                alt = seq || undefined;
+              } else if (changeType === 'dup') {
+                if (seq) { ref = seq; alt = seq + seq; }
+              } else if (changeType === 'delins') {
+                ref = undefined;
+                alt = seq || undefined;
+              }
+            }
+          }
+        } else {
+          codingChange = `c.${changeText}`;
+          if (codingMatch[5]) {
+            proteinChange = codingMatch[5];
+            type = 'hybrid';
+            diagnostics.push('Matched hybrid transcript coding/protein sequence');
+          } else {
+            type = 'coding';
+            diagnostics.push('Matched transcript coding sequence');
+          }
+        }
+
+        isValid = true;
+        diagnostics.push(`Extracted transcript: ${transcript}, coding revision: ${codingChange}`);
+        if (proteinChange) diagnostics.push(`Extracted linked protein change: ${proteinChange}`);
+      }
     }
   }
 
@@ -220,22 +272,26 @@ export function parseVariant(input: string): ParsedVariant {
   if (!isValid) {
     const pMatch = notation.match(PROTEIN_REGEX);
     if (pMatch) {
-      if (pMatch[1]) {
-        transcript = pMatch[1];
-      } else if (pMatch[2]) {
-        geneSymbol = pMatch[2];
-        const defaultTx = GENE_TO_DEFAULT_TRANSCRIPT[geneSymbol.toUpperCase()];
-        if (defaultTx) {
-          transcript = defaultTx;
-          diagnostics.push(`Backfilled default transcript ${transcript} for gene ${geneSymbol}`);
-        }
-      }
       const pChangeText = pMatch[3] || pMatch[4];
-      proteinChange = `p.${pChangeText}`;
-      isValid = true;
-      type    = transcript ? 'hybrid' : 'protein';
-      diagnostics.push('Matched protein coordinate signature');
-      diagnostics.push(`Extracted protein change: ${proteinChange}${transcript ? `, linked transcript: ${transcript}` : ''}`);
+      const isShorthandWithoutPrefix = !!pMatch[4];
+
+      if (!isShorthandWithoutPrefix || STRICT_SHORTHAND.test(pMatch[4])) {
+        if (pMatch[1]) {
+          transcript = pMatch[1];
+        } else if (pMatch[2]) {
+          geneSymbol = pMatch[2];
+          const defaultTx = GENE_TO_DEFAULT_TRANSCRIPT[geneSymbol.toUpperCase()];
+          if (defaultTx) {
+            transcript = defaultTx;
+            diagnostics.push(`Backfilled default transcript ${transcript} for gene ${geneSymbol}`);
+          }
+        }
+        proteinChange = `p.${pChangeText}`;
+        isValid = true;
+        type    = transcript ? 'hybrid' : 'protein';
+        diagnostics.push('Matched protein coordinate signature');
+        diagnostics.push(`Extracted protein change: ${proteinChange}${transcript ? `, linked transcript: ${transcript}` : ''}`);
+      }
     }
   }
 
@@ -281,6 +337,7 @@ export function parseVariant(input: string): ParsedVariant {
     copyNumberChange,
     genomeBuild: genomeBuild,
     geneSymbol,
+    rsId,
     vaf: annotation?.vaf,
     annotationText: annotation?.text,
     diagnostics,

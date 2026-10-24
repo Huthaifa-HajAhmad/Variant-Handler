@@ -108,7 +108,7 @@ export const INITIAL_PLATFORMS: PlatformAdapter[] = [
     description: 'HGVS nomenclature verification and genomic mapping engine',
     color: '#ec4899',
     accentColor: 'bg-pink-500/10 border-pink-500 text-pink-400',
-    urlTemplate: 'https://variantvalidator.org/service/validate/{{variant}}',
+    urlTemplate: 'https://variantvalidator.org/service/validate/',
     requiredFormat: 'hgvs_c',
   },
   {
@@ -175,7 +175,30 @@ export const INITIAL_PLATFORMS: PlatformAdapter[] = [
     accentColor: 'bg-red-500/10 border-red-500 text-red-400',
     urlTemplate: 'https://wintervar.wglab.org/',
     requiredFormat: 'dash',
-    dataRequirements: { coords: true },  },
+    dataRequirements: { coords: true },
+  },
+  {
+    id: 'opentargets',
+    name: 'Open Targets',
+    domain: 'platform.opentargets.org',
+    description: 'Target–disease evidence and variant associations from the Open Targets Platform',
+    color: '#0f766e',
+    accentColor: 'bg-teal-700/10 border-teal-700 text-teal-300',
+    urlTemplate: 'https://platform.opentargets.org/search?q={{variant}}&page=1',
+    requiredFormat: 'custom',
+    dataRequirements: { coordsOrGene: true },
+  },
+  {
+    id: 'mobidetails',
+    name: 'MobiDetails',
+    domain: 'mobidetails.chu-montpellier.fr',
+    description: 'Online DNA variant interpretation and annotation (Montpellier)',
+    color: '#be123c',
+    accentColor: 'bg-rose-700/10 border-rose-700 text-rose-300',
+    urlTemplate: 'https://mobidetails.chu-montpellier.fr/vars/{{gene}}',
+    requiredFormat: 'custom',
+    dataRequirements: { gene: true },
+  },
 ];
 
 export function hasRealAllele(allele?: string): boolean {
@@ -201,9 +224,15 @@ export function isConcreteBase(allele?: string): boolean {
  */
 export function mergeResolvedGenomic(
   parsed: ParsedVariant,
-  enrichment?: { hgvsg?: string } | null,
+  enrichment?: { hgvsg?: string; rsId?: string } | null,
 ): ParsedVariant {
-  if (!enrichment?.hgvsg) return parsed;
+  if (!enrichment?.hgvsg && !enrichment?.rsId) return parsed;
+  if (!enrichment?.hgvsg && enrichment?.rsId) {
+    if (!parsed.rsId) {
+      return { ...parsed, rsId: enrichment.rsId };
+    }
+    return parsed;
+  }
 
   const resolved = parseVariant(enrichment.hgvsg);
   if (!resolved.isValid) return parsed;
@@ -244,13 +273,15 @@ export function mergeResolvedGenomic(
   if (!merged.transcript) merged.transcript = resolved.transcript;
   if (!merged.codingChange) merged.codingChange = resolved.codingChange;
   if (!merged.geneSymbol) merged.geneSymbol = resolved.geneSymbol;
+  if (!merged.rsId) merged.rsId = resolved.rsId || enrichment?.rsId;
+  if (!merged.genomeBuild && resolved.genomeBuild) merged.genomeBuild = resolved.genomeBuild;
   return merged;
 }
 
 export function getMissingDataReason(
   parsed: ParsedVariant,
   adapter: PlatformAdapter,
-  enrichment?: { geneSymbol?: string; hgvsg?: string } | null,
+  enrichment?: { geneSymbol?: string; hgvsg?: string; rsId?: string } | null,
 ): string | null {
   const needsCoords  = ['dash', 'hgvs_g', 'coordinate'].includes(adapter.requiredFormat);
   const needsAlleles = ['dash', 'hgvs_g'].includes(adapter.requiredFormat);
@@ -274,7 +305,12 @@ export function getMissingDataReason(
     if (adapter.dataRequirements.coords && !hasCoords) {
       return `Chromosome, position, ref and alt alleles required for ${adapter.name}`;
     }
-    if (adapter.dataRequirements.coordsOrGene && !hasCoords && !geneForRequirements) {
+    if (
+      adapter.dataRequirements.coordsOrGene &&
+      !hasCoords &&
+      !geneForRequirements &&
+      !(adapter.id === 'varsome' && currentParsed.rsId)
+    ) {
       return `Chromosome coordinates or gene symbol required for ${adapter.name}`;
     }
     return null;

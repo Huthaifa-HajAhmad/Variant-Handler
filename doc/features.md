@@ -1,6 +1,6 @@
 # Feature Reference & Integration Guide
 
-> **Status:** Current as of `v1.1.1` — reflects all post-audit fixes (N1–N9) and the scope/variant-class documentation pass.
+> **Status:** Current as of `v1.8.0` — reflects all post-audit fixes (N1–N9) and the scope/variant-class documentation pass.
 >
 > For architecture internals, see [`ARCHITECTURE.md`](./ARCHITECTURE.md).
 > For setup instructions, see the main [`README.md`](../README.md).
@@ -127,7 +127,7 @@ interface ParsedVariant {
 
 ### 2.1 Default Platforms (`INITIAL_PLATFORMS`)
 
-Fourteen platforms are active by default. Each has a `requiredFormat` that determines which variant fields are needed before its button is enabled; platforms may additionally declare `dataRequirements` (see §2.3).
+Sixteen platforms are active by default. Each has a `requiredFormat` that determines which variant fields are needed before its button is enabled; platforms may additionally declare `dataRequirements` (see §2.3).
 
 | ID | Name | Domain | Format Required | Fields Needed |
 |----|------|--------|----------------|---------------|
@@ -145,6 +145,8 @@ Fourteen platforms are active by default. Each has a `requiredFormat` that deter
 | `varchat` | VarChat | `varchat.engenome.com` | `custom` | gene symbol |
 | `genebe` | GeneBe | `genebe.net` | `custom` | coords **or** gene |
 | `intervar` | InterVar | `wintervar.wglab.org` | `dash` | chrom + pos + ref + alt |
+| `opentargets` | Open Targets | `platform.opentargets.org` | `custom` | coords (GRCh38) **or** gene |
+| `mobidetails` | MobiDetails | `mobidetails.chu-montpellier.fr` | `custom` | gene symbol |
 
 ### 2.2 Optional Clinical Presets (`CLINICAL_PRESETS`)
 
@@ -166,7 +168,7 @@ Before any URL is built, `getMissingDataReason()` checks format requirements:
 | `hgvs_c` | transcript + codingChange must be present |
 | `custom` | No data required (raw input passed through) |
 
-Platforms may additionally declare `dataRequirements`, which is evaluated before the format table: `coordsOrGene` (Franklin, OncoKB, VarSome, GeneBe — real coordinates or a gene symbol; OncoKB sets `allelesOptional` so structural shorthand such as `16:g.5145601_5151200del` qualifies), `coords` (InterVar — the form needs chromosome, position, ref and alt), and `gene` (VarChat — needs a gene/transcript notation). OncoKB builds its HGVSg route (`/hgvsg/{chrom}:g.…?refGenome=…`) when the input is genomic, and falls back to gene/alteration pages for protein or coding inputs.
+Platforms may additionally declare `dataRequirements`, which is evaluated before the format table: `coordsOrGene` (Franklin, OncoKB, VarSome, GeneBe, Open Targets — real coordinates or a gene symbol; OncoKB sets `allelesOptional` so structural shorthand such as `16:g.5145601_5151200del` qualifies), `coords` (InterVar — the form needs chromosome, position, ref and alt), and `gene` (VarChat, MobiDetails — need a gene/transcript notation). OncoKB builds its HGVSg route (`/hgvsg/{chrom}:g.…?refGenome=…`) when the input is genomic, and falls back to gene/alteration pages for protein or coding inputs.
 
 If the check fails, `buildPlatformUrl()` returns `null` and the button is disabled with a tooltip explaining what is missing.
 
@@ -271,6 +273,8 @@ Security: same as XLS — all values escaped via `escapeHtml()`.
 | `varchat.engenome.com` | `input[placeholder*="variant"]` / `HGVS`, else any visible input |
 | `genebe.net` | `input[placeholder*="Search"]`, `variant`, or `name*=search` |
 | `wintervar.wglab.org` | `input[name="pos"]` (form autofill fills build/chr/pos/ref/alt) |
+| `platform.opentargets.org` | First visible search input, else visible text input |
+| `mobidetails.chu-montpellier.fr` | `#engine`, `#engine_index`, or `input[name="search"]` (redirects from `mobidetails.iurc.montp.inserm.fr`) |
 | Generic fallback | First visible `text` or `search` input |
 
 ### 5.2 SPA Compatibility

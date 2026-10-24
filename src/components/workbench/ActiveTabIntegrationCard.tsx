@@ -36,7 +36,7 @@ export default function ActiveTabIntegrationCard({
         }
       } else if (hostIs(host, 'oncokb.org')) {
         isAutofillGeneActive = true;
-      } else if (hostIs(host, 'varsome.com') || hostIs(host, 'varchat.engenome.com') || hostIs(host, 'genebe.net') || hostIs(host, 'wintervar.wglab.org')) {
+      } else if (hostIs(host, 'varsome.com') || hostIs(host, 'varchat.engenome.com') || hostIs(host, 'genebe.net') || hostIs(host, 'wintervar.wglab.org') || hostIs(host, 'platform.opentargets.org') || hostIs(host, 'variantvalidator.org') || hostIs(host, 'mobidetails.chu-montpellier.fr') || hostIs(host, 'mobidetails.iurc.montp.inserm.fr')) {
         isAutofillVariantActive = true;
       } else if (hostIs(host, 'ncbi.nlm.nih.gov')) {
         isAutofillGeneActive = true;

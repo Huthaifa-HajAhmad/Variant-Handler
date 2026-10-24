@@ -1,0 +1,61 @@
+name: E2E Extension Suite
+
+on:
+  pull_request:
+    paths:
+      - 'src/**'
+      - 'public/**'
+      - 'e2e/**'
+      - 'playwright.config.ts'
+      - 'package.json'
+      - '.github/workflows/e2e.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: e2e-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  e2e:
+    name: Playwright MV3 Extension E2E
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Playwright Chromium with system dependencies
+        run: npx playwright install chromium --with-deps
+
+      - name: Build extension bundle
+        run: npm run build
+
+      - name: Run Playwright E2E suite
+        run: npm run test:e2e
+        env:
+          CI: 'true'
+          PLAYWRIGHT_CHROMIUM_CHANNEL: 'chromium'
+
+      - name: Upload Playwright Evidence
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-e2e-report
+          path: |
+            .e2e/report.json
+            test-results/
+          retention-days: 7
+          if-no-files-found: ignore

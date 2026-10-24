@@ -232,6 +232,13 @@ function findSearchInputs(): HTMLInputElement[] {
       .find(el => isElementVisible(el) && isTextEntryInput(el) && el.getBoundingClientRect().width > 50);
     return anyInput ? [anyInput] : [];
   }
+  if (hostIs(hostname, 'variantvalidator.org')) {
+    const el = findVisibleInput('#variant_id') ||
+               findVisibleInput('textarea#variant_id') ||
+               findVisibleInput('input[name="variant_id"]') ||
+               findVisibleInput('input#variant_description');
+    return el ? [el] : [];
+  }
   if (hostIs(hostname, 'wintervar.wglab.org')) {
     const el = findVisibleInput('input[name="pos"]');
     return el ? [el] : [];
@@ -278,8 +285,11 @@ function findSearchInputs(): HTMLInputElement[] {
 }
 
 /** Sets an input's value with the native setter so React/Angular register the change. */
-function setNativeInputValue(inputEl: HTMLInputElement, value: string): void {
-  const nativeSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')?.set;
+function setNativeInputValue(inputEl: HTMLInputElement | HTMLTextAreaElement, value: string): void {
+  const proto = (typeof window.HTMLTextAreaElement !== 'undefined' && inputEl instanceof window.HTMLTextAreaElement)
+    ? window.HTMLTextAreaElement.prototype
+    : window.HTMLInputElement.prototype;
+  const nativeSetter = Object.getOwnPropertyDescriptor(proto, 'value')?.set;
   if (nativeSetter) {
     nativeSetter.call(inputEl, value);
   } else {
@@ -288,6 +298,8 @@ function setNativeInputValue(inputEl: HTMLInputElement, value: string): void {
   inputEl.dispatchEvent(new Event('input', { bubbles: true }));
   inputEl.dispatchEvent(new Event('change', { bubbles: true }));
 }
+
+
 
 /** Reports autofill progress to the sidepanel (shown as a notice-banner). */
 function notifyAutofillProgress(message: string): void {

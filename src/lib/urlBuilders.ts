@@ -73,6 +73,14 @@ export const spliceaiBuilder: PlatformUrlBuilder = (parsed, adapter, build, enri
   return 'https://spliceailookup.broadinstitute.org/';
 };
 
+function getCleanRaw(parsed: ParsedVariant): string {
+  if (parsed.rsId) return parsed.rsId;
+  if (parsed.annotationText) {
+    return parsed.raw.replace(/\s*\([^()]*\)\s*$/, '').trim();
+  }
+  return parsed.raw;
+}
+
 export const alphamissenseBuilder: PlatformUrlBuilder = (parsed, adapter, build, enrichment) => {
   const gene = enrichment?.geneSymbol || parsed.geneSymbol || '';
   const hgvsp = enrichment?.proteinChange || parsed.proteinChange || '';
@@ -90,7 +98,7 @@ export const alphamissenseBuilder: PlatformUrlBuilder = (parsed, adapter, build,
     if (transcript && codingChange) {
       term = `${transcript}:${codingChange}`;
     } else {
-      term = parsed.raw;
+      term = getCleanRaw(parsed);
     }
   }
 
@@ -103,7 +111,7 @@ export const clinvarBuilder: PlatformUrlBuilder = (parsed, adapter, build, enric
   const ref = parsed.ref ?? '';
   const alt = parsed.alt ?? '';
   const gene = enrichment?.geneSymbol || parsed.geneSymbol || '';
-  const rsId = enrichment?.rsId;
+  const rsId = enrichment?.rsId || parsed.rsId;
   const hgvsg = enrichment?.hgvsg;
   const hgvsc = (enrichment?.transcript && enrichment?.codingChange) ? `${enrichment.transcript}:${enrichment.codingChange}` : '';
   const hgvsp = enrichment?.proteinChange;
@@ -112,7 +120,7 @@ export const clinvarBuilder: PlatformUrlBuilder = (parsed, adapter, build, enric
   const fullHgvsC = parsed.transcript && parsed.codingChange ? `${parsed.transcript}:${parsed.codingChange}` : '';
   const fullHgvsG = chrom && nPos && hasRealAllele(nRef) && hasRealAllele(nAlt) ? `chr${chrom}:g.${nPos}${nRef}>${nAlt}` : '';
 
-  const variantTerm = rsId || hgvsg || hgvsc || fullHgvsG || fullHgvsC || hgvsp;
+  const variantTerm = fullHgvsG || fullHgvsC || hgvsg || hgvsc || rsId || hgvsp;
   if (variantTerm) {
     let queryTerm = variantTerm;
     if (variantTerm === hgvsp && gene) {
@@ -123,7 +131,7 @@ export const clinvarBuilder: PlatformUrlBuilder = (parsed, adapter, build, enric
   if (gene) {
     return `https://www.ncbi.nlm.nih.gov/clinvar/?term=${encodeURIComponent(gene)}%5Bgene%5D&vh_clear_filters=true`;
   }
-  return `https://www.ncbi.nlm.nih.gov/clinvar/?term=${encodeURIComponent(parsed.raw)}&vh_clear_filters=true`;
+  return `https://www.ncbi.nlm.nih.gov/clinvar/?term=${encodeURIComponent(getCleanRaw(parsed))}&vh_clear_filters=true`;
 };
 
 export const dbsnpBuilder: PlatformUrlBuilder = (parsed, adapter, build, enrichment) => {
@@ -132,7 +140,7 @@ export const dbsnpBuilder: PlatformUrlBuilder = (parsed, adapter, build, enrichm
   const ref = parsed.ref ?? '';
   const alt = parsed.alt ?? '';
   const gene = enrichment?.geneSymbol || parsed.geneSymbol || '';
-  const rsId = enrichment?.rsId;
+  const rsId = enrichment?.rsId || parsed.rsId;
   const hgvsg = enrichment?.hgvsg;
   const hgvsc = (enrichment?.transcript && enrichment?.codingChange) ? `${enrichment.transcript}:${enrichment.codingChange}` : '';
   const { pos: nPos, ref: nRef, alt: nAlt } = normaliseAlleles(pos, ref, alt);
@@ -140,14 +148,14 @@ export const dbsnpBuilder: PlatformUrlBuilder = (parsed, adapter, build, enrichm
   const fullHgvsC = parsed.transcript && parsed.codingChange ? `${parsed.transcript}:${parsed.codingChange}` : '';
   const fullHgvsG = chrom && nPos && hasRealAllele(nRef) && hasRealAllele(nAlt) ? `chr${chrom}:g.${nPos}${nRef}>${nAlt}` : '';
 
-  const variantTerm = rsId || hgvsg || hgvsc || fullHgvsG || fullHgvsC;
+  const variantTerm = fullHgvsG || fullHgvsC || hgvsg || hgvsc || rsId;
   if (variantTerm) {
     return `https://www.ncbi.nlm.nih.gov/snp/?term=${encodeURIComponent(variantTerm)}`;
   }
   if (gene) {
     return `https://www.ncbi.nlm.nih.gov/snp/?term=${encodeURIComponent(gene)}%5Bgene%5D`;
   }
-  return `https://www.ncbi.nlm.nih.gov/snp/?term=${encodeURIComponent(parsed.raw)}`;
+  return `https://www.ncbi.nlm.nih.gov/snp/?term=${encodeURIComponent(getCleanRaw(parsed))}`;
 };
 
 export const mutalyzerBuilder: PlatformUrlBuilder = (parsed, adapter, build, enrichment) => {
@@ -162,21 +170,14 @@ export const mutalyzerBuilder: PlatformUrlBuilder = (parsed, adapter, build, enr
   if (gene) {
     return `https://mutalyzer.nl/name-checker?description=${encodeURIComponent(gene)}`;
   }
-  return `https://mutalyzer.nl/name-checker?description=${encodeURIComponent(parsed.raw)}`;
+  return `https://mutalyzer.nl/name-checker?description=${encodeURIComponent(getCleanRaw(parsed))}`;
 };
 
 export const variantvalidatorBuilder: PlatformUrlBuilder = (parsed, adapter, build, enrichment) => {
-  const hgvsc = (enrichment?.transcript && enrichment?.codingChange) ? `${enrichment.transcript}:${enrichment.codingChange}` : '';
-  const hgvsg = enrichment?.hgvsg;
-  const fullHgvsC = parsed.transcript && parsed.codingChange ? `${parsed.transcript}:${parsed.codingChange}` : '';
-  const fullHgvsG = (parsed.chromosome && parsed.position)
-    ? getFormattedVariant(parsed, 'hgvs_g') : '';
-
-  const variantTerm = hgvsc || hgvsg || fullHgvsC || fullHgvsG;
-  if (variantTerm) {
-    return `https://variantvalidator.org/service/validate/${encodeURIComponent(variantTerm)}`;
-  }
-  return 'https://variantvalidator.org/';
+  // VariantValidator uses a CSRF-protected POST form at /service/validate/
+  // Direct GET /service/validate/<variant> 404s. Return the form base URL so the user
+  // lands on the working validation page and the content script can autofill #variant_id.
+  return 'https://variantvalidator.org/service/validate/';
 };
 
 /**
@@ -243,7 +244,6 @@ function toOncokbHgvsg(parsed: ParsedVariant): string | null {
 
 export const oncokbBuilder: PlatformUrlBuilder = (parsed, adapter, build, enrichment) => {
   const gene = enrichment?.geneSymbol || parsed.geneSymbol || '';
-  const effectiveBuild = parsed.genomeBuild ?? build;
 
   // Coordinate-first: when the user supplied genomic notation, use OncoKB's
   // HGVSg route so the lookup reflects those coordinates exactly instead of a
@@ -252,7 +252,7 @@ export const oncokbBuilder: PlatformUrlBuilder = (parsed, adapter, build, enrich
   if (!parsed.copyNumberChange && !usesProteinNotation(parsed)) {
     const hgvsg = toOncokbHgvsg(parsed);
     if (hgvsg) {
-      return `https://www.oncokb.org/hgvsg/${hgvsg}?refGenome=${encodeURIComponent(effectiveBuild)}`;
+      return `https://www.oncokb.org/hgvsg/${hgvsg}?refGenome=${encodeURIComponent(build)}`;
     }
   }
   if (!gene) {
@@ -282,10 +282,9 @@ export const varsomeBuilder: PlatformUrlBuilder = (parsed, adapter, build, enric
   const gene = enrichment?.geneSymbol || parsed.geneSymbol || '';
   const protein = formatOneLetterProtein(enrichment?.proteinChange || parsed.proteinChange);
   const coding = buildHgvsC(parsed, enrichment);
-  const rsId = enrichment?.rsId;
+  const rsId = enrichment?.rsId || parsed.rsId;
   const chrom = parsed.chromosome ?? '';
   const { pos: nPos, ref: nRef, alt: nAlt } = normaliseAlleles(parsed.position ?? '', parsed.ref ?? '', parsed.alt ?? '');
-  const effectiveBuild = parsed.genomeBuild ?? build;
 
   let query = '';
   if (usesProteinNotation(parsed)) {
@@ -308,7 +307,7 @@ export const varsomeBuilder: PlatformUrlBuilder = (parsed, adapter, build, enric
   if (!query) return null;
   // Use VarSome's own search form: it accepts every variant format and lands
   // on the canonical variant page (direct slugs can 404 behind their guard).
-  return `https://varsome.com/variant/search?query=${encodeURIComponent(query)}&genome=${hgBuild(effectiveBuild)}`;
+  return `https://varsome.com/variant/search?query=${encodeURIComponent(query)}&genome=${hgBuild(build)}`;
 };
 
 export const varchatBuilder: PlatformUrlBuilder = (parsed, adapter, build, enrichment) => {
@@ -325,8 +324,7 @@ export const varchatBuilder: PlatformUrlBuilder = (parsed, adapter, build, enric
 
 export const genebeBuilder: PlatformUrlBuilder = (parsed, adapter, build, enrichment) => {
   const gene = enrichment?.geneSymbol || parsed.geneSymbol || '';
-  const effectiveBuild = parsed.genomeBuild ?? build;
-  const hg = hgBuild(effectiveBuild);
+  const hg = hgBuild(build);
   const chrom = parsed.chromosome ?? '';
   const { pos: nPos, ref: nRef, alt: nAlt } = normaliseAlleles(parsed.position ?? '', parsed.ref ?? '', parsed.alt ?? '');
 
@@ -354,6 +352,34 @@ export const genebeBuilder: PlatformUrlBuilder = (parsed, adapter, build, enrich
 // content script populates chr/pos/ref/alt on Autofill.
 export const intervarBuilder: PlatformUrlBuilder = () => 'https://wintervar.wglab.org/';
 
+export const opentargetsBuilder: PlatformUrlBuilder = (parsed, adapter, build, enrichment) => {
+  const gene = enrichment?.geneSymbol || parsed.geneSymbol || '';
+  const chrom = parsed.chromosome ?? '';
+  const { pos: nPos, ref: nRef, alt: nAlt } = normaliseAlleles(parsed.position ?? '', parsed.ref ?? '', parsed.alt ?? '');
+
+  // Open Targets variant IDs are `chrom_pos_ref_alt` (no `chr` prefix) and the
+  // platform is GRCh38-only. Direct `/variant/{id}` links 404 for variants the
+  // platform has not indexed, so route through search, which its own homepage
+  // examples use for variant IDs.
+  const variantId =
+    build === 'GRCh38' && chrom && parsed.position && isConcreteBase(nRef) && isConcreteBase(nAlt)
+      ? `${chrom}_${nPos}_${nRef}_${nAlt}`
+      : '';
+
+  const term = variantId || gene;
+  if (!term) return null;
+  return `https://platform.opentargets.org/search?q=${encodeURIComponent(term)}&page=1`;
+};
+
+export const mobidetailsBuilder: PlatformUrlBuilder = (parsed, adapter, build, enrichment) => {
+  const gene = enrichment?.geneSymbol || parsed.geneSymbol || '';
+  // Variant pages use internal numeric IDs and search is POST-only, so the
+  // deepest linkable route is the gene's variant list. The site moved to
+  // mobidetails.chu-montpellier.fr; the old host redirects there.
+  if (!gene) return null;
+  return `https://mobidetails.chu-montpellier.fr/vars/${encodeURIComponent(gene)}`;
+};
+
 export const defaultBuilder: PlatformUrlBuilder = (parsed, adapter, build, enrichment) => {
   const chrom = parsed.chromosome ?? '';
   const pos = parsed.position ?? '';
@@ -372,7 +398,8 @@ export const defaultBuilder: PlatformUrlBuilder = (parsed, adapter, build, enric
   const fullHgvsG = chrom && nPos && hasRealAllele(nRef) && hasRealAllele(nAlt) ? `chr${chrom}:g.${nPos}${nRef}>${nAlt}` : '';
 
   const geneSymbol = parsed.transcript ? lookupGeneSymbol(parsed.transcript) : null;
-  const variantFormatted = fullHgvsG || fullHgvsC || geneSymbol || parsed.raw;
+  const cleanRaw = getCleanRaw(parsed);
+  const variantFormatted = fullHgvsG || fullHgvsC || geneSymbol || cleanRaw;
 
   const db = ucscDb(build);
   const dataset = gnomadDataset(build);
@@ -380,7 +407,7 @@ export const defaultBuilder: PlatformUrlBuilder = (parsed, adapter, build, enric
 
   let url = adapter.urlTemplate;
   url = url.replace(/\{\{variant\}\}/g,    encodeURIComponent(variantFormatted));
-  url = url.replace(/\{\{raw\}\}/g,        encodeURIComponent(parsed.raw));
+  url = url.replace(/\{\{raw\}\}/g,        encodeURIComponent(cleanRaw));
   url = url.replace(/\{\{chrom\}\}/g,      encodeURIComponent(chrom));
   url = url.replace(/\{\{pos\}\}/g,        encodeURIComponent(nPos));
   url = url.replace(/\{\{endPos\}\}/g,     encodeURIComponent(endPos));
@@ -415,6 +442,8 @@ const builders = new Map<string, PlatformUrlBuilder>([
   ['varchat', varchatBuilder],
   ['genebe', genebeBuilder],
   ['intervar', intervarBuilder],
+  ['opentargets', opentargetsBuilder],
+  ['mobidetails', mobidetailsBuilder],
 ]);
 
 export function buildPlatformUrl(
@@ -430,7 +459,8 @@ export function buildPlatformUrl(
   // is used by getMissingDataReason so eligibility and URL building cannot
   // disagree.
   const effectiveParsed = mergeResolvedGenomic(parsed, enrichment);
+  const effectiveBuild = effectiveParsed.genomeBuild ?? build;
 
   const builder = builders.get(adapter.id) || defaultBuilder;
-  return builder(effectiveParsed, adapter, build, enrichment);
+  return builder(effectiveParsed, adapter, effectiveBuild, enrichment);
 }
