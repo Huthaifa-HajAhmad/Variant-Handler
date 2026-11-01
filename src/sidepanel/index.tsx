@@ -206,8 +206,16 @@ export default function SidepanelView() {
 
   const platformUrls = useMemo(() => {
     return INITIAL_PLATFORMS.map((platform) => {
-      const reason = getMissingDataReason(parsed, platform, enrichment);
+      let reason = getMissingDataReason(parsed, platform, enrichment);
       const url = reason ? null : buildPlatformUrl(parsed, platform, genomeBuild, enrichment);
+      // A builder can still decline (e.g. Open Targets is GRCh38-only for
+      // coordinates). Derive a reason so the UI can explain and offer actions.
+      if (!url && !reason) {
+        const effectiveBuild = parsed.genomeBuild ?? genomeBuild;
+        reason = platform.id === 'opentargets' && effectiveBuild === 'GRCh37'
+          ? 'GRCh38 required for Open Targets coordinate search'
+          : `Missing data for ${platform.name}`;
+      }
       return { platform, url, reason };
     });
   }, [parsed, genomeBuild, enrichment]);
@@ -407,6 +415,15 @@ export default function SidepanelView() {
               activeTheme={activeTheme}
               parsed={parsed}
               genomeBuild={genomeBuild}
+              onNavigateToWorkbench={() => {
+                setActiveNavTab('workbench');
+                setTimeout(() => document.getElementById('variant-input')?.focus(), 50);
+              }}
+              onOpenSettings={handleSettingsClick}
+              onGenomeBuildChange={onGenomeBuildChange}
+              onToggleLiveEnrichment={onToggleLiveEnrichment}
+              liveEnrichmentEnabled={liveEnrichmentEnabled}
+              enrichment={enrichment}
             />
           </div>
         )}
