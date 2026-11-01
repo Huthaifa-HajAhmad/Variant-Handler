@@ -74,7 +74,7 @@ export const INITIAL_PLATFORMS: PlatformAdapter[] = [
   {
     id: 'clinvar',
     name: 'ClinVar (NCBI)',
-    domain: 'ncbi.nlm.nih.gov/clinvar',
+    domain: 'ncbi.nlm.nih.gov',
     description: 'Public archive of human variation and phenotype relationships',
     color: '#3b82f6',
     accentColor: 'bg-blue-500/10 border-blue-500 text-blue-400',
@@ -84,7 +84,7 @@ export const INITIAL_PLATFORMS: PlatformAdapter[] = [
   {
     id: 'dbsnp',
     name: 'dbSNP (NCBI)',
-    domain: 'ncbi.nlm.nih.gov/snp',
+    domain: 'ncbi.nlm.nih.gov',
     description: 'Database of short genetic variations',
     color: '#059669',
     accentColor: 'bg-emerald-600/10 border-emerald-600 text-emerald-500',

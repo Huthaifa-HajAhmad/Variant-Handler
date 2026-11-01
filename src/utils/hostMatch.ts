@@ -6,8 +6,14 @@
  */
 
 export function hostIs(host: string, domain: string): boolean {
-  const h = host.toLowerCase();
-  const d = domain.toLowerCase();
+  const h = host.toLowerCase().trim();
+  // Strip any accidental protocol, port, or path components from domain
+  const d = domain
+    .toLowerCase()
+    .trim()
+    .replace(/^https?:\/\//, '')
+    .split('/')[0]
+    .split(':')[0];
   return h === d || h.endsWith(`.${d}`);
 }
 

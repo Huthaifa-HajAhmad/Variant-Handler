@@ -135,8 +135,8 @@ Sixteen platforms are active by default. Each has a `requiredFormat` that determ
 | `ucsc` | UCSC Genome Browser | `genome.ucsc.edu` | `coordinate` | chrom + pos |
 | `spliceai` | SpliceAI Lookup | `spliceailookup.broadinstitute.org` | `dash` | chrom + pos + ref + alt |
 | `alphamissense` | AlphaMissense (Hegelab) | `alphamissense.hegelab.org` | `custom` | none (raw input) |
-| `clinvar` | ClinVar (NCBI) | `ncbi.nlm.nih.gov/clinvar` | `custom` | none (raw input) |
-| `dbsnp` | dbSNP (NCBI) | `ncbi.nlm.nih.gov/snp` | `custom` | none (raw input) |
+| `clinvar` | ClinVar (NCBI) | `ncbi.nlm.nih.gov` | `custom` | none (raw input) |
+| `dbsnp` | dbSNP (NCBI) | `ncbi.nlm.nih.gov` | `custom` | none (raw input) |
 | `mutalyzer` | Mutalyzer | `mutalyzer.nl` | `custom` | none (raw input) |
 | `variantvalidator` | Variant Validator | `variantvalidator.org` | `hgvs_c` | transcript + codingChange |
 | `franklin` | Franklin (Genoox) | `franklin.genoox.com` | `custom` | coords (chrom+pos+ref+alt) **or** gene |
@@ -170,7 +170,7 @@ Before any URL is built, `getMissingDataReason()` checks format requirements:
 
 Platforms may additionally declare `dataRequirements`, which is evaluated before the format table: `coordsOrGene` (Franklin, OncoKB, VarSome, GeneBe, Open Targets — real coordinates or a gene symbol; OncoKB sets `allelesOptional` so structural shorthand such as `16:g.5145601_5151200del` qualifies), `coords` (InterVar — the form needs chromosome, position, ref and alt), and `gene` (VarChat, MobiDetails — need a gene/transcript notation). OncoKB builds its HGVSg route (`/hgvsg/{chrom}:g.…?refGenome=…`) when the input is genomic, and falls back to gene/alteration pages for protein or coding inputs.
 
-If the check fails, `buildPlatformUrl()` returns `null` and the button is disabled with a tooltip explaining what is missing.
+If the check fails, `buildPlatformUrl()` returns `null`. Rather than remaining inert, the button displays an "Action" indicator badge and remains interactive; clicking it opens the Platform Unavailable Action Dialog with a clear explanation of missing data, an active-variant breakdown, and one-click quick actions (e.g., "Add Transcript in Workbench", "Enable Live Lookup", or "Switch to GRCh38"). When any database is unavailable, a guidance bar also renders below the grid to offer direct shortcuts to the Workbench.
 
 ### 2.4 URL Template Placeholders
 
