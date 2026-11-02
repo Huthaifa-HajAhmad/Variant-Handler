@@ -3,7 +3,7 @@
  * Single source of truth for all frontend UI components and badge notifications.
  */
 
-export const APP_VERSION = '1.8.0';
+export const APP_VERSION = '1.9.0';
 
 /**
  * Version-scoped localStorage key so every release automatically
@@ -24,19 +24,19 @@ export interface ReleaseNote {
 
 export const LATEST_RELEASE: ReleaseNote = {
   version: APP_VERSION,
-  date: '2026-10-21',
+  date: '2026-11-02',
   highlights: [
     {
-      title: '🎯 Open Targets Platform',
-      desc: 'Genomic input searches Open Targets by variant ID (chrom_pos_ref_alt, GRCh38); protein and gene input search by gene symbol — always landing on a results page rather than a 404.',
+      title: '⚡ 63% Bundle Slimming & Code Splitting',
+      desc: 'Dynamic chunking and React.lazy view isolation reduces initial entry bundle from 418 kB to 153 kB for near-instant sidepanel startup.',
     },
     {
-      title: '🧬 MobiDetails',
-      desc: 'Jump straight to a gene\'s MobiDetails variant list, with Autofill targeting its search box for quick variant lookup.',
+      title: '🛡️ Clinical Hardening & Audit Remediation',
+      desc: 'Liftover-based cross-build validation via Ensembl, assembly-aware query caching, live ClinVar/ALFA genomic queries, and spreadsheet formula injection sanitization.',
     },
     {
-      title: '🧰 16 Databases',
-      desc: 'The Launchpad now covers 16 clinical and oncology databases, each pre-formatted for its own URL scheme.',
+      title: '♿ WCAG 2.1 AA & Error Boundaries',
+      desc: 'Full keyboard tab navigation, modal focus traps, ARIA attributes, and view-level ErrorBoundaries with diagnostic reload protection.',
     },
   ],
 };
