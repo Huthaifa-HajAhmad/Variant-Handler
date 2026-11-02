@@ -89,4 +89,45 @@ test.describe('Variant Handler Workbench Interactive E2E', () => {
     await closeBtn.click();
     await expect(modalOverlay).not.toBeVisible();
   });
+
+  test('opens unavailable platform dialog for genomic variant on Variant Validator and navigates to Workbench', async ({ workbenchPage }) => {
+    // 1. Enter genomic-only variant
+    const input = workbenchPage.locator('#variant-input');
+    await input.fill('chr16:g.66823281T>C');
+
+    // 2. Switch to Launchpad tab
+    await workbenchPage.locator('#nav-tab-launchpad').click();
+
+    // 3. Variant Validator should be marked as aria-disabled
+    const vvBtn = workbenchPage.locator('#btn-platform-variantvalidator');
+    await expect(vvBtn).toBeVisible();
+    await expect(vvBtn).toHaveAttribute('aria-disabled', 'true');
+
+    // 4. Click Variant Validator button (bypassing actionability check since aria-disabled=true) to open Action Dialog
+    await vvBtn.click({ force: true });
+
+    // 5. Verify the dialog opens with platform details and recommendations
+    const dialogOverlay = workbenchPage.locator('#platform-unavailable-modal-overlay');
+    await expect(dialogOverlay).toBeVisible();
+    await expect(workbenchPage.locator('#modal-platform-title')).toHaveText('Variant Validator');
+    await expect(workbenchPage.getByText('Data Required')).toBeVisible();
+    await expect(workbenchPage.getByText(/requires transcript-level notation/i)).toBeVisible();
+
+    // 6. Test dismissal via Escape key
+    await workbenchPage.keyboard.press('Escape');
+    await expect(dialogOverlay).not.toBeVisible();
+
+    // 7. Re-open dialog and click "Add Transcript in Workbench" action
+    await vvBtn.click({ force: true });
+    await expect(dialogOverlay).toBeVisible();
+
+    const actionBtn = workbenchPage.getByRole('button', { name: /Add Transcript in Workbench/i });
+    await expect(actionBtn).toBeVisible();
+    await actionBtn.click();
+
+    // 8. Assert dialog closes and view routes back to Workbench tab with focused input
+    await expect(dialogOverlay).not.toBeVisible();
+    await expect(workbenchPage.locator('#variant-input')).toBeVisible();
+    await expect(workbenchPage.locator('#variant-input')).toBeFocused();
+  });
 });
