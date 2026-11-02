@@ -26,13 +26,21 @@ describe('deriveQueryKey — build suffix (T12)', () => {
     expect(deriveQueryKey(parsed, 'GRCh38')).toBe('chr20:g.23365554_23365566GACGTGAAGCGGC>G@GRCh38');
   });
 
-  it('does NOT append the build suffix to transcript keys (build-independent)', () => {
+  it('appends the build suffix to transcript c. keys (VEP/gnomAD/ClinVar output is assembly-specific)', () => {
     // Use a transcript input (no genomic coords in the notation) so the
     // genomic branch of deriveQueryKey is not taken via coord backfill.
     const parsed = parseVariant('NM_004333.6:c.1799T>A');
     expect(parsed.chromosome).toBeUndefined();
-    expect(deriveQueryKey(parsed, 'GRCh38')).toBe('NM_004333.6:c.1799T>A');
-    expect(deriveQueryKey(parsed, 'GRCh37')).toBe('NM_004333.6:c.1799T>A');
+    expect(deriveQueryKey(parsed, 'GRCh38')).toBe('NM_004333.6:c.1799T>A@GRCh38');
+    expect(deriveQueryKey(parsed, 'GRCh37')).toBe('NM_004333.6:c.1799T>A@GRCh37');
+    expect(deriveQueryKey(parsed, 'GRCh38')).not.toBe(deriveQueryKey(parsed, 'GRCh37'));
+  });
+
+  it('derives a query key directly for rsID inputs', () => {
+    const parsed = parseVariant('rs113488022');
+    expect(parsed.rsId).toBe('rs113488022');
+    expect(deriveQueryKey(parsed, 'GRCh38')).toBe('rs113488022');
+    expect(deriveQueryKey(parsed, 'GRCh37')).toBe('rs113488022');
   });
 
   it('returns null when there is not enough data to query', () => {

@@ -117,6 +117,7 @@ export function useBatchQueue(defaultItems: BatchItem[]) {
           input,
           gene: fields.gene ?? 'GENE',
           note: fields.note ?? '',
+          enrichmentSnapshot: fields.enrichmentSnapshot,
         };
         updated = [newItem, ...prev];
       }

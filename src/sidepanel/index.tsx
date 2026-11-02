@@ -27,6 +27,7 @@ import Header from '../components/Header';
 import VariantWorkbench from '../components/VariantWorkbench';
 import BottomNavBar, { NavTabId } from '../components/BottomNavBar';
 import HighlightedCoordinate from '../components/HighlightedCoordinate';
+import ErrorBoundary from '../components/ErrorBoundary';
 
 // Code-split secondary views & modal to keep initial sidepanel bundle light
 const SettingsModal = React.lazy(() => import('../components/SettingsModal'));
@@ -194,7 +195,7 @@ export default function SidepanelView() {
     if (!activeInput.trim()) return;
     const timer = setTimeout(() => {
       if (parsed.isValid) {
-        addToHistory(activeInput.trim());
+        addToHistory(activeInput.trim(), parsed.isValid);
       }
     }, 600);
     return () => clearTimeout(timer);
@@ -425,71 +426,77 @@ export default function SidepanelView() {
               </button>
             </div>
 
-            <React.Suspense fallback={<div className="p-6 text-center text-xs opacity-60">Loading Launchpad...</div>}>
-              <PlatformLaunchpad
-                platformUrls={platformUrls}
-                handleLaunchPlatform={handleLaunchPlatform}
-                activeTheme={activeTheme}
-                parsed={parsed}
-                genomeBuild={genomeBuild}
-                onNavigateToWorkbench={() => {
-                  setActiveNavTab('workbench');
-                  setTimeout(() => document.getElementById('variant-input')?.focus(), 50);
-                }}
-                onOpenSettings={handleSettingsClick}
-                onGenomeBuildChange={onGenomeBuildChange}
-                onToggleLiveEnrichment={onToggleLiveEnrichment}
-                liveEnrichmentEnabled={liveEnrichmentEnabled}
-                enrichment={enrichment}
-              />
-            </React.Suspense>
+            <ErrorBoundary>
+              <React.Suspense fallback={<div className="p-6 text-center text-xs opacity-60">Loading Launchpad...</div>}>
+                <PlatformLaunchpad
+                  platformUrls={platformUrls}
+                  handleLaunchPlatform={handleLaunchPlatform}
+                  activeTheme={activeTheme}
+                  parsed={parsed}
+                  genomeBuild={genomeBuild}
+                  onNavigateToWorkbench={() => {
+                    setActiveNavTab('workbench');
+                    setTimeout(() => document.getElementById('variant-input')?.focus(), 50);
+                  }}
+                  onOpenSettings={handleSettingsClick}
+                  onGenomeBuildChange={onGenomeBuildChange}
+                  onToggleLiveEnrichment={onToggleLiveEnrichment}
+                  liveEnrichmentEnabled={liveEnrichmentEnabled}
+                  enrichment={enrichment}
+                />
+              </React.Suspense>
+            </ErrorBoundary>
           </div>
         )}
 
         {/* TAB 3: WORKLIST */}
         {activeNavTab === 'worklist' && (
           <div className="animate-fade-in">
-            <React.Suspense fallback={<div className="p-6 text-center text-xs opacity-60">Loading Worklist...</div>}>
-              <BatchQueuePanel
-                batchQueue={batchQueue}
-                history={history}
-                activeInput={activeInput}
-                setActiveInput={(val) => {
-                  setActiveInput(val);
-                  setActiveNavTab('workbench');
-                }}
-                removeFromHistory={removeFromHistory}
-                handleRemoveQueueItem={handleRemoveQueueItem}
-                parsedHistoryItems={parsedHistoryItems}
-                activeSec3Tab={activeSec3Tab}
-                setActiveSec3Tab={setActiveSec3Tab}
-                activeTheme={activeTheme}
-                onExportTSV={handleExportTSV}
-                onExportExcel={handleExportExcel}
-                onExportPPT={handleExportPPT}
-                triggerAlert={triggerAlert}
-                addItem={addItem}
-                addItems={addItems}
-                clearQueue={clearQueue}
-                clearHistory={clearHistory}
-              />
-            </React.Suspense>
+            <ErrorBoundary>
+              <React.Suspense fallback={<div className="p-6 text-center text-xs opacity-60">Loading Worklist...</div>}>
+                <BatchQueuePanel
+                  batchQueue={batchQueue}
+                  history={history}
+                  activeInput={activeInput}
+                  setActiveInput={(val) => {
+                    setActiveInput(val);
+                    setActiveNavTab('workbench');
+                  }}
+                  removeFromHistory={removeFromHistory}
+                  handleRemoveQueueItem={handleRemoveQueueItem}
+                  parsedHistoryItems={parsedHistoryItems}
+                  activeSec3Tab={activeSec3Tab}
+                  setActiveSec3Tab={setActiveSec3Tab}
+                  activeTheme={activeTheme}
+                  onExportTSV={handleExportTSV}
+                  onExportExcel={handleExportExcel}
+                  onExportPPT={handleExportPPT}
+                  triggerAlert={triggerAlert}
+                  addItem={addItem}
+                  addItems={addItems}
+                  clearQueue={clearQueue}
+                  clearHistory={clearHistory}
+                />
+              </React.Suspense>
+            </ErrorBoundary>
           </div>
         )}
 
         {/* TAB 4: EXPORT */}
         {activeNavTab === 'tools' && (
-          <React.Suspense fallback={<div className="p-6 text-center text-xs opacity-60">Loading Tools...</div>}>
-            <ToolsExportPanel
-              activeTheme={activeTheme}
-              batchQueue={batchQueue}
-              history={history}
-              onExportTSV={handleExportTSV}
-              onExportExcel={handleExportExcel}
-              onExportPPT={handleExportPPT}
-              triggerAlert={triggerAlert}
-            />
-          </React.Suspense>
+          <ErrorBoundary>
+            <React.Suspense fallback={<div className="p-6 text-center text-xs opacity-60">Loading Tools...</div>}>
+              <ToolsExportPanel
+                activeTheme={activeTheme}
+                batchQueue={batchQueue}
+                history={history}
+                onExportTSV={handleExportTSV}
+                onExportExcel={handleExportExcel}
+                onExportPPT={handleExportPPT}
+                triggerAlert={triggerAlert}
+              />
+            </React.Suspense>
+          </ErrorBoundary>
         )}
       </main>
 
@@ -503,23 +510,25 @@ export default function SidepanelView() {
 
       {/* Settings Modal */}
       {isSettingsOpen && (
-        <React.Suspense fallback={null}>
-          <SettingsModal
-            activeTheme={activeTheme}
-            themeId={themeId}
-            onSelectTheme={selectTheme}
-            onClose={() => setIsSettingsOpen(false)}
-            liveEnrichmentEnabled={liveEnrichmentEnabled}
-            onToggleLiveEnrichment={onToggleLiveEnrichment}
-            clearOnCloseEnabled={clearOnCloseEnabled}
-            onToggleClearOnClose={onToggleClearOnClose}
-            onClearAllData={onClearAllData}
-            historyCap={cap as HistoryCap}
-            onSetHistoryCap={setHistoryCap}
-            triggerAlert={triggerAlert}
-            initialTab={settingsDefaultTab}
-          />
-        </React.Suspense>
+        <ErrorBoundary>
+          <React.Suspense fallback={null}>
+            <SettingsModal
+              activeTheme={activeTheme}
+              themeId={themeId}
+              onSelectTheme={selectTheme}
+              onClose={() => setIsSettingsOpen(false)}
+              liveEnrichmentEnabled={liveEnrichmentEnabled}
+              onToggleLiveEnrichment={onToggleLiveEnrichment}
+              clearOnCloseEnabled={clearOnCloseEnabled}
+              onToggleClearOnClose={onToggleClearOnClose}
+              onClearAllData={onClearAllData}
+              historyCap={cap as HistoryCap}
+              onSetHistoryCap={setHistoryCap}
+              triggerAlert={triggerAlert}
+              initialTab={settingsDefaultTab}
+            />
+          </React.Suspense>
+        </ErrorBoundary>
       )}
     </div>
   );

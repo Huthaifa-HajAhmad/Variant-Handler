@@ -43,18 +43,18 @@ export function exportTSV(
       `${sanitizeTsvCell(item.gene)}\t` +
       `${sanitizeTsvCell(item.input)}\t` +
       `${sanitizeTsvCell(item.note)}\t` +
-      `${parsed.type}\t` +
-      `${parsed.chromosome || 'N/A'}\t` +
-      `${parsed.position || 'N/A'}\t` +
-      `${parsed.ref || 'N/A'}\t` +
-      `${parsed.alt || 'N/A'}\t` +
-      `${parsed.transcript || 'N/A'}\t` +
-      `${parsed.codingChange || 'N/A'}\t` +
-      `${parsed.proteinChange || 'N/A'}\t` +
-      `${snap?.rsId || 'N/A'}\t` +
+      `${sanitizeTsvCell(parsed.type)}\t` +
+      `${sanitizeTsvCell(parsed.chromosome || 'N/A')}\t` +
+      `${sanitizeTsvCell(parsed.position || 'N/A')}\t` +
+      `${sanitizeTsvCell(parsed.ref || 'N/A')}\t` +
+      `${sanitizeTsvCell(parsed.alt || 'N/A')}\t` +
+      `${sanitizeTsvCell(parsed.transcript || 'N/A')}\t` +
+      `${sanitizeTsvCell(parsed.codingChange || 'N/A')}\t` +
+      `${sanitizeTsvCell(parsed.proteinChange || 'N/A')}\t` +
+      `${sanitizeTsvCell(snap?.rsId || 'N/A')}\t` +
       `${snap?.gnomadAf !== undefined ? snap.gnomadAf : 'N/A'}\t` +
-      `${snap?.clinvarSignificance || 'N/A'}\t` +
-      `${snap?.clinvarReview || 'N/A'}\t` +
+      `${sanitizeTsvCell(snap?.clinvarSignificance || 'N/A')}\t` +
+      `${sanitizeTsvCell(snap?.clinvarReview || 'N/A')}\t` +
       `${snap ? new Date(snap.snapshotAt).toISOString() : 'N/A'}\r\n`;
   });
 
@@ -74,14 +74,14 @@ export function exportTSV(
         `${idx + 1}\t` +
         `${sanitizeTsvCell(input)}\t` +
         `${sanitizeTsvCell(inferredGene)}\t` +
-        `${parsed.type}\t` +
-        `${parsed.chromosome || 'N/A'}\t` +
-        `${parsed.position || 'N/A'}\t` +
-        `${parsed.ref || 'N/A'}\t` +
-        `${parsed.alt || 'N/A'}\t` +
-        `${parsed.transcript || 'N/A'}\t` +
-        `${parsed.codingChange || 'N/A'}\t` +
-        `${parsed.proteinChange || 'N/A'}\r\n`;
+        `${sanitizeTsvCell(parsed.type)}\t` +
+        `${sanitizeTsvCell(parsed.chromosome || 'N/A')}\t` +
+        `${sanitizeTsvCell(parsed.position || 'N/A')}\t` +
+        `${sanitizeTsvCell(parsed.ref || 'N/A')}\t` +
+        `${sanitizeTsvCell(parsed.alt || 'N/A')}\t` +
+        `${sanitizeTsvCell(parsed.transcript || 'N/A')}\t` +
+        `${sanitizeTsvCell(parsed.codingChange || 'N/A')}\t` +
+        `${sanitizeTsvCell(parsed.proteinChange || 'N/A')}\r\n`;
     });
   }
 
@@ -276,7 +276,7 @@ export function exportPPT(
     html += `  <div class="logo-bar"><span class="brand-logo">VARIANT HANDLER // ACTIVE WORKBENCH CASE NO. ${pad(idx + 1)}</span><span class="slide-header">SLIDE ${pad(slideIdx)} / ${pad(totalSlides)}</span></div>`;
     html += `  <div style="margin-top:15px;">`;
     html += `    <div style="display:flex;align-items:baseline;gap:15px;">`;
-    html += `      <h2 style="font-size:34px;color:#ffffff;margin:0;font-weight:800;">${escapeHtml(item.gene)}</h2>`;
+    html += `      <h2 style="font-size:34px;color:#ffffff;margin:0;font-weight:800;">${escapeHtml(item.gene || 'GENE')}</h2>`;
     html += `      <span style="font-family:monospace;font-size:15px;color:#34d399;background-color:rgba(52,211,153,0.1);border-radius:4px;padding:2px 8px;border:1px solid rgba(52,211,153,0.2);">${escapeHtml(item.input)}</span>`;
     html += `    </div>`;
     html += `  </div>`;

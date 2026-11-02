@@ -120,10 +120,11 @@ export function deriveQueryKey(parsed: ParsedVariant, build: GenomeBuild): strin
   }
   if (parsed.transcript) {
     if (parsed.codingChange) {
-      // N6: HGVS `c.` notation is build-independent — appending a build suffix
-      // here would cache the identical MyVariant response twice and re-fetch on
-      // every build toggle. Return the bare transcript key.
-      return `${parsed.transcript}:${parsed.codingChange}`;
+      // The `c.` notation itself is build-independent, but everything we derive
+      // from it (VEP genomic coordinates, gnomAD, ClinVar, ref-allele check) is
+      // assembly-specific. The build suffix is required so that toggling the
+      // build changes the key, re-triggers the fetch and avoids stale cache hits.
+      return `${parsed.transcript}:${parsed.codingChange}@${build}`;
     }
     if (parsed.proteinChange) {
       // Protein changes require Ensembl VEP genomic coordinate mapping, which is build-dependent.
@@ -139,6 +140,9 @@ export function deriveQueryKey(parsed: ParsedVariant, build: GenomeBuild): strin
     if (parsed.proteinChange) {
       return `${parsed.geneSymbol}:${parsed.proteinChange}@${build}`;
     }
+  }
+  if (parsed.rsId) {
+    return parsed.rsId;
   }
   return null;
 }

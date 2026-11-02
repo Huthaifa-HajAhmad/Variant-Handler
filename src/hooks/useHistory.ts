@@ -63,7 +63,7 @@ export function useHistory(defaultItems: string[] = []) {
     * Queue an input for history recording.  The write is debounced and
     * only fires when the variant parsed successfully.
     */
-  const addToHistory = useCallback((input: string, isValid: boolean) => {
+  const addToHistory = useCallback((input: string, isValid = true) => {
     if (!input.trim() || !isValid) return;
 
     if (debounceTimer.current) clearTimeout(debounceTimer.current);

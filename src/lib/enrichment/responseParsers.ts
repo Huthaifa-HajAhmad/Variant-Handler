@@ -258,7 +258,7 @@ export function parseApiResponse(data: any, queryKey: string): EnrichmentData {
         }
       }
       const parsedVal = typeof scoreVal[canonicalIdx] === 'number' ? scoreVal[canonicalIdx] : parseFloat(scoreVal[canonicalIdx]);
-      console.log('[VariantHandler] amScore resolved:', {
+      console.debug('[VariantHandler] amScore resolved:', {
         uniprot: uniprotAccs,
         score: scoreVal,
         canonicalIdx,

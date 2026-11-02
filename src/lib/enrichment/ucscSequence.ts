@@ -8,6 +8,15 @@
 import { ParsedVariant, GenomeBuild, hasRealAllele } from '../parser';
 
 const sequenceCache = new Map<string, string>();
+const MAX_SEQUENCE_CACHE_ENTRIES = 100;
+
+function cacheSequence(key: string, dna: string): void {
+  if (sequenceCache.size >= MAX_SEQUENCE_CACHE_ENTRIES) {
+    const oldestKey = sequenceCache.keys().next().value;
+    if (oldestKey) sequenceCache.delete(oldestKey);
+  }
+  sequenceCache.set(key, dna);
+}
 
 export function reverseComplement(seq: string): string {
   const complement: Record<string, string> = {
@@ -64,7 +73,7 @@ export async function resolveUcscSequence(
       const response = await performFetch(ucscUrl);
       if (response && typeof response.dna === 'string') {
         dna = response.dna.toUpperCase();
-        sequenceCache.set(cacheKey, dna);
+        cacheSequence(cacheKey, dna);
       }
     } catch (err) {
       console.warn('[VariantHandler] UCSC Sequence fetch failed:', err);
@@ -129,7 +138,7 @@ export async function validateRefAllele(
       const res = await performFetch(url);
       if (res && res.dna) {
         dna = res.dna.toUpperCase();
-        sequenceCache.set(cacheKey, dna);
+        cacheSequence(cacheKey, dna);
       }
     } catch (err) {
       console.warn('[VariantHandler] UCSC sequence validation query failed:', err);
@@ -189,7 +198,7 @@ export async function suggestBuildForRefMismatch(
       const res = await performFetch(url);
       if (res && typeof res.dna === 'string' && res.dna) {
         otherDna = res.dna.toUpperCase();
-        sequenceCache.set(cacheKey, otherDna);
+        cacheSequence(cacheKey, otherDna);
       }
     }
     if (!otherDna) return null;

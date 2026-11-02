@@ -891,7 +891,8 @@ export function useVariantEnrichment(
       if (debounceTimer.current) clearTimeout(debounceTimer.current);
     };
   }, [parsed.chromosome, parsed.position, parsed.endPosition, parsed.ref, parsed.alt,
-      parsed.transcript, parsed.geneSymbol, parsed.codingChange, parsed.proteinChange, parsed.isValid,
+      parsed.transcript, parsed.geneSymbol, parsed.codingChange, parsed.proteinChange,
+      parsed.rsId, parsed.isValid,
       build, enabled, fetchEnrichment]);
 
   useEffect(() => {

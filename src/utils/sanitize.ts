@@ -9,8 +9,8 @@
  * Escapes HTML special characters to prevent XSS when user-supplied
  * strings are embedded into exported HTML documents (Excel/PPT).
  */
-export function escapeHtml(str: string): string {
-  return str
+export function escapeHtml(str: string | undefined | null): string {
+  return (str ?? '')
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
