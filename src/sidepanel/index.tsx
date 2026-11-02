@@ -19,19 +19,20 @@ import { useBatchQueue } from '../hooks/useBatchQueue';
 import { useHistory, HistoryCap } from '../hooks/useHistory';
 import { useKeyboardShortcuts } from '../hooks/useKeyboardShortcuts';
 import { useVariantEnrichment, clearEnrichmentCache } from '../hooks/useVariantEnrichment';
-import { exportTSV, exportExcel, exportPPT } from '../utils/exporters';
 import { isSafeUrl } from '../utils/sanitize';
 import { hostIs } from '../utils/hostMatch';
 import { inferGeneLabel } from '../utils/variantUtils';
 import { WHATS_NEW_STORAGE_KEY } from '../lib/version';
-import SettingsModal from '../components/SettingsModal';
 import Header from '../components/Header';
 import VariantWorkbench from '../components/VariantWorkbench';
-import PlatformLaunchpad from '../components/PlatformLaunchpad';
-import BatchQueuePanel from '../components/BatchQueuePanel';
-import ToolsExportPanel from '../components/ToolsExportPanel';
 import BottomNavBar, { NavTabId } from '../components/BottomNavBar';
 import HighlightedCoordinate from '../components/HighlightedCoordinate';
+
+// Code-split secondary views & modal to keep initial sidepanel bundle light
+const SettingsModal = React.lazy(() => import('../components/SettingsModal'));
+const PlatformLaunchpad = React.lazy(() => import('../components/PlatformLaunchpad'));
+const BatchQueuePanel = React.lazy(() => import('../components/BatchQueuePanel'));
+const ToolsExportPanel = React.lazy(() => import('../components/ToolsExportPanel'));
 
 import { useSidepanelStateSync } from './hooks/useSidepanelStateSync';
 import { useActiveTabIntegration } from './hooks/useActiveTabIntegration';
@@ -265,6 +266,21 @@ export default function SidepanelView() {
     upsertItem(activeInput, { note, gene: inferGeneLabel(activeInput, parsed) });
   };
 
+  const handleExportTSV = useCallback(async () => {
+    const { exportTSV } = await import('../utils/exporters');
+    exportTSV(batchQueue, history, triggerAlert);
+  }, [batchQueue, history, triggerAlert]);
+
+  const handleExportExcel = useCallback(async () => {
+    const { exportExcel } = await import('../utils/exporters');
+    exportExcel(batchQueue, history, triggerAlert);
+  }, [batchQueue, history, triggerAlert]);
+
+  const handleExportPPT = useCallback(async () => {
+    const { exportPPT } = await import('../utils/exporters');
+    exportPPT(batchQueue, history, triggerAlert);
+  }, [batchQueue, history, triggerAlert]);
+
   const handleInstantLookup = useCallback(
     (text: string) => {
       if (lookupInstantly) {
@@ -409,65 +425,71 @@ export default function SidepanelView() {
               </button>
             </div>
 
-            <PlatformLaunchpad
-              platformUrls={platformUrls}
-              handleLaunchPlatform={handleLaunchPlatform}
-              activeTheme={activeTheme}
-              parsed={parsed}
-              genomeBuild={genomeBuild}
-              onNavigateToWorkbench={() => {
-                setActiveNavTab('workbench');
-                setTimeout(() => document.getElementById('variant-input')?.focus(), 50);
-              }}
-              onOpenSettings={handleSettingsClick}
-              onGenomeBuildChange={onGenomeBuildChange}
-              onToggleLiveEnrichment={onToggleLiveEnrichment}
-              liveEnrichmentEnabled={liveEnrichmentEnabled}
-              enrichment={enrichment}
-            />
+            <React.Suspense fallback={<div className="p-6 text-center text-xs opacity-60">Loading Launchpad...</div>}>
+              <PlatformLaunchpad
+                platformUrls={platformUrls}
+                handleLaunchPlatform={handleLaunchPlatform}
+                activeTheme={activeTheme}
+                parsed={parsed}
+                genomeBuild={genomeBuild}
+                onNavigateToWorkbench={() => {
+                  setActiveNavTab('workbench');
+                  setTimeout(() => document.getElementById('variant-input')?.focus(), 50);
+                }}
+                onOpenSettings={handleSettingsClick}
+                onGenomeBuildChange={onGenomeBuildChange}
+                onToggleLiveEnrichment={onToggleLiveEnrichment}
+                liveEnrichmentEnabled={liveEnrichmentEnabled}
+                enrichment={enrichment}
+              />
+            </React.Suspense>
           </div>
         )}
 
         {/* TAB 3: WORKLIST */}
         {activeNavTab === 'worklist' && (
           <div className="animate-fade-in">
-            <BatchQueuePanel
-              batchQueue={batchQueue}
-              history={history}
-              activeInput={activeInput}
-              setActiveInput={(val) => {
-                setActiveInput(val);
-                setActiveNavTab('workbench');
-              }}
-              removeFromHistory={removeFromHistory}
-              handleRemoveQueueItem={handleRemoveQueueItem}
-              parsedHistoryItems={parsedHistoryItems}
-              activeSec3Tab={activeSec3Tab}
-              setActiveSec3Tab={setActiveSec3Tab}
-              activeTheme={activeTheme}
-              onExportTSV={() => exportTSV(batchQueue, history, triggerAlert)}
-              onExportExcel={() => exportExcel(batchQueue, history, triggerAlert)}
-              onExportPPT={() => exportPPT(batchQueue, history, triggerAlert)}
-              triggerAlert={triggerAlert}
-              addItem={addItem}
-              addItems={addItems}
-              clearQueue={clearQueue}
-              clearHistory={clearHistory}
-            />
+            <React.Suspense fallback={<div className="p-6 text-center text-xs opacity-60">Loading Worklist...</div>}>
+              <BatchQueuePanel
+                batchQueue={batchQueue}
+                history={history}
+                activeInput={activeInput}
+                setActiveInput={(val) => {
+                  setActiveInput(val);
+                  setActiveNavTab('workbench');
+                }}
+                removeFromHistory={removeFromHistory}
+                handleRemoveQueueItem={handleRemoveQueueItem}
+                parsedHistoryItems={parsedHistoryItems}
+                activeSec3Tab={activeSec3Tab}
+                setActiveSec3Tab={setActiveSec3Tab}
+                activeTheme={activeTheme}
+                onExportTSV={handleExportTSV}
+                onExportExcel={handleExportExcel}
+                onExportPPT={handleExportPPT}
+                triggerAlert={triggerAlert}
+                addItem={addItem}
+                addItems={addItems}
+                clearQueue={clearQueue}
+                clearHistory={clearHistory}
+              />
+            </React.Suspense>
           </div>
         )}
 
         {/* TAB 4: EXPORT */}
         {activeNavTab === 'tools' && (
-          <ToolsExportPanel
-            activeTheme={activeTheme}
-            batchQueue={batchQueue}
-            history={history}
-            onExportTSV={() => exportTSV(batchQueue, history, triggerAlert)}
-            onExportExcel={() => exportExcel(batchQueue, history, triggerAlert)}
-            onExportPPT={() => exportPPT(batchQueue, history, triggerAlert)}
-            triggerAlert={triggerAlert}
-          />
+          <React.Suspense fallback={<div className="p-6 text-center text-xs opacity-60">Loading Tools...</div>}>
+            <ToolsExportPanel
+              activeTheme={activeTheme}
+              batchQueue={batchQueue}
+              history={history}
+              onExportTSV={handleExportTSV}
+              onExportExcel={handleExportExcel}
+              onExportPPT={handleExportPPT}
+              triggerAlert={triggerAlert}
+            />
+          </React.Suspense>
         )}
       </main>
 
@@ -481,21 +503,23 @@ export default function SidepanelView() {
 
       {/* Settings Modal */}
       {isSettingsOpen && (
-        <SettingsModal
-          activeTheme={activeTheme}
-          themeId={themeId}
-          onSelectTheme={selectTheme}
-          onClose={() => setIsSettingsOpen(false)}
-          liveEnrichmentEnabled={liveEnrichmentEnabled}
-          onToggleLiveEnrichment={onToggleLiveEnrichment}
-          clearOnCloseEnabled={clearOnCloseEnabled}
-          onToggleClearOnClose={onToggleClearOnClose}
-          onClearAllData={onClearAllData}
-          historyCap={cap as HistoryCap}
-          onSetHistoryCap={setHistoryCap}
-          triggerAlert={triggerAlert}
-          initialTab={settingsDefaultTab}
-        />
+        <React.Suspense fallback={null}>
+          <SettingsModal
+            activeTheme={activeTheme}
+            themeId={themeId}
+            onSelectTheme={selectTheme}
+            onClose={() => setIsSettingsOpen(false)}
+            liveEnrichmentEnabled={liveEnrichmentEnabled}
+            onToggleLiveEnrichment={onToggleLiveEnrichment}
+            clearOnCloseEnabled={clearOnCloseEnabled}
+            onToggleClearOnClose={onToggleClearOnClose}
+            onClearAllData={onClearAllData}
+            historyCap={cap as HistoryCap}
+            onSetHistoryCap={setHistoryCap}
+            triggerAlert={triggerAlert}
+            initialTab={settingsDefaultTab}
+          />
+        </React.Suspense>
       )}
     </div>
   );
