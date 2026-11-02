@@ -30,3 +30,12 @@ export function hostIs(host: string, domain: string): boolean {
 export function hostMatchesAny(host: string, domains: readonly string[]): boolean {
   return domains.some((domain) => hostIs(host, domain));
 }
+
+export const MOBIDETAILS_DOMAINS = [
+  'mobidetails.chu-montpellier.fr',
+  'mobidetails.iurc.montp.inserm.fr',
+] as const;
+
+export function isMobiDetailsHost(host: string): boolean {
+  return hostMatchesAny(host, MOBIDETAILS_DOMAINS);
+}

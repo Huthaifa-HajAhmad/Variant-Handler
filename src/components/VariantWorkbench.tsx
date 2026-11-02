@@ -301,6 +301,8 @@ export default function VariantWorkbench({
         <ActiveTabIntegrationCard
           isLight={isLight}
           activeTabUrl={activeTabUrl}
+          parsed={parsed}
+          enrichment={enrichment}
           onAutofillVariant={onAutofillVariant}
           onAutofillGene={onAutofillGene}
           onHighlightInTab={onHighlightInTab}

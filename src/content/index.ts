@@ -4,7 +4,7 @@
  * host page DOMs with visual buttons.
  */
 import { formatOneLetterProtein } from '../lib/aminoAcids';
-import { hostIs } from '../utils/hostMatch';
+import { hostIs, isMobiDetailsHost } from '../utils/hostMatch';
 import { fillIntervarForm } from './intervarForm';
 
 let isClearFiltersPending = false;
@@ -278,6 +278,19 @@ function findSearchInputs(): HTMLInputElement[] {
       if (el) return [el];
     }
   }
+  if (isMobiDetailsHost(hostname)) {
+    const selectors = [
+      'input[placeholder*="Ask MobiDetails" i]',
+      'input[placeholder*="MobiDetails" i]',
+      'input#search-input',
+      'input[name="query"]',
+      'input[type="search"]',
+    ];
+    for (const selector of selectors) {
+      const el = findVisibleInput(selector);
+      if (el) return [el];
+    }
+  }
 
   const inputs = Array.from(document.querySelectorAll('input[type="text"], input[type="search"]')) as HTMLInputElement[];
   const visible = inputs.find(input => isElementVisible(input) && input.getBoundingClientRect().width > 50);
@@ -314,6 +327,7 @@ function siteLabel(): string {
   if (hostIs(host, 'franklin.genoox.com')) return 'Franklin';
   if (hostIs(host, 'gnomad.broadinstitute.org')) return 'gnomAD';
   if (hostIs(host, 'genome.ucsc.edu')) return 'UCSC';
+  if (isMobiDetailsHost(host)) return 'MobiDetails';
   return host;
 }
 

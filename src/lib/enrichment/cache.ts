@@ -131,5 +131,14 @@ export function deriveQueryKey(parsed: ParsedVariant, build: GenomeBuild): strin
       return `${parsed.transcript}:${parsed.proteinChange}@${build}`;
     }
   }
+  if (parsed.geneSymbol) {
+    if (parsed.codingChange) {
+      // Gene-level cDNA changes require VEP genomic coordinate mapping which is build-dependent.
+      return `${parsed.geneSymbol}:${parsed.codingChange}@${build}`;
+    }
+    if (parsed.proteinChange) {
+      return `${parsed.geneSymbol}:${parsed.proteinChange}@${build}`;
+    }
+  }
   return null;
 }

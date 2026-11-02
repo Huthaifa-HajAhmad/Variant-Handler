@@ -805,7 +805,7 @@ describe('Sprint 3: genomic deletion parsing and gene symbol extraction', () => 
     const r = parseVariant('PAH:c.1222C>T');
     expect(r.isValid).toBe(true);
     expect(r.geneSymbol).toBe('PAH');
-    expect(r.transcript).toBe('NM_000277'); // from GENE_TO_DEFAULT_TRANSCRIPT (unversioned)
+    expect(r.transcript).toBe('NM_000277.3'); // from GENE_TO_DEFAULT_TRANSCRIPT (MANE Select)
     expect(r.codingChange).toBe('c.1222C>T');
     expect(r.chromosome).toBeUndefined();
     expect(r.position).toBeUndefined();
@@ -815,7 +815,7 @@ describe('Sprint 3: genomic deletion parsing and gene symbol extraction', () => 
     const r = parseVariant('PAH c.1222C>T');
     expect(r.isValid).toBe(true);
     expect(r.geneSymbol).toBe('PAH');
-    expect(r.transcript).toBe('NM_000277');
+    expect(r.transcript).toBe('NM_000277.3');
     expect(r.codingChange).toBe('c.1222C>T');
   });
 
@@ -823,7 +823,7 @@ describe('Sprint 3: genomic deletion parsing and gene symbol extraction', () => 
     const r = parseVariant('PAH p.Arg408Trp');
     expect(r.isValid).toBe(true);
     expect(r.geneSymbol).toBe('PAH');
-    expect(r.transcript).toBe('NM_000277');
+    expect(r.transcript).toBe('NM_000277.3');
     expect(r.proteinChange).toBe('p.Arg408Trp');
     expect(r.chromosome).toBeUndefined();
     expect(r.position).toBeUndefined();
@@ -1210,7 +1210,7 @@ describe('parseVariant — copy-number shorthand (oncology)', () => {
     expect(r.isValid).toBe(true);
     expect(r.geneSymbol).toBe('EGFR');
     expect(r.copyNumberChange).toBe('Deletion');
-    expect(r.transcript).toBe('NM_005228');
+    expect(r.transcript).toBe('NM_005228.5');
   });
 
   it('accepts adjective forms', () => {

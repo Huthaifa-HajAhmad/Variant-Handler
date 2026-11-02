@@ -2,8 +2,8 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { ParsedVariant, INITIAL_PLATFORMS, getFormattedVariant, buildPlatformUrl, findPlatformForUrl } from '../../lib/parser';
 import { GenomeBuild } from '../../utils/genomeBuild';
 import { EnrichmentData } from '../../hooks/useVariantEnrichment';
-import { inferGeneLabel } from '../../utils/variantUtils';
-import { hostIs } from '../../utils/hostMatch';
+import { inferGeneLabel, formatMobiDetailsPayload } from '../../utils/variantUtils';
+import { hostIs, isMobiDetailsHost } from '../../utils/hostMatch';
 
 /**
  * Normalises an OncoKB-style tab URL for comparison: OncoKB redirects
@@ -172,6 +172,56 @@ export function useActiveTabIntegration({
           return;
         }
 
+        // MobiDetails strictly requires versioned RefSeq (e.g. NM_015506.3:c.364C>A)
+        // or a pure gene symbol. Unversioned or raw GENE:c.XXX triggers portal errors.
+        const isMobiDetails = adapter?.id === 'mobidetails' || isMobiDetailsHost(parsedUrl.hostname);
+        if (isMobiDetails) {
+          const currentTx = enrichmentRef.current?.transcript || parsed.transcript;
+          const currentCoding = enrichmentRef.current?.codingChange || parsed.codingChange;
+          const currentGene = enrichmentRef.current?.geneSymbol || parsed.geneSymbol || inferGeneLabel(activeInput, parsed);
+          const payload = formatMobiDetailsPayload(currentTx, currentCoding, currentGene, activeInput);
+
+          if (payload.isVersionedRefSeq) {
+            chrome.tabs.sendMessage(
+              activeTab.id,
+              { type: 'AUTOFILL_VARIANT', value: payload.value, genomeBuild: parsed.genomeBuild ?? genomeBuild, coordinates },
+              (response) => {
+                const lastError = chrome.runtime.lastError;
+                if (lastError) {
+                  triggerAlert('Could not communicate with MobiDetails tab. Please refresh the active tab.');
+                } else if (response && !response.success) {
+                  triggerAlert(response.error || 'Autofill failed.');
+                } else {
+                  triggerAlert(`Injected ${payload.value} into MobiDetails search box!`);
+                }
+              }
+            );
+            return;
+          }
+
+          if (payload.isFallbackGene) {
+            chrome.tabs.sendMessage(
+              activeTab.id,
+              { type: 'AUTOFILL_VARIANT', value: payload.value, genomeBuild: parsed.genomeBuild ?? genomeBuild, coordinates },
+              (response) => {
+                const lastError = chrome.runtime.lastError;
+                const destHost = isMobiDetailsHost(parsedUrl.hostname) ? parsedUrl.hostname : 'mobidetails.chu-montpellier.fr';
+                if (lastError) {
+                  chrome.tabs.update(activeTab.id!, { url: `https://${destHost}/vars/${encodeURIComponent(payload.value)}` }, () => {
+                    triggerAlert(`MobiDetails requires versioned RefSeq. Navigated to ${payload.value} gene page.`);
+                  });
+                } else {
+                  triggerAlert(`MobiDetails requires RefSeq. Autofilled gene '${payload.value}' to prevent portal error.`);
+                }
+              }
+            );
+            return;
+          }
+
+          triggerAlert('MobiDetails requires a versioned RefSeq transcript or gene symbol.');
+          return;
+        }
+
         chrome.tabs.sendMessage(activeTab.id, { type: 'AUTOFILL_VARIANT', value: formatted, genomeBuild: parsed.genomeBuild ?? genomeBuild, coordinates }, (response) => {
           const lastError = chrome.runtime.lastError;
           if (lastError) {
@@ -213,6 +263,12 @@ export function useActiveTabIntegration({
           if (hostIs(host, 'oncokb.org')) {
             chrome.tabs.update(activeTab.id, { url: `https://www.oncokb.org/gene/${encodeURIComponent(geneSymbol)}` }, () => {
               triggerAlert('Opened gene page in OncoKB.');
+            });
+            return;
+          }
+          if (isMobiDetailsHost(host)) {
+            chrome.tabs.update(activeTab.id, { url: `https://${host}/vars/${encodeURIComponent(geneSymbol)}` }, () => {
+              triggerAlert(`Opened ${geneSymbol} variant list in MobiDetails.`);
             });
             return;
           }

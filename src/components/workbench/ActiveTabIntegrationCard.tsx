@@ -1,10 +1,14 @@
 import React from 'react';
-import { Zap, Sparkles, Crosshair, FileInput } from 'lucide-react';
-import { hostIs } from '../../utils/hostMatch';
+import { Zap, Sparkles, Crosshair, FileInput, Info } from 'lucide-react';
+import { hostIs, isMobiDetailsHost } from '../../utils/hostMatch';
+import { ParsedVariant } from '../../lib/parser';
+import { EnrichmentData } from '../../hooks/useVariantEnrichment';
 
 interface ActiveTabIntegrationCardProps {
   isLight: boolean;
   activeTabUrl?: string;
+  parsed?: ParsedVariant;
+  enrichment?: EnrichmentData | null;
   onAutofillVariant?: () => void;
   onAutofillGene?: () => void;
   onHighlightInTab?: () => void;
@@ -13,6 +17,8 @@ interface ActiveTabIntegrationCardProps {
 export default function ActiveTabIntegrationCard({
   isLight,
   activeTabUrl,
+  parsed,
+  enrichment,
   onAutofillVariant,
   onAutofillGene,
   onHighlightInTab,
@@ -20,6 +26,11 @@ export default function ActiveTabIntegrationCard({
   let isAutofillVariantActive = false;
   let isAutofillGeneActive = false;
   let isHighlightActive = false;
+  let isMobiDetails = false;
+
+  const currentTx = enrichment?.transcript || parsed?.transcript;
+  const currentCoding = enrichment?.codingChange || parsed?.codingChange;
+  const hasVersionedRefSeq = !!(currentTx && /^NM_\d+\.\d+/i.test(currentTx) && currentCoding);
 
   if (activeTabUrl) {
     try {
@@ -36,7 +47,14 @@ export default function ActiveTabIntegrationCard({
         }
       } else if (hostIs(host, 'oncokb.org')) {
         isAutofillGeneActive = true;
-      } else if (hostIs(host, 'varsome.com') || hostIs(host, 'varchat.engenome.com') || hostIs(host, 'genebe.net') || hostIs(host, 'wintervar.wglab.org') || hostIs(host, 'platform.opentargets.org') || hostIs(host, 'variantvalidator.org') || hostIs(host, 'mobidetails.chu-montpellier.fr') || hostIs(host, 'mobidetails.iurc.montp.inserm.fr')) {
+      } else if (isMobiDetailsHost(host)) {
+        isMobiDetails = true;
+        if (hasVersionedRefSeq) {
+          isAutofillVariantActive = true;
+        } else {
+          isAutofillGeneActive = true;
+        }
+      } else if (hostIs(host, 'varsome.com') || hostIs(host, 'varchat.engenome.com') || hostIs(host, 'genebe.net') || hostIs(host, 'wintervar.wglab.org') || hostIs(host, 'platform.opentargets.org') || hostIs(host, 'variantvalidator.org')) {
         isAutofillVariantActive = true;
       } else if (hostIs(host, 'ncbi.nlm.nih.gov')) {
         const isClinVar = path.includes('/clinvar');
@@ -155,6 +173,29 @@ export default function ActiveTabIntegrationCard({
           <span className="truncate font-semibold">Highlight</span>
         </button>
       </div>
+
+      {/* MobiDetails Contextual Pre-Flight Feedback */}
+      {isMobiDetails && !hasVersionedRefSeq && (
+        <div className={`mt-2.5 p-2 rounded-xl text-[10px] leading-relaxed flex items-start gap-1.5 border ${
+          isLight ? 'bg-amber-50/90 border-amber-200 text-amber-900' : 'bg-amber-950/40 border-amber-800 text-amber-300'
+        }`}>
+          <Info className="w-3.5 h-3.5 text-amber-500 shrink-0 mt-0.5" />
+          <span>
+            <strong className="font-semibold">MobiDetails Notice:</strong> MobiDetails requires a versioned RefSeq transcript (e.g. <code>NM_015506.3</code>) or gene symbol. Gene autofill is active to prevent portal rejection.
+          </span>
+        </div>
+      )}
+
+      {isMobiDetails && hasVersionedRefSeq && (
+        <div className={`mt-2.5 p-2 rounded-xl text-[10px] leading-relaxed flex items-start gap-1.5 border ${
+          isLight ? 'bg-emerald-50/90 border-emerald-200 text-emerald-900' : 'bg-emerald-950/40 border-emerald-800 text-emerald-300'
+        }`}>
+          <Sparkles className="w-3.5 h-3.5 text-emerald-500 shrink-0 mt-0.5" />
+          <span>
+            <strong className="font-semibold">MobiDetails Ready:</strong> RefSeq <code>{currentTx}:{enrichment?.codingChange || parsed?.codingChange}</code> formatted for MobiDetails.
+          </span>
+        </div>
+      )}
     </div>
   );
 }
