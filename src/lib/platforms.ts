@@ -3,11 +3,17 @@
  */
 
 import { ParsedVariant, parseVariant } from './parser';
+import { hostIs } from '../utils/hostMatch';
 
 export interface PlatformAdapter {
   id: string;
   name: string;
   domain: string;
+  /**
+   * Optional URL path prefix (e.g. '/clinvar', '/snp') used to disambiguate
+   * platforms that share the same apex domain when matching active browser tabs.
+   */
+  pathPrefix?: string;
   description: string;
   color: string;
   accentColor: string;
@@ -75,6 +81,7 @@ export const INITIAL_PLATFORMS: PlatformAdapter[] = [
     id: 'clinvar',
     name: 'ClinVar (NCBI)',
     domain: 'ncbi.nlm.nih.gov',
+    pathPrefix: '/clinvar',
     description: 'Public archive of human variation and phenotype relationships',
     color: '#3b82f6',
     accentColor: 'bg-blue-500/10 border-blue-500 text-blue-400',
@@ -85,6 +92,7 @@ export const INITIAL_PLATFORMS: PlatformAdapter[] = [
     id: 'dbsnp',
     name: 'dbSNP (NCBI)',
     domain: 'ncbi.nlm.nih.gov',
+    pathPrefix: '/snp',
     description: 'Database of short genetic variations',
     color: '#059669',
     accentColor: 'bg-emerald-600/10 border-emerald-600 text-emerald-500',
@@ -333,3 +341,36 @@ export function getMissingDataReason(
   if (needsHgvsC   && (!currentParsed.transcript || !currentParsed.codingChange)) return `Transcript and coding change required for ${adapter.name}`;
   return null;
 }
+
+/**
+ * Resolves a URL to its matching PlatformAdapter.
+ *
+ * For platforms sharing an apex domain (e.g. ClinVar and dbSNP on ncbi.nlm.nih.gov),
+ * adapters defining a `pathPrefix` are evaluated first. If no path-specific adapter
+ * matches, it falls back to hostname matching.
+ */
+export function findPlatformForUrl(
+  rawUrl: string | URL,
+  platforms: readonly PlatformAdapter[] = INITIAL_PLATFORMS,
+): PlatformAdapter | undefined {
+  try {
+    const urlObj = typeof rawUrl === 'string' ? new URL(rawUrl) : rawUrl;
+    const host = urlObj.hostname;
+    const pathname = urlObj.pathname.toLowerCase();
+
+    // Specific match: both host matches and pathPrefix matches
+    const specificMatch = platforms.find(
+      (p) => hostIs(host, p.domain) && !!p.pathPrefix && pathname.startsWith(p.pathPrefix.toLowerCase()),
+    );
+    if (specificMatch) return specificMatch;
+
+    // Fallback match: host matches and platform has no pathPrefix constraint
+    return (
+      platforms.find((p) => hostIs(host, p.domain) && !p.pathPrefix) ??
+      platforms.find((p) => hostIs(host, p.domain))
+    );
+  } catch {
+    return undefined;
+  }
+}
+

@@ -39,8 +39,12 @@ export default function ActiveTabIntegrationCard({
       } else if (hostIs(host, 'varsome.com') || hostIs(host, 'varchat.engenome.com') || hostIs(host, 'genebe.net') || hostIs(host, 'wintervar.wglab.org') || hostIs(host, 'platform.opentargets.org') || hostIs(host, 'variantvalidator.org') || hostIs(host, 'mobidetails.chu-montpellier.fr') || hostIs(host, 'mobidetails.iurc.montp.inserm.fr')) {
         isAutofillVariantActive = true;
       } else if (hostIs(host, 'ncbi.nlm.nih.gov')) {
-        isAutofillVariantActive = true;
-        isAutofillGeneActive = true;
+        const isClinVar = path.includes('/clinvar');
+        const isDbSnp = path.includes('/snp');
+        if (isClinVar || isDbSnp) {
+          isAutofillVariantActive = true;
+          isAutofillGeneActive = true;
+        }
       } else if (hostIs(host, 'alphamissense.hegelab.org')) {
         if (path.includes('/results') || path.includes('/hotspot')) {
           isHighlightActive = true;

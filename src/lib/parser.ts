@@ -7,7 +7,7 @@
 
 import { GenomeBuild, detectGenomeBuild } from '../utils/genomeBuild';
 import { lookupGeneSymbol, TRANSCRIPT_TO_GENE, GENE_TO_DEFAULT_TRANSCRIPT, isCnvGeneSymbol } from './geneSymbols';
-import { PlatformAdapter, INITIAL_PLATFORMS, hasRealAllele, getMissingDataReason } from './platforms';
+import { PlatformAdapter, INITIAL_PLATFORMS, hasRealAllele, getMissingDataReason, findPlatformForUrl } from './platforms';
 import { buildPlatformUrl } from './urlBuilders';
 
 import { ParsedVariant, GenomicCoordinate } from './parsers/types';
@@ -19,7 +19,7 @@ export type { GenomeBuild };
 export type { PlatformAdapter };
 export type { ParsedVariant, GenomicCoordinate };
 
-export { INITIAL_PLATFORMS, hasRealAllele, getMissingDataReason, buildPlatformUrl };
+export { INITIAL_PLATFORMS, hasRealAllele, getMissingDataReason, buildPlatformUrl, findPlatformForUrl };
 export { cleanChrom, computeEndPos, getFormattedVariant };
 
 export const MAX_INPUT_LENGTH = 1000;

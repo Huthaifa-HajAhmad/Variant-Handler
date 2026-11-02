@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { ParsedVariant, INITIAL_PLATFORMS, getFormattedVariant, buildPlatformUrl } from '../../lib/parser';
+import { ParsedVariant, INITIAL_PLATFORMS, getFormattedVariant, buildPlatformUrl, findPlatformForUrl } from '../../lib/parser';
 import { GenomeBuild } from '../../utils/genomeBuild';
 import { EnrichmentData } from '../../hooks/useVariantEnrichment';
 import { inferGeneLabel } from '../../utils/variantUtils';
@@ -106,7 +106,7 @@ export function useActiveTabIntegration({
       }
       try {
         const parsedUrl = new URL(activeTab.url);
-        const adapter = INITIAL_PLATFORMS.find(p => hostIs(parsedUrl.hostname, p.domain));
+        const adapter = findPlatformForUrl(parsedUrl, INITIAL_PLATFORMS);
         const formatted = adapter ? getFormattedVariant(parsed, adapter.requiredFormat) : activeInput;
         const coordinates = {
           chromosome: parsed.chromosome,

@@ -3,17 +3,27 @@
  *
  * Matching is exact or dot-suffix only, so look-alike hosts such as
  * `evil-oncokb.org` and `oncokb.org.attacker.com` do not match `oncokb.org`.
+ *
+ * Both arguments are safely normalized: empty inputs fail closed (false),
+ * and protocols, query strings, hashes, userinfo, ports, and paths
+ * in either argument are stripped before comparison.
  */
 
 export function hostIs(host: string, domain: string): boolean {
-  const h = host.toLowerCase().trim();
-  // Strip any accidental protocol, port, or path components from domain
-  const d = domain
-    .toLowerCase()
-    .trim()
-    .replace(/^https?:\/\//, '')
-    .split('/')[0]
-    .split(':')[0];
+  if (!host || !domain) return false;
+
+  let h = host.toLowerCase().trim();
+  if (h.startsWith('http://') || h.startsWith('https://')) {
+    try {
+      h = new URL(h).hostname.toLowerCase().trim();
+    } catch { /* invalid URL — fall through to string matching */ }
+  }
+
+  // Sanitize host and domain: strip protocol, userinfo, path/query/hash, and port
+  h = h.replace(/^[a-z]+:\/\//i, '').split(/[\/?#]/)[0].split('@').pop()!.split(':')[0].trim();
+  const d = domain.toLowerCase().trim().replace(/^[a-z]+:\/\//i, '').split(/[\/?#]/)[0].split('@').pop()!.split(':')[0].trim();
+
+  if (!h || !d) return false;
   return h === d || h.endsWith(`.${d}`);
 }
 
