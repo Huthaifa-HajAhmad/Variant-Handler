@@ -73,6 +73,7 @@ export default function Header({
           type="button"
           onClick={onThemeToggle}
           title={isLight ? 'Toggle Dark Mode' : 'Toggle Light Mode'}
+          aria-label="Toggle theme"
           className={`p-1.5 text-[10px] font-bold cursor-pointer transition-all duration-200 flex items-center justify-center shrink-0 active:scale-95 ${
             isLight ? 'text-slate-600 hover:text-indigo-600 hover:bg-white' : 'text-slate-300 hover:text-amber-400 hover:bg-slate-700'
           }`}
@@ -85,6 +86,7 @@ export default function Header({
           type="button"
           onClick={onSettingsClick}
           title="Open Workspace Settings"
+          aria-label="Open settings"
           className={`p-1.5 text-[10px] font-bold cursor-pointer transition-all duration-200 flex items-center shrink-0 active:scale-95 ${
             isLight ? 'text-slate-500 hover:text-slate-900 hover:bg-white' : 'text-slate-400 hover:text-white hover:bg-slate-700'
           }`}

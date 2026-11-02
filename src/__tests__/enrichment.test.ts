@@ -204,25 +204,19 @@ describe('validateRefAllele', () => {
     expect(res).toContain('specified "A"');
   });
 
-  it('returns specific warning string suggesting build switch when ref matches alternative build', async () => {
+  it('does NOT guess a build switch at the un-lifted coordinate (see refBuildHint.test.ts for the lifted hint)', async () => {
     const parsed = parseVariant('chr7:g.140453136A>T');
     const mockFetch = async (url: string) => {
-      // If querying hg38 (selected GRCh38), return mismatched base (C)
-      if (url.includes('genome=hg38')) {
-        return { dna: 'C' };
-      }
-      // If querying hg19 (alternative GRCh37), return matching base (A)
-      if (url.includes('genome=hg19')) {
-        return { dna: 'A' };
-      }
+      // hg38 (selected) mismatches; an un-lifted hg19 lookup would spuriously match.
+      if (url.includes('genome=hg38')) return { dna: 'C' };
+      if (url.includes('genome=hg19')) return { dna: 'A' };
       return { dna: '' };
     };
 
     const res = await validateRefAllele(parsed, 'GRCh38', mockFetch);
     expect(res).not.toBeNull();
-    expect(res).toContain('Reference allele mismatch on GRCh38');
-    expect(res).toContain('reference matches "A" at this position on GRCh37');
-    expect(res).toContain('wrong genome build');
+    expect(res).toContain('Reference allele mismatch');
+    expect(res).not.toContain('wrong genome build');
   });
 
   describe('parseApiResponse — gnomadAf fallback', () => {

@@ -13,7 +13,7 @@
  */
 import { BatchItem } from '../lib/types';
 import { parseVariant, ParsedVariant } from '../lib/parser';
-import { escapeHtml, downloadBlob } from './sanitize';
+import { escapeHtml, downloadBlob, sanitizeTsvCell } from './sanitize';
 
 // ── TSV Export ───────────────────────────────────────────────────────────────
 
@@ -40,9 +40,9 @@ export function exportTSV(
     const snap = item.enrichmentSnapshot;
     content +=
       `${idx + 1}\t` +
-      `${item.gene}\t` +
-      `${item.input}\t` +
-      `${(item.note || '').replace(/[\t\r\n]/g, ' ')}\t` +
+      `${sanitizeTsvCell(item.gene)}\t` +
+      `${sanitizeTsvCell(item.input)}\t` +
+      `${sanitizeTsvCell(item.note)}\t` +
       `${parsed.type}\t` +
       `${parsed.chromosome || 'N/A'}\t` +
       `${parsed.position || 'N/A'}\t` +
@@ -72,8 +72,8 @@ export function exportTSV(
 
       content +=
         `${idx + 1}\t` +
-        `${input}\t` +
-        `${inferredGene}\t` +
+        `${sanitizeTsvCell(input)}\t` +
+        `${sanitizeTsvCell(inferredGene)}\t` +
         `${parsed.type}\t` +
         `${parsed.chromosome || 'N/A'}\t` +
         `${parsed.position || 'N/A'}\t` +

@@ -49,4 +49,50 @@ describe('fillIntervarForm', () => {
     expect(fillIntervarForm('GRCh38', undefined)).toBe(false);
     expect(fillIntervarForm('GRCh38', { chromosome: '7' })).toBe(false);
   });
+
+  it('matches chromosome select options when options use chr prefix (e.g. value="chr7")', () => {
+    document.body.innerHTML = `
+      <form>
+        <select name="build">
+          <option value="hg38_update_2025">hg38_updated.v.202508</option>
+        </select>
+        <select name="chr">
+          <option value="chr1">chr1</option>
+          <option value="chr7">chr7</option>
+          <option value="chrX">chrX</option>
+        </select>
+        <input type="text" name="pos" />
+        <input type="text" name="ref" />
+        <input type="text" name="alt" />
+      </form>
+    `;
+
+    const ok = fillIntervarForm('GRCh38', {
+      chromosome: '7',
+      position: '140453136',
+      ref: 'A',
+      alt: 'T',
+    });
+    expect(ok).toBe(true);
+    expect((document.querySelector('select[name="chr"]') as HTMLSelectElement).value).toBe('chr7');
+
+    fillIntervarForm('GRCh38', {
+      chromosome: 'chrX',
+      position: '1000',
+      ref: 'C',
+      alt: 'G',
+    });
+    expect((document.querySelector('select[name="chr"]') as HTMLSelectElement).value).toBe('chrX');
+  });
+
+  it('matches chromosome select option when option has no chr prefix but coordinates has chr prefix', () => {
+    const ok = fillIntervarForm('GRCh38', {
+      chromosome: 'chr7',
+      position: '140453136',
+      ref: 'A',
+      alt: 'T',
+    });
+    expect(ok).toBe(true);
+    expect((document.querySelector('select[name="chr"]') as HTMLSelectElement).value).toBe('7');
+  });
 });

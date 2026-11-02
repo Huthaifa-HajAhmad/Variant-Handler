@@ -17,6 +17,15 @@ export async function resolveGnomadV4(
   hgvsg: string,
   performFetch: (url: string) => Promise<any>
 ): Promise<UcscGnomadResult> {
+  // Indels (del, ins, dup, delins, inv) in UCSC gnomAD v4 tracks are indexed using VCF-style
+  // representation with anchor/padding bases and VCF left-alignment (e.g. ref='AT', alt='A').
+  // HGVSg indel expressions lack padding bases and require reference sequence lookup and VCF
+  // normalization to reliably match UCSC track items. Therefore, we deliberately return {}
+  // for indels to prevent mismatched frequencies or invalid track queries.
+  if (/^chr[^:]+:g\.\d+(?:_\d+)?(?:delins|del|ins|dup|inv)/i.test(hgvsg)) {
+    return {};
+  }
+
   // Parse HGVSg, e.g. "chr7:g.140753336A>T"
   const match = hgvsg.match(/^chr([^:]+):g\.(\d+)([A-Z]+)>([A-Z]+)$/i);
   if (!match) return {};
@@ -24,12 +33,14 @@ export async function resolveGnomadV4(
   let chrom = match[1];
   if (chrom.toUpperCase() === 'MT') chrom = 'M';
   const pos = parseInt(match[2], 10);
+  if (isNaN(pos) || pos < 1) return {};
   const ref = match[3].toUpperCase();
   const alt = match[4].toUpperCase();
 
   const chrName = `chr${chrom}`;
   // 0-based coordinate is pos - 1. Query a small window to capture potential offsets.
-  const start = pos - 2;
+  // Clamp start to 0 to prevent negative coordinates for pos <= 1 which triggers UCSC 400 Bad Request.
+  const start = Math.max(0, pos - 2);
   const end = pos + 2;
 
   const urlExomes = `https://api.genome.ucsc.edu/getData/track?genome=hg38&track=gnomadExomesVariantsV4_1&chrom=${chrName}&start=${start}&end=${end}`;

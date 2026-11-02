@@ -118,9 +118,13 @@ export const clinvarBuilder: PlatformUrlBuilder = (parsed, adapter, build, enric
   const { pos: nPos, ref: nRef, alt: nAlt } = normaliseAlleles(pos, ref, alt);
 
   const fullHgvsC = parsed.transcript && parsed.codingChange ? `${parsed.transcript}:${parsed.codingChange}` : '';
+  // Gene-prefixed c. notation whose gene has no curated default transcript
+  // (e.g. `ATM:c.5000A>G`): keep the variant in the query instead of degrading
+  // to a gene-wide search.
+  const geneCodingTerm = !fullHgvsC && gene && parsed.codingChange ? `${gene} ${parsed.codingChange}` : '';
   const fullHgvsG = chrom && nPos && hasRealAllele(nRef) && hasRealAllele(nAlt) ? `chr${chrom}:g.${nPos}${nRef}>${nAlt}` : '';
 
-  const variantTerm = fullHgvsG || fullHgvsC || hgvsg || hgvsc || rsId || hgvsp;
+  const variantTerm = fullHgvsG || fullHgvsC || hgvsg || hgvsc || rsId || geneCodingTerm || hgvsp;
   if (variantTerm) {
     let queryTerm = variantTerm;
     if (variantTerm === hgvsp && gene) {
@@ -146,9 +150,13 @@ export const dbsnpBuilder: PlatformUrlBuilder = (parsed, adapter, build, enrichm
   const { pos: nPos, ref: nRef, alt: nAlt } = normaliseAlleles(pos, ref, alt);
 
   const fullHgvsC = parsed.transcript && parsed.codingChange ? `${parsed.transcript}:${parsed.codingChange}` : '';
+  // Gene-prefixed c. notation whose gene has no curated default transcript
+  // (e.g. `ATM:c.5000A>G`): keep the variant in the query instead of degrading
+  // to a gene-wide search.
+  const geneCodingTerm = !fullHgvsC && gene && parsed.codingChange ? `${gene} ${parsed.codingChange}` : '';
   const fullHgvsG = chrom && nPos && hasRealAllele(nRef) && hasRealAllele(nAlt) ? `chr${chrom}:g.${nPos}${nRef}>${nAlt}` : '';
 
-  const variantTerm = fullHgvsG || fullHgvsC || hgvsg || hgvsc || rsId;
+  const variantTerm = fullHgvsG || fullHgvsC || hgvsg || hgvsc || rsId || geneCodingTerm;
   if (variantTerm) {
     return `https://www.ncbi.nlm.nih.gov/snp/?term=${encodeURIComponent(variantTerm)}`;
   }
@@ -163,7 +171,7 @@ export const mutalyzerBuilder: PlatformUrlBuilder = (parsed, adapter, build, enr
   const hgvsc = (enrichment?.transcript && enrichment?.codingChange) ? `${enrichment.transcript}:${enrichment.codingChange}` : '';
   const fullHgvsC = parsed.transcript && parsed.codingChange ? `${parsed.transcript}:${parsed.codingChange}` : '';
 
-  const variantTerm = hgvsc || fullHgvsC;
+  const variantTerm = hgvsc || fullHgvsC || (gene && parsed.codingChange ? `${gene}:${parsed.codingChange}` : '');
   if (variantTerm) {
     return `https://mutalyzer.nl/name-checker?description=${encodeURIComponent(variantTerm)}`;
   }

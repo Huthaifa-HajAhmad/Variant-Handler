@@ -87,6 +87,7 @@ export default function VariantInputSection({
         <input
           id="variant-input"
           type="text"
+          aria-label="Genomic variant coordinate or HGVS notation"
           value={activeInput}
           onChange={(e) => setActiveInput(e.target.value)}
           onPaste={(e) => {

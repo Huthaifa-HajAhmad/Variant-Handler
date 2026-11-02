@@ -51,6 +51,92 @@ export default function SettingsModal({
   const [extensionShortcut, setExtensionShortcut] = React.useState('Alt+V');
   const [cacheCount, setCacheCount] = React.useState(0);
 
+  const modalRef = React.useRef<HTMLDivElement>(null);
+  const previousActiveElementRef = React.useRef<HTMLElement | null>(null);
+
+  const getFocusableElements = React.useCallback((): HTMLElement[] => {
+    if (!modalRef.current) return [];
+    const selector = [
+      'button:not([disabled])',
+      '[href]',
+      'input:not([disabled])',
+      'select:not([disabled])',
+      'textarea:not([disabled])',
+      '[tabindex]:not([tabindex="-1"])',
+    ].join(', ');
+    const elements = Array.from(modalRef.current.querySelectorAll(selector)) as HTMLElement[];
+    return elements.filter(
+      (el) => !el.hasAttribute('disabled') && el.getAttribute('aria-hidden') !== 'true'
+    );
+  }, []);
+
+  const handleClose = React.useCallback(() => {
+    if (previousActiveElementRef.current && typeof previousActiveElementRef.current.focus === 'function') {
+      previousActiveElementRef.current.focus();
+    }
+    onClose();
+  }, [onClose]);
+
+  // Capture previous active element on mount, move focus into dialog, and restore focus on unmount
+  React.useEffect(() => {
+    previousActiveElementRef.current = (document.activeElement as HTMLElement) || null;
+
+    const focusables = getFocusableElements();
+    if (focusables.length > 0) {
+      focusables[0].focus();
+    } else if (modalRef.current) {
+      modalRef.current.focus();
+    }
+
+    return () => {
+      if (previousActiveElementRef.current && typeof previousActiveElementRef.current.focus === 'function') {
+        previousActiveElementRef.current.focus();
+      }
+    };
+  }, [getFocusableElements]);
+
+  // Trap focus within the dialog on Tab/Shift+Tab and close on Escape
+  React.useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        e.stopPropagation();
+        handleClose();
+        return;
+      }
+
+      if (e.key === 'Tab') {
+        const focusable = getFocusableElements();
+        if (focusable.length === 0) {
+          e.preventDefault();
+          return;
+        }
+
+        const first = focusable[0];
+        const last = focusable[focusable.length - 1];
+        const active = document.activeElement;
+        const isOutside = !modalRef.current || !modalRef.current.contains(active) || active === modalRef.current;
+
+        if (e.shiftKey) {
+          if (active === first || isOutside) {
+            e.preventDefault();
+            last.focus();
+          }
+        } else {
+          if (active === last || isOutside) {
+            e.preventDefault();
+            first.focus();
+          }
+        }
+      }
+    };
+
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [handleClose, getFocusableElements]);
+
   const updateCacheCount = React.useCallback(() => {
     try {
       const raw = localStorage.getItem(CACHE_STORAGE_KEY);
@@ -143,13 +229,18 @@ export default function SettingsModal({
       id="settings-modal-overlay"
       onClick={(e) => {
         if (e.target === e.currentTarget) {
-          onClose();
+          handleClose();
         }
       }}
       className={`absolute inset-0 ${isLight ? 'bg-slate-500/30' : 'bg-slate-950/60'} backdrop-blur-md z-50 flex items-center justify-center p-4 animate-fade-in`}
     >
       <div
-        className={`w-full max-w-[365px] h-[90vh] max-h-[530px] flex flex-col rounded-2xl border shadow-2xl overflow-hidden transition-all duration-300 ${
+        ref={modalRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="settings-modal-title"
+        tabIndex={-1}
+        className={`w-full max-w-[365px] h-[90vh] max-h-[530px] flex flex-col rounded-2xl border shadow-2xl overflow-hidden transition-all duration-300 outline-none ${
           isLight ? 'bg-white border-slate-200 text-slate-800' : 'bg-slate-900 border-slate-850 text-white'
         }`}
       >
@@ -157,14 +248,18 @@ export default function SettingsModal({
         <div className="flex items-center justify-between px-5 pt-5 pb-3 shrink-0">
           <div className="flex items-center gap-2">
             <Settings className={`w-4 h-4 ${isLight ? 'text-indigo-600' : 'text-indigo-400'} animate-spin-slow`} />
-            <span className="font-bold font-display text-xs uppercase tracking-wider">
+            <span
+              id="settings-modal-title"
+              className="font-bold font-display text-xs uppercase tracking-wider"
+            >
               Workspace Configuration
             </span>
           </div>
           <button
             type="button"
             id="settings-close-btn"
-            onClick={onClose}
+            onClick={handleClose}
+            aria-label="Close settings"
             className={`p-1.5 rounded-lg cursor-pointer transition-all ${
               isLight 
                 ? 'text-slate-400 hover:text-slate-800 hover:bg-slate-100' 

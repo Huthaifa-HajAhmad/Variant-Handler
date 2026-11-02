@@ -19,6 +19,18 @@ export function escapeHtml(str: string): string {
 }
 
 /**
+ * Makes a value safe for a TSV cell:
+ *  - tabs / CR / LF become spaces so a cell can never split a row or column;
+ *  - values that a spreadsheet would evaluate as a formula (leading `=`, `+`,
+ *    `-`, `@`, optionally after whitespace) get a leading apostrophe
+ *    (OWASP CSV-injection guidance).
+ */
+export function sanitizeTsvCell(value: string | undefined | null): string {
+  const flat = (value ?? '').replace(/[\t\r\n]/g, ' ');
+  return /^\s*[=+\-@]/.test(flat) ? `'${flat}` : flat;
+}
+
+/**
  * Returns true only when a URL uses the https scheme.
  *
  * FIX MEDIUM-5: Previously permitted http: as well as https:, creating a

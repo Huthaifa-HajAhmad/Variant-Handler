@@ -57,4 +57,30 @@ describe('resolveGnomadV4', () => {
     const res = await resolveGnomadV4('chr7:g.140753336A>T', fetchMock);
     expect(res).toEqual({});
   });
+
+  it('clamps start coordinate to 0 when pos <= 1 to avoid UCSC 400', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({});
+    await resolveGnomadV4('chr1:g.1A>G', fetchMock);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    const firstUrl = fetchMock.mock.calls[0][0];
+    expect(firstUrl).toContain('start=0');
+    expect(firstUrl).toContain('end=3');
+    expect(firstUrl).not.toContain('start=-1');
+  });
+
+  it('deliberately returns empty result for indels without querying UCSC', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({});
+    const indels = [
+      'chr7:g.140753336del',
+      'chr7:g.140753336_140753338del',
+      'chr7:g.140753336dup',
+      'chr7:g.140753336_140753337insT',
+      'chr7:g.140753336_140753338delinsAT',
+    ];
+    for (const indel of indels) {
+      const res = await resolveGnomadV4(indel, fetchMock);
+      expect(res).toEqual({});
+    }
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
 });

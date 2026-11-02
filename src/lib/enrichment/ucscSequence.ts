@@ -138,29 +138,68 @@ export async function validateRefAllele(
   }
 
   if (dna && dna !== refSeq) {
-    const otherBuild = build === 'GRCh37' ? 'GRCh38' : 'GRCh37';
-    const otherDb = otherBuild === 'GRCh37' ? 'hg19' : 'hg38';
-    const otherCacheKey = `${otherDb}:${parsed.chromosome}:${startParam}:${endParam}`;
-    let otherDna = sequenceCache.get(otherCacheKey);
+    // Deliberately no cross-build comparison here: GRCh37/GRCh38 coordinates for
+    // the same locus differ, so checking the other assembly at the same numeric
+    // position inspects an unrelated locus. See suggestBuildForRefMismatch().
+    return `Reference allele mismatch: genome reference at chr${parsed.chromosome}:${pos} is "${dna}", but input specified "${refSeq}".`;
+  }
+  return null;
+}
 
+/**
+ * Optional, non-blocking follow-up to a reference-allele mismatch: lifts the
+ * coordinate to the other assembly via Ensembl `/map`, then checks whether the
+ * entered reference allele matches THERE. Returns a hint string, or null when
+ * there is no evidence (no mapping, length change, mismatch, or any failure).
+ *
+ * Callers must not await this on the critical path of the live lookup.
+ */
+export async function suggestBuildForRefMismatch(
+  parsed: ParsedVariant,
+  build: GenomeBuild,
+  performFetch: (url: string) => Promise<any>
+): Promise<string | null> {
+  if (!parsed.chromosome || !parsed.position || !parsed.ref) return null;
+  const pos = parseInt(parsed.position, 10);
+  if (isNaN(pos)) return null;
+  const refSeq = parsed.ref.toUpperCase();
+  if (refSeq === '-' || !hasRealAllele(refSeq)) return null;
+
+  const otherBuild: GenomeBuild = build === 'GRCh37' ? 'GRCh38' : 'GRCh37';
+  const otherDb = otherBuild === 'GRCh37' ? 'hg19' : 'hg38';
+  const endPos = pos + refSeq.length - 1;
+
+  try {
+    const mapUrl = `https://rest.ensembl.org/map/human/${build}/${parsed.chromosome}:${pos}..${endPos}:1/${otherBuild}?content-type=application/json`;
+    const mapRes = await performFetch(mapUrl);
+    const mappings = mapRes && Array.isArray(mapRes.mappings) ? mapRes.mappings : [];
+    // Require an unambiguous, length-preserving mapping.
+    if (mappings.length !== 1) return null;
+    const mapped = mappings[0]?.mapped;
+    if (!mapped || typeof mapped.start !== 'number' || typeof mapped.end !== 'number') return null;
+    if (mapped.end - mapped.start + 1 !== refSeq.length) return null;
+
+    const chrom = mapped.seq_region_name || parsed.chromosome;
+    const startParam = mapped.start - 1;
+    const endParam = mapped.end;
+    const cacheKey = `${otherDb}:${chrom}:${startParam}:${endParam}`;
+    let otherDna = sequenceCache.get(cacheKey);
     if (!otherDna) {
-      try {
-        const otherUrl = `https://api.genome.ucsc.edu/getData/sequence?genome=${otherDb}&chrom=chr${parsed.chromosome}&start=${startParam}&end=${endParam}`;
-        const otherRes = await performFetch(otherUrl);
-        if (otherRes && otherRes.dna) {
-          otherDna = otherRes.dna.toUpperCase();
-          sequenceCache.set(otherCacheKey, otherDna);
-        }
-      } catch (e) {
-        // Ignore alternative build validation fetch failures
+      const url = `https://api.genome.ucsc.edu/getData/sequence?genome=${otherDb}&chrom=chr${chrom}&start=${startParam}&end=${endParam}`;
+      const res = await performFetch(url);
+      if (res && typeof res.dna === 'string' && res.dna) {
+        otherDna = res.dna.toUpperCase();
+        sequenceCache.set(cacheKey, otherDna);
       }
     }
+    if (!otherDna) return null;
 
-    if (otherDna === refSeq) {
-      return `Reference allele mismatch on ${build}: assembly reference is "${dna}", but input specified "${refSeq}". Note: reference matches "${refSeq}" at this position on ${otherBuild}. Did you select the wrong genome build?`;
+    const comparable = mapped.strand === -1 ? reverseComplement(otherDna) : otherDna;
+    if (comparable === refSeq) {
+      return `Reference "${refSeq}" matches at the lifted position chr${chrom}:${mapped.start} on ${otherBuild}. Did you select the wrong genome build?`;
     }
-
-    return `Reference allele mismatch: genome reference at chr${parsed.chromosome}:${pos} is "${dna}", but input specified "${refSeq}".`;
+  } catch {
+    // Best-effort hint only; never surface failures.
   }
   return null;
 }

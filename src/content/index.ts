@@ -6,6 +6,7 @@
 import { formatOneLetterProtein } from '../lib/aminoAcids';
 import { hostIs, isMobiDetailsHost } from '../utils/hostMatch';
 import { fillIntervarForm } from './intervarForm';
+import { highlightRow } from './highlight';
 
 let isClearFiltersPending = false;
 
@@ -456,23 +457,8 @@ function findAndHighlightProteinChange(proteinChange: string): boolean {
   if (matchElement) {
     matchElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
 
-    const row = matchElement.closest('tr') || matchElement;
-    const originalBackground = row.style.backgroundColor;
-    const originalTransition = row.style.transition;
-
-    row.style.transition = 'background-color 0.3s ease';
-    row.style.backgroundColor = '#fef08a';
-    row.style.outline = '2px solid #eab308';
-
-
-
-    setTimeout(() => {
-      row.style.backgroundColor = originalBackground;
-      row.style.outline = '';
-      setTimeout(() => {
-        row.style.transition = originalTransition;
-      }, 300);
-    }, 4000);
+    const row = (matchElement.closest('tr') || matchElement) as HTMLElement;
+    highlightRow(row);
 
     return true;
   }

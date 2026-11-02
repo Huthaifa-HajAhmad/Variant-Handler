@@ -477,7 +477,7 @@ export function useVariantEnrichment(
 
             const enrichmentData = parseApiResponse(data, activeQueryKey);
             if (activeQueryKey.includes(':g.') && !enrichmentData.hgvsg) {
-              enrichmentData.hgvsg = activeQueryKey;
+              enrichmentData.hgvsg = activeQueryKey.replace(/@(GRCh38|GRCh37)$/, '');
             }
             if (!enrichmentData.geneSymbol && (resolvedGeneSymbol || parsed.geneSymbol)) {
               enrichmentData.geneSymbol = resolvedGeneSymbol || parsed.geneSymbol;
@@ -503,6 +503,10 @@ export function useVariantEnrichment(
               enrichmentData.refMismatch = versionWarning;
             }
 
+            if (!enrichmentData.rsId && parsed.rsId) {
+              enrichmentData.rsId = parsed.rsId;
+            }
+
             const hgvsForClinVar =
               enrichmentData.transcript && enrichmentData.codingChange
                 ? `${enrichmentData.transcript}:${enrichmentData.codingChange}`
@@ -511,10 +515,27 @@ export function useVariantEnrichment(
                     : (parsed.transcript && parsed.proteinChange
                         ? `${parsed.transcript}:${parsed.proteinChange}`
                         : ''));
-            if (hgvsForClinVar) {
+
+            const cleanHgvsg = (enrichmentData.hgvsg || (activeQueryKey.includes(':g.') ? activeQueryKey : '')).replace(/@(GRCh38|GRCh37)$/, '');
+            const fallbackClinVar =
+              enrichmentData.rsId ||
+              parsed.rsId ||
+              cleanHgvsg ||
+              (parsed.chromosome && parsed.position && parsed.ref && parsed.alt
+                ? `chr${parsed.chromosome}:g.${parsed.position}${parsed.ref}>${parsed.alt}`
+                : '');
+
+            const clinvarQuery = hgvsForClinVar || fallbackClinVar;
+            if (clinvarQuery) {
               try {
                 setProgress('Resolving ClinVar significance...');
-                const clinvarDirect = await resolveClinVarDirect(hgvsForClinVar, (build as GenomeBuild) || 'GRCh38');
+                let clinvarDirect = await resolveClinVarDirect(clinvarQuery, (build as GenomeBuild) || 'GRCh38');
+                if (!clinvarDirect.clinvarSignificance && !clinvarDirect.foundUnclassified && cleanHgvsg && clinvarQuery !== cleanHgvsg) {
+                  const hgvsgResult = await resolveClinVarDirect(cleanHgvsg, (build as GenomeBuild) || 'GRCh38');
+                  if (hgvsgResult.clinvarSignificance || hgvsgResult.foundUnclassified || hgvsgResult.rsId) {
+                    clinvarDirect = hgvsgResult;
+                  }
+                }
                 if (clinvarDirect.clinvarSignificance) enrichmentData.clinvarSignificance = clinvarDirect.clinvarSignificance;
                 if (clinvarDirect.clinvarReview) enrichmentData.clinvarReview = clinvarDirect.clinvarReview;
                 if (clinvarDirect.rcvAccession) enrichmentData.rcvAccession = clinvarDirect.rcvAccession;
@@ -523,6 +544,9 @@ export function useVariantEnrichment(
                 }
                 if (clinvarDirect.proteinChange && !enrichmentData.proteinChange) {
                   enrichmentData.proteinChange = clinvarDirect.proteinChange;
+                }
+                if (clinvarDirect.rsId && !enrichmentData.rsId) {
+                  enrichmentData.rsId = clinvarDirect.rsId;
                 }
 
                 if (clinvarDirect.chromosome && clinvarDirect.position && !enrichmentData.hgvsg) {
@@ -561,25 +585,27 @@ export function useVariantEnrichment(
                   if (enrichmentData.source === 'none') enrichmentData.source = 'clinvar';
                   else if (enrichmentData.source === 'myvariant') enrichmentData.source = 'both';
                 }
-
-                const altAllele = enrichmentData.hgvsg
-                  ? enrichmentData.hgvsg.split('>')[1] || parsed.alt
-                  : parsed.alt;
-                if (enrichmentData.rsId && altAllele) {
-                  try {
-                    setProgress('Fetching ALFA population frequencies...');
-                    const alfaRes = await resolveNcbiAlfa(enrichmentData.rsId, altAllele, performFetch);
-                    if (alfaRes.alfaAf !== undefined) {
-                      enrichmentData.alfaAf = alfaRes.alfaAf;
-                    }
-                  } catch (alfaErr: any) {
-                    if (alfaErr.is429) throw alfaErr;
-                    console.warn('[VariantHandler] ALFA fetch failed:', alfaErr);
-                  }
-                }
               } catch (e: any) {
                 if (e.is429) throw e;
-                console.warn('[VariantHandler] ClinVar/ALFA direct merge skipped:', e);
+                console.warn('[VariantHandler] ClinVar direct resolution skipped:', e);
+              }
+            }
+
+            const altRaw = enrichmentData.hgvsg
+              ? (enrichmentData.hgvsg.split('>')[1] || parsed.alt)
+              : parsed.alt;
+            const altAllele = altRaw ? altRaw.replace(/@(GRCh38|GRCh37)$/, '') : undefined;
+
+            if (enrichmentData.rsId && altAllele) {
+              try {
+                setProgress('Fetching ALFA population frequencies...');
+                const alfaRes = await resolveNcbiAlfa(enrichmentData.rsId, altAllele, performFetch);
+                if (alfaRes.alfaAf !== undefined) {
+                  enrichmentData.alfaAf = alfaRes.alfaAf;
+                }
+              } catch (alfaErr: any) {
+                if (alfaErr.is429) throw alfaErr;
+                console.warn('[VariantHandler] ALFA fetch failed:', alfaErr);
               }
             }
 

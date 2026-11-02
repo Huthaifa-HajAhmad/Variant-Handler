@@ -46,7 +46,8 @@ export async function resolveNcbiAlfa(
         return { alfaAf: dbgap.allele_count / dbgap.total_count };
       }
     }
-  } catch (err) {
+  } catch (err: any) {
+    if (err?.is429) throw err;
     console.warn('[VariantHandler] ALFA live resolution failed:', err);
   }
 

@@ -52,4 +52,12 @@ describe('resolveNcbiAlfa', () => {
     const res = await resolveNcbiAlfa('rs1801133', 'A', fetchMock);
     expect(res).toEqual({});
   });
+
+  it('rethrows 429 rate limit errors so the caller can backoff', async () => {
+    const err429: any = new Error('Too many requests');
+    err429.is429 = true;
+    err429.retryAfter = 10;
+    const fetchMock = vi.fn().mockRejectedValue(err429);
+    await expect(resolveNcbiAlfa('rs1801133', 'A', fetchMock)).rejects.toThrow('Too many requests');
+  });
 });

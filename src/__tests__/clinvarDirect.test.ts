@@ -7,7 +7,7 @@
  * both GRCh38 + GRCh37 coords (ref/alt empty), variation_xrefs[] with dbSNP.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { searchClinVarByHgvs, fetchClinVarSummary, resolveClinVarDirect } from '../lib/clinvarDirect';
+import { searchClinVarByHgvs, searchClinVarByRsId, fetchClinVarSummary, resolveClinVarDirect } from '../lib/clinvarDirect';
 
 // Recorded-ish esummary fixture (CFTR c.1521_1523del, delta-F508-like)
 const ESEARCH_RESPONSE = { esearchresult: { idlist: ['169304'] } };
@@ -168,5 +168,56 @@ describe('resolveClinVarDirect', () => {
     });
     const result = await resolveClinVarDirect('NM_999999.9:c.1A>T', 'GRCh38');
     expect(result).toEqual({});
+  });
+
+  it('resolves ClinVar directly when queried by rsID', async () => {
+    sendMessageMock
+      .mockImplementationOnce((_msg: any, _cb: any) => _cb({ success: true, data: ESEARCH_RESPONSE }))
+      .mockImplementationOnce((_msg: any, _cb: any) => _cb({ success: true, data: ESUMMARY_RESPONSE }));
+    const result = await resolveClinVarDirect('rs113993960', 'GRCh38');
+    expect(result.clinvarSignificance).toBe('Pathogenic');
+    expect(result.rsId).toBe('rs113993960');
+    const calledUrl = sendMessageMock.mock.calls[0][0].url as string;
+    expect(calledUrl).toContain('esearch.fcgi');
+    expect(calledUrl).toContain(encodeURIComponent('"rs113993960"'));
+  });
+
+  it('resolves ClinVar directly when queried by HGVSg', async () => {
+    sendMessageMock
+      .mockImplementationOnce((_msg: any, _cb: any) => _cb({ success: true, data: ESEARCH_RESPONSE }))
+      .mockImplementationOnce((_msg: any, _cb: any) => _cb({ success: true, data: ESUMMARY_RESPONSE }));
+    const result = await resolveClinVarDirect('chr7:g.140753336A>T', 'GRCh38');
+    expect(result.clinvarSignificance).toBe('Pathogenic');
+    const calledUrl = sendMessageMock.mock.calls[0][0].url as string;
+    expect(calledUrl).toContain('esearch.fcgi');
+    expect(calledUrl).toContain(encodeURIComponent('"chr7:g.140753336A>T"'));
+  });
+});
+
+describe('searchClinVarByRsId', () => {
+  it('searches ClinVar using quoted rsID and returns uid', async () => {
+    sendMessageMock.mockImplementation((_msg: any, _cb: any) => {
+      _cb({ success: true, data: ESEARCH_RESPONSE });
+    });
+    const id = await searchClinVarByRsId('rs113993960');
+    expect(id).toBe('169304');
+    const calledUrl = sendMessageMock.mock.calls[0][0].url as string;
+    expect(calledUrl).toContain('term=' + encodeURIComponent('"rs113993960"'));
+  });
+
+  it('handles numeric rsID by prepending rs', async () => {
+    sendMessageMock.mockImplementation((_msg: any, _cb: any) => {
+      _cb({ success: true, data: ESEARCH_RESPONSE });
+    });
+    const id = await searchClinVarByRsId('113993960');
+    expect(id).toBe('169304');
+    const calledUrl = sendMessageMock.mock.calls[0][0].url as string;
+    expect(calledUrl).toContain('term=' + encodeURIComponent('"rs113993960"'));
+  });
+
+  it('returns null for invalid rsID format', async () => {
+    const id = await searchClinVarByRsId('notAnRsId');
+    expect(id).toBeNull();
+    expect(sendMessageMock).not.toHaveBeenCalled();
   });
 });

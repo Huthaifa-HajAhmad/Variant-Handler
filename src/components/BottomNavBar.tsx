@@ -29,6 +29,7 @@ export default function BottomNavBar({
   return (
     <nav
       id="bottom-navigation-bar"
+      role="tablist"
       aria-label="Main Navigation"
       className={`sticky bottom-0 w-full shrink-0 h-15 border-t z-40 px-2 transition-colors ${
         isLight
@@ -45,6 +46,9 @@ export default function BottomNavBar({
               key={id}
               id={`nav-tab-${id}`}
               type="button"
+              role="tab"
+              aria-selected={isActive}
+              aria-label={label}
               onClick={() => onSelectTab(id)}
               className="flex flex-col items-center justify-center h-full py-1 relative cursor-pointer select-none transition-all duration-150 group active:scale-95"
             >

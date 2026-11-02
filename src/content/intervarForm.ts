@@ -40,12 +40,13 @@ export function fillIntervarForm(
   };
 
   const wantedHg = genomeBuild === 'GRCh37' ? hgBuild('GRCh37') : hgBuild('GRCh38');
-  const chrom = coordinates.chromosome.toUpperCase();
+  const stripChr = (s: string) => s.trim().replace(/^chr/i, '').toUpperCase();
+  const chrom = stripChr(coordinates.chromosome);
 
   setSelect('build', (value, label) =>
     value.toLowerCase().startsWith(wantedHg) || label.toLowerCase().startsWith(wantedHg));
   setSelect('chr', (value, label) =>
-    value.toUpperCase() === chrom || label.toUpperCase() === chrom);
+    stripChr(value) === chrom || stripChr(label) === chrom);
   setInput('pos', coordinates.position);
   setInput('ref', coordinates.ref);
   setInput('alt', coordinates.alt);

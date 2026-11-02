@@ -95,14 +95,53 @@ async function fetchViaBackground(url: string): Promise<any> {
 }
 
 /**
+ * Search ClinVar for a variant by dbSNP rsID (e.g. "rs121913529" or "121913529").
+ * Returns the first ClinVar variation ID (VCV uid), or null if no match.
+ */
+export async function searchClinVarByRsId(rsId: string): Promise<string | null> {
+  const clean = rsId.trim().toLowerCase();
+  const rsWithPrefix = clean.startsWith('rs') ? clean : `rs${clean}`;
+  if (!/^rs\d+$/i.test(rsWithPrefix)) return null;
+
+  // Try 1: Exact quoted rsID term
+  const term = `"${rsWithPrefix}"`;
+  const url = `${EUTILS_BASE}/esearch.fcgi?db=clinvar&term=${encodeURIComponent(term)}&retmode=json&retmax=1`;
+  try {
+    const data = await fetchViaBackground(url);
+    const ids = data?.esearchresult?.idlist;
+    if (Array.isArray(ids) && ids.length > 0) return String(ids[0]);
+  } catch (err: any) {
+    if (err?.is429) throw err;
+    console.warn('[VariantHandler] ClinVar exact rsID search failed:', err);
+  }
+
+  // Try 2: Unquoted rsID term fallback
+  const fallbackUrl = `${EUTILS_BASE}/esearch.fcgi?db=clinvar&term=${encodeURIComponent(rsWithPrefix)}&retmode=json&retmax=1`;
+  try {
+    const data = await fetchViaBackground(fallbackUrl);
+    const ids = data?.esearchresult?.idlist;
+    if (Array.isArray(ids) && ids.length > 0) return String(ids[0]);
+  } catch (err: any) {
+    if (err?.is429) throw err;
+    console.warn('[VariantHandler] ClinVar fallback rsID search failed:', err);
+  }
+
+  return null;
+}
+
+/**
  * Search ClinVar for a variant by HGVS notation. Returns the first ClinVar
  * variation ID (VCV uid), or null if no match.
  */
 export async function searchClinVarByHgvs(hgvs: string): Promise<string | null> {
-  const colonIdx = hgvs.indexOf(':');
+  const clean = hgvs.trim();
+  if (/^rs\d+$/i.test(clean)) {
+    return searchClinVarByRsId(clean);
+  }
+  const colonIdx = clean.indexOf(':');
   if (colonIdx < 0) return null;
-  const accession = hgvs.slice(0, colonIdx).trim();
-  const change = hgvs.slice(colonIdx + 1).trim();
+  const accession = clean.slice(0, colonIdx).trim();
+  const change = clean.slice(colonIdx + 1).trim();
   if (!accession || !change) return null;
 
   // Try 1: Exact quoted accession:change term (most specific)
@@ -112,20 +151,37 @@ export async function searchClinVarByHgvs(hgvs: string): Promise<string | null> 
     const data = await fetchViaBackground(url);
     const ids = data?.esearchresult?.idlist;
     if (Array.isArray(ids) && ids.length > 0) return String(ids[0]);
-  } catch (err) {
+  } catch (err: any) {
+    if (err?.is429) throw err;
     console.warn('[VariantHandler] ClinVar exact HGVS search failed:', err);
   }
 
-  // Try 2: Fallback to "Accession" AND "change"
-  const changeWithoutPrefix = change.replace(/^[cp]\./i, '');
+  // Try 2: Fallback to "Accession" AND "change" (strip c., p., or g. prefix)
+  const changeWithoutPrefix = change.replace(/^[cpg]\./i, '');
   const fallbackTerm = `"${accession}" AND "${changeWithoutPrefix}"`;
   const fallbackUrl = `${EUTILS_BASE}/esearch.fcgi?db=clinvar&term=${encodeURIComponent(fallbackTerm)}&retmode=json&retmax=1`;
   try {
     const data = await fetchViaBackground(fallbackUrl);
     const ids = data?.esearchresult?.idlist;
     if (Array.isArray(ids) && ids.length > 0) return String(ids[0]);
-  } catch (err) {
+  } catch (err: any) {
+    if (err?.is429) throw err;
     console.warn('[VariantHandler] ClinVar fallback HGVS search failed:', err);
+  }
+
+  // Try 3: If accession has chr prefix (e.g. "chr7"), try stripped chromosome "7"
+  if (/^chr/i.test(accession)) {
+    const chrom = accession.replace(/^chr/i, '');
+    const chromTerm = `"${chrom}:${change}"`;
+    const chromUrl = `${EUTILS_BASE}/esearch.fcgi?db=clinvar&term=${encodeURIComponent(chromTerm)}&retmode=json&retmax=1`;
+    try {
+      const data = await fetchViaBackground(chromUrl);
+      const ids = data?.esearchresult?.idlist;
+      if (Array.isArray(ids) && ids.length > 0) return String(ids[0]);
+    } catch (err: any) {
+      if (err?.is429) throw err;
+      console.warn('[VariantHandler] ClinVar chrom HGVS search failed:', err);
+    }
   }
 
   return null;
@@ -208,11 +264,17 @@ export async function fetchClinVarSummary(vcvId: string, build: GenomeBuild): Pr
 }
 
 /**
- * One-shot helper: search by HGVS then fetch the summary.
+ * One-shot helper: search by HGVS, HGVSg, or rsID then fetch the summary.
  */
-export async function resolveClinVarDirect(hgvs: string, build: GenomeBuild): Promise<ClinVarDirectResult> {
+export async function resolveClinVarDirect(query: string, build: GenomeBuild): Promise<ClinVarDirectResult> {
   try {
-    const vcvId = await searchClinVarByHgvs(hgvs);
+    const clean = query.trim();
+    let vcvId: string | null = null;
+    if (/^rs\d+$/i.test(clean)) {
+      vcvId = await searchClinVarByRsId(clean);
+    } else {
+      vcvId = await searchClinVarByHgvs(clean);
+    }
     if (!vcvId) return {};
     return await fetchClinVarSummary(vcvId, build);
   } catch (err: any) {
