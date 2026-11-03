@@ -156,9 +156,13 @@ export async function searchClinVarByHgvs(hgvs: string): Promise<string | null> 
     console.warn('[VariantHandler] ClinVar exact HGVS search failed:', err);
   }
 
-  // Try 2: Fallback to "Accession" AND "change" (strip c., p., or g. prefix)
+  // Try 2: Fallback to "Accession" AND "change" (strip c., p., or g. prefix), combined with stripped-chr if applicable
   const changeWithoutPrefix = change.replace(/^[cpg]\./i, '');
-  const fallbackTerm = `"${accession}" AND "${changeWithoutPrefix}"`;
+  let fallbackTerm = `"${accession}" AND "${changeWithoutPrefix}"`;
+  if (/^chr/i.test(accession)) {
+    const chrom = accession.replace(/^chr/i, '');
+    fallbackTerm = `(${fallbackTerm}) OR "${chrom}:${change}"`;
+  }
   const fallbackUrl = `${EUTILS_BASE}/esearch.fcgi?db=clinvar&term=${encodeURIComponent(fallbackTerm)}&retmode=json&retmax=1`;
   try {
     const data = await fetchViaBackground(fallbackUrl);
@@ -167,21 +171,6 @@ export async function searchClinVarByHgvs(hgvs: string): Promise<string | null> 
   } catch (err: any) {
     if (err?.is429) throw err;
     console.warn('[VariantHandler] ClinVar fallback HGVS search failed:', err);
-  }
-
-  // Try 3: If accession has chr prefix (e.g. "chr7"), try stripped chromosome "7"
-  if (/^chr/i.test(accession)) {
-    const chrom = accession.replace(/^chr/i, '');
-    const chromTerm = `"${chrom}:${change}"`;
-    const chromUrl = `${EUTILS_BASE}/esearch.fcgi?db=clinvar&term=${encodeURIComponent(chromTerm)}&retmode=json&retmax=1`;
-    try {
-      const data = await fetchViaBackground(chromUrl);
-      const ids = data?.esearchresult?.idlist;
-      if (Array.isArray(ids) && ids.length > 0) return String(ids[0]);
-    } catch (err: any) {
-      if (err?.is429) throw err;
-      console.warn('[VariantHandler] ClinVar chrom HGVS search failed:', err);
-    }
   }
 
   return null;
@@ -201,11 +190,11 @@ export async function fetchClinVarSummary(vcvId: string, build: GenomeBuild): Pr
 
   // Extract c. coding change and p. protein alteration from title if present
   if (typeof rec.title === 'string' && rec.title) {
-    const cMatch = rec.title.match(/:(c\.[0-9+-_*]+(?:delins|del|ins|dup|inv|>)[A-Za-z0-9_]*)/i);
+    const cMatch = rec.title.match(/:(c\.[0-9A-Za-z+_*\-]+(?:delins|del|ins|dup|inv|>)[A-Za-z0-9_]*)/i);
     if (cMatch) {
       result.codingChange = cMatch[1];
     }
-    const pMatch = rec.title.match(/\((p\.[A-Za-z0-9_]+)\)/i);
+    const pMatch = rec.title.match(/\((p\.[A-Za-z0-9_*?]+)\)/i);
     if (pMatch) {
       result.proteinChange = pMatch[1];
     }

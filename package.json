@@ -2,7 +2,7 @@
   "name": "variant-handler",
   "description": "A persistent genomics annotation sidepanel assisting clinical scientists and molecular pathologists.",
   "private": true,
-  "version": "1.9.0",
+  "version": "2.0.0",
   "type": "module",
   "author": "Huthaifa Haj Ahmad",
   "license": "MIT",
@@ -32,7 +32,7 @@
     "test:watch": "vitest",
     "test:ui": "vitest --ui",
     "test:e2e": "playwright test",
-    "package": "npm run build && node -e \"const cp=require('child_process'),fs=require('fs'); if(!fs.existsSync('release')) fs.mkdirSync('release'); cp.execSync('tar -a -cf release/variant-handler-v1.9.0.zip -C dist .'); console.log('Packaged release/variant-handler-v1.9.0.zip');\""
+    "package": "npm run build && node -e \"const cp=require('child_process'),fs=require('fs'); if(!fs.existsSync('release')) fs.mkdirSync('release'); cp.execSync('tar -a -cf release/variant-handler-v2.0.0.zip -C dist .'); console.log('Packaged release/variant-handler-v2.0.0.zip');\""
   },
   "dependencies": {
     "lucide-react": "^0.546.0",

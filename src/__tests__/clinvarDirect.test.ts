@@ -150,6 +150,26 @@ describe('fetchClinVarSummary', () => {
     expect(result.foundUnclassified).toBe(true);
     expect(result.clinvarSignificance).toBeUndefined();
   });
+
+  it('correctly extracts c. coding change and p. nonsense variants with asterisk stop codons', async () => {
+    sendMessageMock.mockImplementation((_msg: any, _cb: any) => {
+      _cb({
+        success: true,
+        data: {
+          result: {
+            '999': {
+              title: 'NM_000277.3(PAH):c.1222C>T (p.Arg408*)',
+              germline_classification: { description: 'Pathogenic' },
+              variation_set: [{ variation_xrefs: [], variation_loc: [] }],
+            },
+          },
+        },
+      });
+    });
+    const result = await fetchClinVarSummary('999', 'GRCh38');
+    expect(result.codingChange).toBe('c.1222C>T');
+    expect(result.proteinChange).toBe('p.Arg408*');
+  });
 });
 
 describe('resolveClinVarDirect', () => {

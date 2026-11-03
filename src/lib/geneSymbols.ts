@@ -69,6 +69,34 @@ export function lookupGeneSymbol(transcript: string): string | null {
   return TRANSCRIPT_TO_GENE[base] ?? null;
 }
 
+const UNIQUE_KNOWN_GENES = Array.from(new Set(Object.values(TRANSCRIPT_TO_GENE)))
+  .map((g) => g.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
+  .sort((a, b) => b.length - a.length);
+
+// Custom token boundary that treats '-' and '_' as identifier characters
+// to avoid false-positive sub-matches on hyphenated names or compound terms
+const KNOWN_GENE_ALT_REGEX = new RegExp(`(?<![A-Za-z0-9_-])(${UNIQUE_KNOWN_GENES.join('|')})(?![A-Za-z0-9_-])`, 'gi');
+
+/**
+ * Finds the first curated HGNC gene symbol appearing as a whole token in `text`
+ * using a single pre-compiled alternation regex instead of compiling ~60
+ * RegExp objects on every parse call.
+ */
+export function findKnownGeneInText(text: string): string | undefined {
+  KNOWN_GENE_ALT_REGEX.lastIndex = 0;
+  let match: RegExpExecArray | null;
+  while ((match = KNOWN_GENE_ALT_REGEX.exec(text)) !== null) {
+    const raw = match[1];
+    const upper = raw.toUpperCase();
+    // Guard against clinical notation false positives: "mut" is standard oncology shorthand for "mutation"
+    if (upper === 'MUT' && raw !== 'MUT') {
+      continue;
+    }
+    return upper;
+  }
+  return undefined;
+}
+
 export const GENE_TO_DEFAULT_TRANSCRIPT: Record<string, string> = {
   PAH: 'NM_000277.3',
   BRCA1: 'NM_007294.4',

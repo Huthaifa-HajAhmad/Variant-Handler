@@ -143,7 +143,7 @@ export function useSidepanelStateSync({
         snapshotAt: enrichment.fetchedAt,
       },
     });
-  }, [enrichment, activeInput, batchQueue, upsertItem]);
+  }, [batchQueue, enrichment, activeInput, upsertItem]);
 
   // 5. Clear on unmount cleanup if toggle enabled
   useEffect(() => {

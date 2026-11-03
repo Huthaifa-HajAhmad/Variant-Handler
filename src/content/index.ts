@@ -51,40 +51,54 @@ function findAssociatedInput(labelEl: HTMLElement): HTMLInputElement | null {
     const forId = labelEl.getAttribute('for');
     if (forId) {
       const input = document.getElementById(forId) as HTMLInputElement | null;
-      if (input) return input;
+      if (input && isTextEntryInput(input)) return input;
     }
   }
   
   const nested = labelEl.querySelector('input');
-  if (nested) return nested as HTMLInputElement;
+  if (nested && isTextEntryInput(nested as HTMLInputElement)) return nested as HTMLInputElement;
   
-  let parent = labelEl.parentElement;
-  while (parent) {
-    const input = parent.querySelector('input[type="text"], input[type="search"]');
-    if (input) return input as HTMLInputElement;
-    parent = parent.parentElement;
+  // Search within closest container (form-group, row, fieldset, or parent) to avoid grabbing distant inputs
+  const container = labelEl.closest('.form-group, .form-row, .row, tr, fieldset, td') || labelEl.parentElement;
+  if (container) {
+    const inputs = Array.from(container.querySelectorAll('input')) as HTMLInputElement[];
+    const match = inputs.find((inp) => isTextEntryInput(inp) && isElementVisible(inp));
+    if (match) return match;
   }
   return null;
 }
 
 function findClinVarInputs(): { variant?: HTMLInputElement, gene?: HTMLInputElement, location?: HTMLInputElement } {
   const inputs: { variant?: HTMLInputElement, gene?: HTMLInputElement, location?: HTMLInputElement } = {};
-  const elements = Array.from(document.querySelectorAll('label, span, div, legend')) as HTMLElement[];
-  
-  for (const el of elements) {
-    const text = (el.textContent ?? '').trim();
-    if (text.length > 40) continue;
+  if (!hostIs(window.location.hostname, 'ncbi.nlm.nih.gov')) {
+    return inputs;
+  }
 
-    if (/^(Variant|Variant\s*ID|Variant\s*Name|Allele|Variant\s*Description|HGVS)\s*:?\s*\??$/i.test(text)) {
-      const input = findAssociatedInput(el);
-      if (input) inputs.variant = input;
-    } else if (/^(Gene|Gene\s*Symbol|Gene\s*Name|Gene\(s\))\s*:?\s*\??$/i.test(text)) {
-      const input = findAssociatedInput(el);
-      if (input) inputs.gene = input;
-    } else if (/^(Genomic\s*Location|Location|Coordinates|Genomic\s*Coordinates)\s*:?\s*\??$/i.test(text)) {
-      const input = findAssociatedInput(el);
-      if (input) inputs.location = input;
+  // Prefer lightweight semantic label/legend elements first before scanning broader DOM nodes
+  const primaryElements = Array.from(document.querySelectorAll('label, legend')) as HTMLElement[];
+  const scanElements = (elements: HTMLElement[]) => {
+    for (const el of elements) {
+      if (el.children.length > 3) continue;
+      const text = (el.textContent ?? '').trim();
+      if (!text || text.length > 40) continue;
+
+      if (!inputs.variant && /^(Variant|Variant\s*ID|Variant\s*Name|Allele|Variant\s*Description|HGVS)[\s*:?*]*$/i.test(text)) {
+        const input = findAssociatedInput(el);
+        if (input) inputs.variant = input;
+      } else if (!inputs.gene && /^(Gene|Gene\s*Symbol|Gene\s*Name|Gene\(s\)|Gene\s*\(HGNC\))[\s*:?*]*$/i.test(text)) {
+        const input = findAssociatedInput(el);
+        if (input) inputs.gene = input;
+      } else if (!inputs.location && /^(Genomic\s*Location|Location|Coordinates|Genomic\s*Coordinates)[\s*:?*]*$/i.test(text)) {
+        const input = findAssociatedInput(el);
+        if (input) inputs.location = input;
+      }
     }
+  };
+
+  scanElements(primaryElements);
+  if (!inputs.variant || !inputs.gene) {
+    const secondaryElements = Array.from(document.querySelectorAll('form span, form div')) as HTMLElement[];
+    scanElements(secondaryElements);
   }
   return inputs;
 }

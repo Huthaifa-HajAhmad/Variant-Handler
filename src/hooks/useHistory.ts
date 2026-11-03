@@ -59,14 +59,21 @@ export function useHistory(defaultItems: string[] = []) {
     });
   }, []);
 
+  const cancelHistoryDebounce = useCallback(() => {
+    if (debounceTimer.current) {
+      clearTimeout(debounceTimer.current);
+      debounceTimer.current = null;
+    }
+  }, []);
+
   /**
     * Queue an input for history recording.  The write is debounced and
     * only fires when the variant parsed successfully.
     */
   const addToHistory = useCallback((input: string, isValid = true) => {
+    cancelHistoryDebounce();
     if (!input.trim() || !isValid) return;
 
-    if (debounceTimer.current) clearTimeout(debounceTimer.current);
     debounceTimer.current = setTimeout(() => {
       setHistory((prev) => {
         const clean = input.trim();
@@ -76,7 +83,7 @@ export function useHistory(defaultItems: string[] = []) {
         return updated;
       });
     }, DEBOUNCE_MS);
-  }, [cap]);
+  }, [cap, cancelHistoryDebounce]);
 
   const removeFromHistory = useCallback((item: string) => {
     setHistory((prev) => {
@@ -98,6 +105,6 @@ export function useHistory(defaultItems: string[] = []) {
     localStorage.removeItem(STORAGE_KEY);
   }, []);
 
-  return { history, addToHistory, removeFromHistory, clearHistory, cap, setHistoryCap, HISTORY_CAP_OPTIONS };
+  return { history, addToHistory, removeFromHistory, clearHistory, cancelHistoryDebounce, cap, setHistoryCap, HISTORY_CAP_OPTIONS };
 }
 

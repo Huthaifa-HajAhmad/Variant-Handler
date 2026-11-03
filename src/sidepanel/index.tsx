@@ -190,15 +190,11 @@ export default function SidepanelView() {
     },
   });
 
-  // History sync
+  // History sync (useHistory already debounces at 600 ms)
   useEffect(() => {
-    if (!activeInput.trim()) return;
-    const timer = setTimeout(() => {
-      if (parsed.isValid) {
-        addToHistory(activeInput.trim(), parsed.isValid);
-      }
-    }, 600);
-    return () => clearTimeout(timer);
+    const trimmed = activeInput.trim();
+    if (!trimmed || !parsed.isValid) return;
+    addToHistory(trimmed, parsed.isValid);
   }, [activeInput, parsed.isValid, addToHistory]);
 
   const parsedHistoryItems = useMemo(
@@ -208,8 +204,8 @@ export default function SidepanelView() {
 
   const platformUrls = useMemo(() => {
     return INITIAL_PLATFORMS.map((platform) => {
-      let reason = getMissingDataReason(parsed, platform, enrichment);
-      const url = reason ? null : buildPlatformUrl(parsed, platform, genomeBuild, enrichment);
+      const url = buildPlatformUrl(parsed, platform, genomeBuild, enrichment);
+      let reason = url ? null : getMissingDataReason(parsed, platform, enrichment);
       // A builder can still decline (e.g. Open Targets is GRCh38-only for
       // coordinates). Derive a reason so the UI can explain and offer actions.
       if (!url && !reason) {
@@ -286,10 +282,14 @@ export default function SidepanelView() {
     (text: string) => {
       if (lookupInstantly) {
         const nextParsed = parseVariant(text);
-        lookupInstantly(nextParsed, genomeBuild);
+        const effectiveBuild = nextParsed.genomeBuild ?? genomeBuild;
+        if (nextParsed.genomeBuild && nextParsed.genomeBuild !== genomeBuild) {
+          onGenomeBuildChange(nextParsed.genomeBuild);
+        }
+        lookupInstantly(nextParsed, effectiveBuild);
       }
     },
-    [lookupInstantly, genomeBuild]
+    [lookupInstantly, genomeBuild, onGenomeBuildChange]
   );
 
   const handleCopyValue = async (text: string, id: string) => {
@@ -356,6 +356,7 @@ export default function SidepanelView() {
             onDismiss={clearAlertMessage}
             onSelectSuggestion={(sug) => {
               setActiveInput(sug);
+              handleInstantLookup(sug);
               clearAlertMessage();
             }}
             onGenomeBuildChange={onGenomeBuildChange}
@@ -391,6 +392,7 @@ export default function SidepanelView() {
             onDismissAlert={clearAlertMessage}
             onSelectSuggestion={(sug) => {
               setActiveInput(sug);
+              handleInstantLookup(sug);
               clearAlertMessage();
             }}
           />
@@ -460,6 +462,7 @@ export default function SidepanelView() {
                   activeInput={activeInput}
                   setActiveInput={(val) => {
                     setActiveInput(val);
+                    handleInstantLookup(val);
                     setActiveNavTab('workbench');
                   }}
                   removeFromHistory={removeFromHistory}

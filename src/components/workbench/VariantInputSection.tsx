@@ -90,10 +90,24 @@ export default function VariantInputSection({
           aria-label="Genomic variant coordinate or HGVS notation"
           value={activeInput}
           onChange={(e) => setActiveInput(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.nativeEvent.isComposing || e.shiftKey || e.altKey || e.ctrlKey || e.metaKey) return;
+            if (e.key === 'Enter' && activeInput.trim() && onInstantLookup) {
+              e.preventDefault();
+              onInstantLookup(activeInput.trim());
+            }
+          }}
           onPaste={(e) => {
             const text = e.clipboardData.getData('text');
             if (text && onInstantLookup) {
-              onInstantLookup(text.trim());
+              const inputEl = e.currentTarget;
+              const start = inputEl.selectionStart ?? activeInput.length;
+              const end = inputEl.selectionEnd ?? activeInput.length;
+              const spliced = activeInput.slice(0, start) + text + activeInput.slice(end);
+              const nextValue = spliced.slice(0, 500).trim();
+              if (nextValue) {
+                onInstantLookup(nextValue);
+              }
             }
           }}
           placeholder="Enter coordinates or HGVS (e.g. chr7:g.140753336A>T)..."

@@ -3,7 +3,7 @@
  * Single source of truth for all frontend UI components and badge notifications.
  */
 
-export const APP_VERSION = '1.9.0';
+export const APP_VERSION = '2.0.0';
 
 /**
  * Version-scoped localStorage key so every release automatically
@@ -24,19 +24,19 @@ export interface ReleaseNote {
 
 export const LATEST_RELEASE: ReleaseNote = {
   version: APP_VERSION,
-  date: '2026-11-02',
+  date: '2026-11-03',
   highlights: [
     {
-      title: '⚡ 63% Bundle Slimming & Code Splitting',
-      desc: 'Dynamic chunking and React.lazy view isolation reduces initial entry bundle from 418 kB to 153 kB for near-instant sidepanel startup.',
+      title: '⚡ Zero-Latency Hot Cache & Snappy Debounce',
+      desc: 'Synchronous in-memory cache hits render in 0ms without skeleton flashes. Active typing debounce reduced from 800ms to 300ms with instant Enter and Paste triggers.',
     },
     {
-      title: '🛡️ Clinical Hardening & Audit Remediation',
-      desc: 'Liftover-based cross-build validation via Ensembl, assembly-aware query caching, live ClinVar/ALFA genomic queries, and spreadsheet formula injection sanitization.',
+      title: '🔄 Concurrent Multi-Provider Fan-Out & VEP Deduplication',
+      desc: 'Parallelized Step 1 (MyVariant) and Stage 2 (ClinVar, ALFA, VEP, gnomAD v4) with duplicate VEP round-trip elimination, cutting network latency by ~400ms.',
     },
     {
-      title: '♿ WCAG 2.1 AA & Error Boundaries',
-      desc: 'Full keyboard tab navigation, modal focus traps, ARIA attributes, and view-level ErrorBoundaries with diagnostic reload protection.',
+      title: '🛡️ Clinical Parsing Hardening & Resilient Heuristics',
+      desc: 'Pre-compiled 512-entry LRU parser memoization, oncology shorthand "mut" vs genuine MUT gene guards, hyphenated token protection, and RFC 9110 HTTP 429 jittered backoff.',
     },
   ],
 };

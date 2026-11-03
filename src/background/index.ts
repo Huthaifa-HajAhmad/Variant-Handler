@@ -97,8 +97,19 @@ if (typeof chrome !== 'undefined' && chrome.runtime) {
         .then(async (res) => {
           if (res.status === 429) {
             const retryAfterHeader = res.headers.get('Retry-After');
-            const retryAfterVal = retryAfterHeader ? parseInt(retryAfterHeader, 10) : 60;
-            return { is429: true, retryAfter: isNaN(retryAfterVal) ? 60 : retryAfterVal };
+            let retryAfterVal = 10;
+            if (retryAfterHeader) {
+              const parsedSec = parseInt(retryAfterHeader, 10);
+              if (!isNaN(parsedSec)) {
+                retryAfterVal = Math.max(1, parsedSec);
+              } else {
+                const parsedDate = Date.parse(retryAfterHeader);
+                if (!isNaN(parsedDate)) {
+                  retryAfterVal = Math.max(1, Math.ceil((parsedDate - Date.now()) / 1000));
+                }
+              }
+            }
+            return { is429: true, retryAfter: Math.min(Math.max(1, retryAfterVal), 120) };
           }
           if (!res.ok) {
             if (res.status === 404) {

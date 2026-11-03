@@ -10,8 +10,23 @@ import { EnrichmentData } from './types';
 
 export const CACHE_STORAGE_KEY = 'variantstream_enrichment_cache_v10';
 export const CACHE_TTL_MS      = 24 * 60 * 60 * 1000; // 24 hours
-export const DEBOUNCE_MS       = 800;
+export const DEBOUNCE_MS       = 300;
 export const SESSION_CACHE_KEY = 'variantstream_enrichment_cache_v10';
+
+export function isValidCacheEntry(queryKey: string, cached: EnrichmentData | undefined): cached is EnrichmentData {
+  if (!cached) return false;
+  const age = Date.now() - cached.fetchedAt;
+  if (age >= CACHE_TTL_MS) return false;
+  if (cached.enrichmentComplete) return true;
+  const isEmpty =
+    !cached.rsId &&
+    (cached.gnomadAf === undefined || cached.gnomadAf === null) &&
+    (cached.gnomadV4ExomeAf === undefined || cached.gnomadV4ExomeAf === null) &&
+    (cached.gnomadV4GenomeAf === undefined || cached.gnomadV4GenomeAf === null) &&
+    !cached.clinvarSignificance &&
+    !cached.geneSymbol;
+  return !isEmpty;
+}
 
 // ── In-memory cache (synchronous hot layer) ───────────────────────────────────
 export const memoryCache = new Map<string, EnrichmentData>();
@@ -61,6 +76,10 @@ export const cacheReady: Promise<void> = (async () => {
 
 /** Clear the session cache (used by Settings → Clear all stored data + clear-on-close). */
 export async function clearEnrichmentCache(): Promise<void> {
+  if (persistTimer) {
+    clearTimeout(persistTimer);
+    persistTimer = null;
+  }
   memoryCache.clear();
   if (isSessionStorageAvailable()) {
     try { await chrome.storage.session.remove(SESSION_CACHE_KEY); } catch { /* ignore */ }
@@ -68,7 +87,9 @@ export async function clearEnrichmentCache(): Promise<void> {
   try { localStorage.removeItem(CACHE_STORAGE_KEY); } catch { /* ignore */ }
 }
 
-export function savePersistentCache(map: Map<string, EnrichmentData>): void {
+let persistTimer: ReturnType<typeof setTimeout> | null = null;
+
+function flushPersistentCache(map: Map<string, EnrichmentData>): void {
   const obj: Record<string, EnrichmentData> = {};
   for (const [k, v] of map.entries()) obj[k] = v;
   const serialized = JSON.stringify(obj);
@@ -78,6 +99,29 @@ export function savePersistentCache(map: Map<string, EnrichmentData>): void {
   } else {
     try { localStorage.setItem(CACHE_STORAGE_KEY, serialized); } catch { /* quota */ }
   }
+}
+
+export function savePersistentCache(map: Map<string, EnrichmentData>): void {
+  if (persistTimer) clearTimeout(persistTimer);
+  if (map.size === 0) {
+    flushPersistentCache(map);
+    return;
+  }
+  persistTimer = setTimeout(() => {
+    persistTimer = null;
+    flushPersistentCache(map);
+  }, 250);
+}
+
+// Flush pending writes immediately if the window or sidepanel is closed
+if (typeof window !== 'undefined') {
+  window.addEventListener('pagehide', () => {
+    if (persistTimer) {
+      clearTimeout(persistTimer);
+      persistTimer = null;
+      flushPersistentCache(memoryCache);
+    }
+  });
 }
 
 /**

@@ -6,7 +6,7 @@
  */
 
 import { GenomeBuild, detectGenomeBuild } from '../utils/genomeBuild';
-import { lookupGeneSymbol, TRANSCRIPT_TO_GENE, GENE_TO_DEFAULT_TRANSCRIPT, isCnvGeneSymbol } from './geneSymbols';
+import { lookupGeneSymbol, findKnownGeneInText, TRANSCRIPT_TO_GENE, GENE_TO_DEFAULT_TRANSCRIPT, isCnvGeneSymbol } from './geneSymbols';
 import { PlatformAdapter, INITIAL_PLATFORMS, hasRealAllele, getMissingDataReason, findPlatformForUrl } from './platforms';
 import { buildPlatformUrl } from './urlBuilders';
 
@@ -50,6 +50,20 @@ export function parseGenomicHgvs(str: string): GenomicCoordinate | null {
   return null;
 }
 
+const PARSE_CACHE_MAX = 512;
+const parseVariantCache = new Map<string, ParsedVariant>();
+
+export function _clearParseVariantCache(): void {
+  parseVariantCache.clear();
+}
+
+function cloneParsedVariant(v: ParsedVariant): ParsedVariant {
+  return {
+    ...v,
+    diagnostics: v.diagnostics ? [...v.diagnostics] : [],
+  };
+}
+
 export function parseVariant(input: string): ParsedVariant {
   if (input.length > 100000) {
     return {
@@ -58,6 +72,14 @@ export function parseVariant(input: string): ParsedVariant {
       type: 'unknown',
       diagnostics: [`Input length (${input.length}) exceeds hard limit (100000 characters).`],
     };
+  }
+
+  const cached = parseVariantCache.get(input);
+  if (cached) {
+    // Refresh LRU order
+    parseVariantCache.delete(input);
+    parseVariantCache.set(input, cached);
+    return cloneParsedVariant(cached);
   }
 
   const raw = input.trim();
@@ -321,17 +343,10 @@ export function parseVariant(input: string): ParsedVariant {
     geneSymbol = transcript ? (lookupGeneSymbol(transcript) ?? undefined) : undefined;
   }
   if (!geneSymbol) {
-    const upperRaw = raw.toUpperCase();
-    const foundGene = Object.values(TRANSCRIPT_TO_GENE).find(g => {
-      const regex = new RegExp(`\\b${g}\\b`, 'i');
-      return regex.test(upperRaw);
-    });
-    if (foundGene) {
-      geneSymbol = foundGene;
-    }
+    geneSymbol = findKnownGeneInText(raw);
   }
 
-  return {
+  const result: ParsedVariant = {
     raw, isValid, type, chromosome, position, endPosition, ref, alt,
     transcript, codingChange, proteinChange,
     copyNumberChange,
@@ -342,4 +357,12 @@ export function parseVariant(input: string): ParsedVariant {
     annotationText: annotation?.text,
     diagnostics,
   };
+
+  if (parseVariantCache.size >= PARSE_CACHE_MAX) {
+    const oldestKey = parseVariantCache.keys().next().value;
+    if (oldestKey !== undefined) parseVariantCache.delete(oldestKey);
+  }
+  parseVariantCache.set(input, result);
+
+  return cloneParsedVariant(result);
 }

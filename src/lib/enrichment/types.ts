@@ -36,6 +36,7 @@ export interface EnrichmentData {
   vepError?: string;      // Ensembl VEP mapping warning/error message
   source: 'myvariant' | 'ensembl' | 'clinvar' | 'both' | 'none';
   fetchedAt: number;      // Unix ms — used for 24 h TTL
+  enrichmentComplete?: boolean; // True when pipeline completed cleanly (prevents re-fetching novel/intergenic variants)
 }
 
 export interface UseVariantEnrichmentResult {
@@ -44,7 +45,7 @@ export interface UseVariantEnrichmentResult {
   progress: string | null;
   error: string | null;
   refetch: () => void;
-  lookupInstantly: (targetParsed: ParsedVariant, targetBuild: GenomeBuild) => void;
+  lookupInstantly: (targetParsed: ParsedVariant, targetBuild: GenomeBuild) => Promise<EnrichmentData | undefined>;
 }
 
 export interface InFlightEntry {
