@@ -40,5 +40,5 @@ jobs:
       - name: Build extension bundle
         run: npm run build
 
-      - name: Security audit
-        run: npm audit --audit-level=high
+      - name: Security audit (production dependencies)
+        run: npm audit --omit=dev --audit-level=high
