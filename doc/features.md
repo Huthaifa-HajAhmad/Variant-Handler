@@ -23,6 +23,7 @@ The parser (`src/lib/parser.ts`) is entirely client-side. It accepts a raw strin
 | HGVSg without prefix | `7:g.140753336A>T` | chr=7, pos=140753336, ref=A, alt=T |
 | VCF dash (chrom-pos-ref-alt) | `7-140753336-A-T` | chr=7, pos=140753336, ref=A, alt=T |
 | VCF colon | `12:25245350:C:T` | chr=12, pos=25245350, ref=C, alt=T |
+| Franklin label (chrom-pos + change) | `chr6-32038297 C>T` | chr=6, pos=32038297, ref=C, alt=T |
 | Simple coord+change | `chr12:25245350C>T` | chr=12, pos=25245350, ref=C, alt=T |
 | Coordinate-only (no alleles) | `chr17:43044295` | chr=17, pos=43044295 |
 | NC_ genomic accession (chr1–22) | `NC_000007.14:c.140753336A>T` | chr=7 (inferred from accession) |
@@ -48,6 +49,7 @@ The parser (`src/lib/parser.ts`) is entirely client-side. It accepts a raw strin
 | NR_ non-coding RNA | `NR_024540.1:c.1234A>G` | transcript, codingChange |
 | Intronic variant | `NM_000492.4:c.1585+1G>A` | transcript, codingChange (c.1585+1G>A) |
 | Downstream UTR | `NM_000492.4:c.*3G>A` | transcript, codingChange (c.*3G>A) |
+| 5′ UTR / upstream (Franklin gene form) | `CYP21A2:c.-126C>T` | gene, transcript (backfilled `NM_000500.9`), codingChange (c.-126C>T) |
 | Hybrid (coding + protein) | `NM_000277.3:c.1222C>T(p.Arg408Trp)` | transcript, codingChange, proteinChange, type=hybrid |
 
 **Accepted transcript prefixes:** `ENST`, `NM_`, `NR_`, `NC_`, `XM_`, `XR_`, `NP_`, `LRG_`

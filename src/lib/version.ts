@@ -3,7 +3,7 @@
  * Single source of truth for all frontend UI components and badge notifications.
  */
 
-export const APP_VERSION = '2.0.0';
+export const APP_VERSION = '2.1.0';
 
 /**
  * Version-scoped localStorage key so every release automatically
@@ -24,19 +24,19 @@ export interface ReleaseNote {
 
 export const LATEST_RELEASE: ReleaseNote = {
   version: APP_VERSION,
-  date: '2026-11-03',
+  date: '2026-11-04',
   highlights: [
     {
-      title: '⚡ Zero-Latency Hot Cache & Snappy Debounce',
-      desc: 'Synchronous in-memory cache hits render in 0ms without skeleton flashes. Active typing debounce reduced from 800ms to 300ms with instant Enter and Paste triggers.',
+      title: '🧬 Franklin (Genoox) Notation',
+      desc: 'Paste Franklin genomic labels such as chr6-32038297 C>T directly. Dash or colon chromosome-position separators with a spaced allele change now parse into full coordinates.',
     },
     {
-      title: '🔄 Concurrent Multi-Provider Fan-Out & VEP Deduplication',
-      desc: 'Parallelized Step 1 (MyVariant) and Stage 2 (ClinVar, ALFA, VEP, gnomAD v4) with duplicate VEP round-trip elimination, cutting network latency by ~400ms.',
+      title: '🩺 CYP21A2 / CAH Coverage',
+      desc: 'Gene-qualified coding labels such as CYP21A2:c.-126C>T backfill the NM_000500.9 transcript, unlocking HGVSc-aware platforms and live enrichment.',
     },
     {
-      title: '🛡️ Clinical Parsing Hardening & Resilient Heuristics',
-      desc: 'Pre-compiled 512-entry LRU parser memoization, oncology shorthand "mut" vs genuine MUT gene guards, hyphenated token protection, and RFC 9110 HTTP 429 jittered backoff.',
+      title: '✅ Parser & Build Hardening',
+      desc: 'Added multi-nucleotide and lowercase Franklin coverage, plus a missing type import that blocked the type check. The full 419-test unit suite passes.',
     },
   ],
 };

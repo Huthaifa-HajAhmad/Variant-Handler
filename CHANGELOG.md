@@ -6,6 +6,19 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [2.1.0] — 2026-11-04
+
+### 🚀 New Features & Enhancements
+- **Franklin (Genoox) variant convention** — the parser now accepts Franklin's genomic label form (`chr6-32038297 C>T`), where the chromosome and position are separated by a dash or colon and the allele change follows a space. Gene-qualified coding labels such as `CYP21A2:c.-126C>T` resolve the `CYP21A2` transcript (`NM_000500.9`) so HGVSc-aware platforms and live enrichment can use them.
+- **CYP21A2 gene coverage** — added the `NM_000500.9` ↔ `CYP21A2` mapping to the curated transcript dictionaries, enabling transcript backfill and gene recognition for congenital adrenal hyperplasia variants.
+
+### 🛠️ Correctness & Build Fixes
+- **Missing `InFlightEntry` type import** — `src/hooks/useVariantEnrichment.ts` referenced the type without importing it, which made `npm run lint` (`tsc --noEmit`) fail. The type is now imported alongside the other enrichment types.
+
+### 🧪 Tests
+- Added Franklin-convention coverage for prefixed/unprefixed labels, colon separators, build annotations, trailing-garbage rejection, the Franklin SNP deep link, multi-nucleotide changes, and lowercase alleles.
+- Extended the gene-dictionary consistency test to cover `CYP21A2` (419 unit tests passing).
+
 ## [1.8.0] — 2026-10-24
 
 ### 🚀 New Features & Enhancements

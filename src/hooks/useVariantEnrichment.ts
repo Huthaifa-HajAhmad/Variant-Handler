@@ -15,7 +15,7 @@ import { resolveClinVarDirect } from '../lib/clinvarDirect';
 import { resolveGnomadV4 } from '../lib/ucscGnomad';
 import { resolveNcbiAlfa } from '../lib/ncbiAlfa';
 
-import { EnrichmentData, UseVariantEnrichmentResult } from '../lib/enrichment/types';
+import { EnrichmentData, UseVariantEnrichmentResult, InFlightEntry } from '../lib/enrichment/types';
 import {
   memoryCache,
   cacheReady,

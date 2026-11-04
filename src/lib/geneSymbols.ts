@@ -29,6 +29,7 @@ export const TRANSCRIPT_TO_GENE: Record<string, string> = {
   NM_000251: 'MSH2',
   // Inborn errors of metabolism & pediatric clinical genetics
   NM_015506: 'MMACHC',
+  NM_000500: 'CYP21A2',
   NM_000255: 'MUT',
   NM_000282: 'PCCA',
   NM_000532: 'PCCB',
@@ -120,6 +121,7 @@ export const GENE_TO_DEFAULT_TRANSCRIPT: Record<string, string> = {
   MSH2: 'NM_000251.3',
   // Inborn errors of metabolism & pediatric clinical genetics
   MMACHC: 'NM_015506.3',
+  CYP21A2: 'NM_000500.9',
   MUT: 'NM_000255.4',
   PCCA: 'NM_000282.4',
   PCCB: 'NM_000532.5',

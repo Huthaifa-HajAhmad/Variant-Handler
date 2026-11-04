@@ -290,6 +290,74 @@ describe('parseVariant — Genomic Coordinate Formats', () => {
   });
 });
 
+// ── parseVariant — Franklin (Genoox) notation ────────────────────────────────
+
+describe('parseVariant — Franklin (Genoox) convention', () => {
+  it('parses a Franklin genomic label (chr6-32038297 C>T)', () => {
+    const r = parseVariant('chr6-32038297 C>T');
+    expect(r.isValid).toBe(true);
+    expect(r.type).toBe('genomic');
+    expect(r.chromosome).toBe('6');
+    expect(r.position).toBe('32038297');
+    expect(r.ref).toBe('C');
+    expect(r.alt).toBe('T');
+  });
+
+  it('accepts the same label without the chr prefix and with a colon separator', () => {
+    const noPrefix = parseVariant('6-32038297 C>T');
+    expect(noPrefix.isValid).toBe(true);
+    expect(noPrefix.chromosome).toBe('6');
+
+    const colon = parseVariant('chr6:32038297 C>T');
+    expect(colon.isValid).toBe(true);
+    expect(colon.chromosome).toBe('6');
+    expect(colon.position).toBe('32038297');
+  });
+
+  it('accepts a trailing build annotation on a Franklin genomic label', () => {
+    const r = parseVariant('chr6-32038297 C>T (GRCh38)');
+    expect(r.isValid).toBe(true);
+    expect(r.chromosome).toBe('6');
+    expect(r.position).toBe('32038297');
+    expect(r.ref).toBe('C');
+    expect(r.alt).toBe('T');
+    expect(r.genomeBuild).toBe('GRCh38');
+  });
+
+  it('parses a Franklin gene:c. label and backfills the CYP21A2 transcript', () => {
+    const r = parseVariant('CYP21A2:c.-126C>T');
+    expect(r.isValid).toBe(true);
+    expect(r.type).toBe('coding');
+    expect(r.geneSymbol).toBe('CYP21A2');
+    expect(r.transcript).toBe('NM_000500.9');
+    expect(r.codingChange).toBe('c.-126C>T');
+  });
+
+  it('builds the Franklin SNP URL for a Franklin genomic label', () => {
+    const franklin = INITIAL_PLATFORMS.find((p) => p.id === 'franklin')!;
+    const r = parseVariant('chr6-32038297 C>T');
+    expect(buildPlatformUrl(r, franklin, 'GRCh38')).toBe(
+      'https://franklin.genoox.com/clinical-db/variant/snp/chr6-32038297-C-T?hg=38',
+    );
+  });
+
+  it('does not match a Franklin label with trailing garbage', () => {
+    expect(parseVariant('chr6-32038297 C>T extra').isValid).toBe(false);
+  });
+
+  it('accepts multi-nucleotide and lowercase changes in Franklin notation', () => {
+    const mnv = parseVariant('chr6-32038297 AG>A');
+    expect(mnv.isValid).toBe(true);
+    expect(mnv.ref).toBe('AG');
+    expect(mnv.alt).toBe('A');
+
+    const lower = parseVariant('chr6-32038297 c>t');
+    expect(lower.isValid).toBe(true);
+    expect(lower.ref).toBe('C');
+    expect(lower.alt).toBe('T');
+  });
+});
+
 // ── parseVariant — Coding Transcript Formats (HGVS) ──────────────────────────
 
 describe('parseVariant — Coding Transcript Formats (HGVS)', () => {

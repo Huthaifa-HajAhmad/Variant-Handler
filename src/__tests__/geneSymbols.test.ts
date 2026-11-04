@@ -23,7 +23,7 @@ describe('Expanded L1 Gene & MANE Select Dictionary', () => {
   });
 
   it('includes key ACMG SF v3.2 and clinical diagnostic metabolic genes in L1', () => {
-    const clinicalGenes = ['MMACHC', 'MUT', 'PCCA', 'PCCB', 'OTC', 'MYH7', 'KCNQ1', 'LDLR'];
+    const clinicalGenes = ['MMACHC', 'CYP21A2', 'MUT', 'PCCA', 'PCCB', 'OTC', 'MYH7', 'KCNQ1', 'LDLR'];
     for (const gene of clinicalGenes) {
       expect(GENE_TO_DEFAULT_TRANSCRIPT[gene]).toBeDefined();
       const tx = GENE_TO_DEFAULT_TRANSCRIPT[gene];

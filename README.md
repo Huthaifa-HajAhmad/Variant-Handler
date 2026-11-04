@@ -56,6 +56,7 @@ Accepts any variant notation and extracts structured fields (chromosome, positio
 |--------|---------|
 | HGVSg (with/without `chr` prefix) | `chr7:g.140753336A>T`, `7:g.140753336A>T` |
 | VCF dash/colon | `7-140753336-A-T`, `12:25245350:C:T` |
+| Franklin label (chrom-pos + change) | `chr6-32038297 C>T` |
 | Hybrid VCF/HGVSg combinators | `Chr2(GRCh38):g.10675808-C-T` |
 | Simple coordinate+change | `chr12:25245350C>T` |
 | Coordinate-only | `chr17:43044295` |
